@@ -1,7 +1,7 @@
 {
-  "name": "XOFT AI CORE",
+  "name": "XOFT & Jarvis",
   "short_name": "XOFT",
-  "description": "Personal AI operating assistant",
+  "description": "XOFT & Jarvis personal AI assistant",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

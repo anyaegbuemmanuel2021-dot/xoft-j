@@ -1,7 +1,7 @@
 {
   "name": "xoft-core",
   "version": "0.11.1",
-  "description": "XOFT AI CORE — provider-agnostic autonomous AI operating core: missions, tools, device runtime, voice, memory and optional AI gateways.",
+  "description": "XOFT & Jarvis — provider-agnostic personal AI assistant with missions, tools, device runtime, voice, memory and AI gateways.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
@@ -26,7 +26,7 @@
   "engines": {
     "node": ">=22"
   },
-  "productName": "XOFT AI CORE",
+  "productName": "XOFT & JARVIS",
   "bin": {
     "xoft": "scripts/xoft.mjs"
   }
