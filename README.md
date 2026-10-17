@@ -863,3 +863,8 @@ Xoft does not require any AI provider or API key to start. FreeLLMAPI and LiteLL
 "# xoft-Ai-core" 
 "# xoft-ai-core-2" 
 "# xoft-ai-core-2" 
+
+
+## UI concept preview
+
+A responsive, interactive, front-end-only concept for the XOFT & Jarvis web command centre is available at [`public/xoft-j-preview.html`](public/xoft-j-preview.html). Open the file directly in a browser after downloading it, or serve the `public/` directory locally. It uses illustrative sample data and does not connect to AI providers or personal accounts. The existing app entry point remains `public/index.html`.
