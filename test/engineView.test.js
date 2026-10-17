@@ -48,7 +48,8 @@ test('destructive controls confirm first, and approvals/stop/rollback are explic
 
 test('the view is registered in the app, in the service-worker shell, and the engine routes are mounted by the server', () => {
   assert.match(app, /import \* as engines from '\.\/views\/engines\.js'/);
-  assert.match(app, /\['engines', 'Engines', engines\]/);
+  assert.match(app, /\['engines', 'Agents', engines, 'agents'\]/);
+  assert.match(app, /for \(const g of NAV\) for \(const \[route, , mod\] of g\.items\) registerRoute\(route, mod\)/);
   assert.match(sw, /\/js\/views\/engines\.js/);
   assert.match(sw, /xoft-shell-v6/);
   assert.match(index, /registerEngineRoutes\(app,/);
