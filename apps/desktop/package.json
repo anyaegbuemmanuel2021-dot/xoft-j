@@ -1,6 +1,20 @@
 {
-  "name":"@xoft/desktop","version":"0.3.0","private":true,"type":"module",
-  "scripts":{"dev":"vite","build":"tsc && vite build","tauri":"tauri"},
-  "dependencies":{"@xoft/protocol":"workspace:*"},
-  "devDependencies":{"@tauri-apps/cli":"^2.8.4","typescript":"^5.9.2","vite":"^7.1.5"}
+  "name": "@xoft/desktop",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@xoft/protocol": "workspace:*",
+    "@tauri-apps/api": "^2.8.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.8.4",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
 }
