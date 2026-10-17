@@ -1,5 +1,7 @@
 # XOFT & Jarvis
 
+> **Live UI concept preview:** [Open the XOFT & Jarvis interactive command-centre demo](https://xoft-jarvis-ui-preview-uf9q5v.v2.appdeploy.ai/). The preview uses mock data only; chat replies are simulated, integrations are not connected, and no real actions are sent. The source for this concept is [`public/sample-ui.html`](public/sample-ui.html). Review the layout before deciding whether to replace or merge it into the live dashboard.
+
 > Provider-agnostic personal AI assistant. **Start here: [docs/SETUP_AND_HOSTING.md](docs/SETUP_AND_HOSTING.md)** (setup, going live, API keys, and hosting).
 
 > **Railway deployment:** see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for Docker build settings, production variables, persistent volume, health checks, and GitHub auto-deploy troubleshooting.
