@@ -17,6 +17,7 @@
   "devDependencies": {
     "@react-native/typescript-config": "^0.81.4",
     "typescript": "^5.9.2",
-    "@types/jest": "^29.5.14"
+    "@types/jest": "^29.5.14",
+    "@types/react": "^19.1.12"
   }
 }
