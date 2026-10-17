@@ -4,7 +4,7 @@
 
 > **Railway deployment:** see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for Docker build settings, production variables, persistent volume, health checks, and GitHub auto-deploy troubleshooting.
 
-Integrated source: XOFT AI Core v0.11.1, with the provider router, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, responsive command-center UI, mobile/desktop app sources, and test suite. The original source repository reports live verification during its own development; **the full test suite must still be run against this new integration copy before production deployment.**
+Integrated source: XOFT AI Core v0.11.1, with the provider router, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, responsive command-center UI, mobile/desktop app sources, and test suite. **GitHub Actions has passed on this integration copy:** 604/604 Node tests passed, the mobile/protocol typechecks passed, the desktop build passed, the Android debug APK built, and the Docker image built. Re-run CI after future code changes before deployment.
 
 Start with **`docs/FEATURE_COMPARISON.md`** for a one-page table of what's
 live, what needs a credential, and what's genuinely out of a backend's

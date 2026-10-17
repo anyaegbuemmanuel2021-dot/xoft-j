@@ -25,6 +25,6 @@ No source code from those third-party projects was copied into this repository. 
 
 - Source transfer commits are on this repository's `main` branch.
 - A CI workflow and the upstream test suite are present.
-- **The full CI/test suite has not yet been confirmed passing on the new repository.** Verify the GitHub Actions run before deployment.
+- GitHub Actions passed for commit `7d3d0d7eae6d1f55be8af4a1c5c89d7726bf654d`: 604 tests passed, 0 failed; universal/mobile/desktop checks passed; Android debug APK and Docker image builds passed. Run CI again after subsequent code changes.
 - Real integrations still depend on credentials and provider/platform configuration. A source module existing does not mean its external account is connected.
 - Keep `xoft` and `xoft-Ai-core` as untouched source repositories; all integration changes belong here.
