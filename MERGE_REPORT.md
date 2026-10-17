@@ -4,7 +4,7 @@
 
 - Source repository: [anyaegbuemmanuel2021-dot/xoft-Ai-core](https://github.com/anyaegbuemmanuel2021-dot/xoft-Ai-core), source release/version `0.11.1`, source commit `c4dbc7ecf938f685b6ff4fdf25bb37a847aca05b`.
 - Transferred the source tree into this new repository, including the Node.js backend, provider adapters, orchestration and tools, memory systems, mission/workflow engines, approvals, security and emergency-stop modules, WhatsApp service/inbox modules, PC-agent runtime, web dashboard, mobile and desktop app sources, deployment files, documentation, and test suite.
-- The transfer included 401 text files from the 402-file source tree. The only omitted source file was `public/favicon.ico` (binary asset); the app can run without it.
+- All 402 tracked files from the source tree were transferred, including the binary `public/favicon.ico` asset.
 - The source root package, lockfile, server entry point, dashboard, and deployment configuration supersede the earlier starter-MVP versions in this repository. The unused prototype-only `public/app.js` and `public/styles.css` were removed.
 
 ## How the older `xoft` repository was handled
