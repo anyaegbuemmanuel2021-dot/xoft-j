@@ -1,0 +1,5 @@
+{
+  "extends":"@react-native/typescript-config",
+  "compilerOptions":{"strict":true,"baseUrl":"."},
+  "include":["src/**/*.ts","src/**/*.tsx","index.js"]
+}

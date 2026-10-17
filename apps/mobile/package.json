@@ -1,0 +1,8 @@
+{
+  "name":"@xoft/mobile",
+  "version":"0.3.0",
+  "private":true,
+  "scripts":{"start":"react-native start","android":"react-native run-android","ios":"react-native run-ios","typecheck":"tsc --noEmit"},
+  "dependencies":{"@react-native-async-storage/async-storage":"^2.2.0","@xoft/protocol":"workspace:*","react":"^19.1.1","react-native":"^0.81.4"},
+  "devDependencies":{"@react-native/typescript-config":"^0.81.4","typescript":"^5.9.2"}
+}
