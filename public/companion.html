@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>XOFT Companion</title>
+<meta name="theme-color" content="#05090b" />
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="/css/app.css" />
+<style>
+  body { padding: 20px; max-width: 720px; margin: 0 auto; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+  .pill { padding: 3px 10px; border-radius: 999px; border: 1px solid #2a3b40; font-size: 12px; }
+  .ok { color: #4ade80; border-color: #1f5c3a; } .warn { color: #fbbf24; border-color: #6b5314; } .err { color: #f87171; border-color: #6b2222; }
+  .meter { height: 8px; background: #10191c; border-radius: 4px; overflow: hidden; } .meter > div { height: 100%; width: 0; background: #22d3ee; transition: width .05s; }
+  .box { border: 1px solid #1c2b30; border-radius: 8px; padding: 12px; margin: 12px 0; background: #0a1215; }
+  .note { font-size: 12px; opacity: .75; line-height: 1.5; } #confirm-box { display: none; border-color: #6b5314; }
+  #log { font-family: monospace; font-size: 12px; max-height: 240px; overflow: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>XOFT Companion</h1>
+<p class="note">Microphone access lives here, in your browser — the XOFT server cannot hear your microphone. Audio is analysed for speech on this device; nothing is sent unless you speak and the wake phrase is heard. Commands go through the same chat entry point (and the same permissions, approvals and kill switch) as typed commands.</p>
+
+<div class="box">
+  <div class="row">
+    <button id="start" class="primary">Start listening</button>
+    <button id="stop" disabled>Stop</button>
+    <span id="mic" class="pill">mic: off</span>
+    <span id="state" class="pill">state: idle</span>
+  </div>
+  <div class="meter" aria-label="microphone level"><div id="level"></div></div>
+  <div class="row">
+    <label>Recognition backend
+      <select id="backend"></select>
+    </label>
+  </div>
+  <p id="backend-note" class="note"></p>
+</div>
+
+<div id="confirm-box" class="box">
+  <strong>Confirm this voice command?</strong>
+  <p id="confirm-text"></p>
+  <div class="row"><button id="confirm-yes" class="primary">Yes, send it</button><button id="confirm-no">Cancel</button></div>
+  <p class="note">Say "yes" / "cancel", or tap. It is never sent without confirmation and cancels itself after a few seconds.</p>
+</div>
+
+<div class="box"><strong>Log</strong> <span class="note">(only wake events and commands appear here — other speech is discarded unseen)</span><div id="log"></div></div>
+<p class="note"><a href="/#runtime">← Device Runtime</a></p>
+<script type="module" src="/js/voice/companion.js"></script>
+</body>
+</html>
