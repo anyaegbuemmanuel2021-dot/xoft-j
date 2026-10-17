@@ -1,0 +1,16 @@
+node_modules
+data
+.git
+.github
+.env
+*.log
+android-companion/.gradle
+android-companion/build
+# Not part of the core server image — separate deployables/dev-only content.
+test
+docs
+pc-agent
+apps
+android-companion
+packages
+*.test.js

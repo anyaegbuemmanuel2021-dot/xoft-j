@@ -1,20 +1,50 @@
-name: Jarvis CI
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-workflow_dispatch:
-permissions:
-  contents: read
+name: CI
+on: [push, pull_request]
 jobs:
-  check:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm test
+      - run: node --check src/index.js
+      - run: node --check src/integrations/WhatsAppInboxStore.js
+      - run: node --check public/js/dashboard/CommandInput.js
+      - run: node --check public/js/views/chat.js
+      - run: node --check public/js/views/integrations.js
+      - run: node --check public/js/app.js
+      - run: node --check public/sw.js
+      - run: node --check public/js/voice/speak-out.js
+      - run: docker build -t xoft-core:ci .
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - run: gradle --no-daemon :app:assembleDebug
+        working-directory: android-companion
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xoft-companion-debug
+          path: android-companion/app/build/outputs/apk/debug/app-debug.apk
+
+  universal-structure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm install
-      - run: npm run check
+          # No pnpm-lock.yaml is committed yet; avoid setup-node cache failure.
+      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @xoft/protocol typecheck
+      - run: pnpm --dir apps/mobile typecheck
+      - run: pnpm --dir apps/desktop build
