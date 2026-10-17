@@ -1,62 +1,119 @@
-# XOFT AI Core 2
+# XOFT & Jarvis
 
-A modular, cross-device personal AI assistant inspired by futuristic assistants, built around the existing XOFT AI Core rather than a blind rewrite.
+A responsive, permission-first personal AI assistant for the XOFT ecosystem. This repository contains a runnable Node.js web application starter with an AI provider router, persistent conversations, user-managed memory, tasks, an approval log, browser voice controls, and a responsive dashboard.
 
-> Status: integration foundation / work in progress. This repository does not yet claim that every integration below is implemented. See the roadmap and environment setup.
+> **Status: first implementation / integration in progress.** The code now includes a working server and UI foundation. It is not yet the complete merge of every feature from the original `xoft` and `xoft-Ai-core` repositories. Those repositories are source references and must remain untouched.
 
-## Product goals
+## Current implemented features
 
-- Responsive web UI for phone, tablet, and desktop.
-- Chat with configurable AI providers (OpenAI and Anthropic/Claude first; Gemini optional).
-- Persistent conversations and user-controlled memory.
-- Voice input/output, with browser/device capability detection.
-- Tool/agent orchestration for research, writing, and approved tasks.
-- Plugin/integration architecture.
-- WhatsApp, email, calendar, and browser automation adapters, enabled only after credentials and permissions are configured.
-- Approval queue, activity log, emergency stop, and least-privilege device access.
+- Responsive dashboard for mobile, tablet, and desktop.
+- Server-side OpenAI Chat Completions and Anthropic Messages API adapters.
+- Conversation history stored in a JSON data file.
+- User-controlled memory notes, included as context in future chats.
+- Basic task list with open/done status.
+- Approval request/decision log. Decisions are recorded; no external action is executed.
+- Recent activity log.
+- Browser speech input where supported; browser text-to-speech is available in browsers that implement it.
+- API health/readiness endpoints.
+- API rate limiting, security headers, server-side secrets, and constant-time access-token comparison.
+- Production startup refuses to run without `AUTH_TOKEN`.
+- Docker and Railway deployment configuration.
 
-## Architecture direction
+## Not implemented yet
 
-Keep the existing XOFT Core server as the source of truth and integrate features behind stable interfaces:
+These are explicit next-stage items, not currently working capabilities:
 
+- WhatsApp account linking, chat reading, replies, and status updates.
+- Email, calendar, browser automation, and operating-system/device control.
+- Real agent execution, plugin execution, scheduled automations, and an emergency-stop control for running tools.
+- Gemini adapter, streaming chat, multi-user accounts, database-backed persistence, and end-to-end tests.
+- Full source-code reconciliation with the existing `xoft` and `xoft-Ai-core` projects.
+
+The UI marks unavailable integrations honestly. Do not treat an approval decision as permission for a tool that has not been implemented.
+
+## Requirements
+
+- Node.js 22 or later.
+- An API key for at least one supported provider (OpenAI or Anthropic).
+- A long random `AUTH_TOKEN` when deployed.
+
+## Run locally
+
+1. Clone this repository.
+2. Copy `.env.example` to `.env`.
+3. Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` and set `DEFAULT_PROVIDER` accordingly.
+4. Set a random `AUTH_TOKEN` for a protected instance. In local development, it can be left empty.
+5. Install and run:
+
+```bash
+npm install
+npm run check
+npm start
 ```
-Responsive Web UI
-   | HTTPS / authenticated API
-XOFT Core API
-   |-- Provider Router (OpenAI / Anthropic / optional Gemini)
-   |-- Conversation + Memory service
-   |-- Agent / Tool registry
-   |-- Approval gate + audit log + emergency stop
-   |-- Integration adapters (WhatsApp / email / calendar / browser)
-   |-- Persistence adapter
-```
 
-Do not expose provider keys in frontend code. Put secrets in deployment environment variables. Keep dangerous actions disabled until explicit user approval.
+6. Open `http://localhost:3000`. If you configured `AUTH_TOKEN`, enter it in Settings. The token is held in the current browser tab session.
 
-## Repository integration plan
+Provider keys must stay in server environment variables. Never put API keys in frontend files or commit them to Git.
 
-1. Bring the latest working XOFT AI Core server and UI into this repository without overwriting known-good functionality.
-2. Normalize runtime configuration and health/readiness endpoints.
-3. Integrate provider routing and streaming chat.
-4. Add durable conversations and memory with opt-in controls.
-5. Add voice UI and graceful fallbacks on unsupported browsers.
-6. Implement plugin contracts and approval-gated actions.
-7. Add WhatsApp through a supported, authenticated integration; do not scrape sessions or bypass platform rules.
-8. Add CI checks, deployment instructions, and smoke tests.
+## Environment variables
 
-## Configuration
+| Variable | Purpose |
+|---|---|
+| `PORT` | HTTP port (default `3000`) |
+| `NODE_ENV` | Use `production` for deployment |
+| `AUTH_TOKEN` | Bearer token for API routes; required in production |
+| `DATA_DIR` | Directory for the JSON store (default `./data`) |
+| `DEFAULT_PROVIDER` | `openai` or `anthropic` |
+| `OPENAI_API_KEY` | Server-side OpenAI API key |
+| `OPENAI_MODEL` | Optional model override |
+| `OPENAI_BASE_URL` | Optional OpenAI-compatible Chat Completions URL |
+| `ANTHROPIC_API_KEY` | Server-side Anthropic API key |
+| `ANTHROPIC_MODEL` | Optional Anthropic model override |
+| `TRUST_PROXY` | Set `true` only behind a trusted reverse proxy |
 
-Create a local `.env` from `.env.example` and supply your own API keys. Never commit real secrets.
+## Persistence and hosting warning
 
-## Security baseline
+The built-in JSON store is intended for a small single-user MVP. It writes to `DATA_DIR`; use a persistent disk/volume on hosting or records may be lost when the instance is replaced. Before multi-user or business use, move persistence to a managed database, add migrations, backups, stronger session management, and automated integration tests.
 
-- Require authentication for personal data and integrations.
-- Store secrets only in server-side environment variables.
-- Ask for confirmation before sending messages, deleting data, or controlling devices.
-- Record task approvals and actions in an audit log.
-- Provide disconnect/revoke controls for integrations.
-- Do not claim an integration works until credentials and end-to-end tests pass.
+## API overview
 
-## Current status
+All routes except `/api/health` and `/api/ready` require `Authorization: Bearer <AUTH_TOKEN>` when `AUTH_TOKEN` is configured.
 
-This initial commit establishes the project direction and integration checklist. The source code from the existing `xoft` and `xoft-Ai-core` repositories still needs to be transferred and reconciled; documentation alone is not a completed code merge.
+- `GET /api/health` — liveness check.
+- `GET /api/ready` — basic readiness/configuration check.
+- `GET /api/status` — provider configuration, feature flags, and record counts.
+- `POST /api/chat` — `{ "message": "...", "provider": "openai", "conversationId": "optional-id" }`.
+- `GET /api/conversations`, `GET /api/conversations/:id`, `DELETE /api/conversations/:id`.
+- `GET /api/memory`, `POST /api/memory`, `DELETE /api/memory/:id`.
+- `GET /api/tasks`, `POST /api/tasks`, `PATCH /api/tasks/:id`, `DELETE /api/tasks/:id`.
+- `GET /api/approvals`, `POST /api/approvals`, `POST /api/approvals/:id/decision`.
+- `GET /api/activity`.
+- `POST /api/settings/provider`.
+
+## Design research and open-source inspiration
+
+The architecture takes high-level inspiration from established open-source assistant projects, rather than copying their code wholesale:
+
+- [Khoj](https://github.com/khoj-ai/khoj) — personal knowledge, multi-provider chat, agents, and integrations. Its repository is AGPL-3.0, so incorporating its code would require a deliberate license and architecture decision.
+- [Leon](https://github.com/leon-ai/leon) — modular personal-assistant skills and a Node.js-centered architecture; its repository is MIT-licensed.
+- [Open Interpreter](https://github.com/openinterpreter/openinterpreter) — tool execution and computer-use patterns that emphasize sandboxing and permissions.
+
+These are separate upstream projects, not bundled dependencies. This repository must retain the licenses and notices of any upstream code if a future integration copies or vendors it.
+
+## Safety principles
+
+- External actions stay disabled until their adapter, permissions, tests, and revocation path exist.
+- Ask before sending messages, deleting data, or controlling devices.
+- Keep credentials on the server and out of logs.
+- Treat messages and documents as untrusted input; never let them silently authorize tool use.
+- Keep a clear activity trail and a reliable way to disable integrations.
+- Never claim an action or integration succeeded unless the system received a verified result.
+
+## Next milestones
+
+1. Review and reconcile the existing XOFT server and UI with this app without changing either original repository.
+2. Add automated tests and CI checks; run the application in a real environment.
+3. Move persistence to a database with migrations and backups.
+4. Add a proper plugin contract and tool execution sandbox with approvals.
+5. Add integrations one at a time, starting with an officially supported WhatsApp route after confirming the account type and API constraints.
+6. Add voice, streaming, provider failover, and deployment monitoring.
