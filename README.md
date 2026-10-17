@@ -1,14 +1,10 @@
-# XOFT AI CORE
+# XOFT & Jarvis
 
-> Provider-agnostic autonomous AI core. **Start here: [docs/SETUP_AND_HOSTING.md](docs/SETUP_AND_HOSTING.md)** (setup, going live, every API key and where to get it).
+> Provider-agnostic personal AI assistant. **Start here: [docs/SETUP_AND_HOSTING.md](docs/SETUP_AND_HOSTING.md)** (setup, going live, API keys, and hosting).
 
 > **Railway deployment:** see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for Docker build settings, production variables, persistent volume, health checks, and GitHub auto-deploy troubleshooting.
 
-Real, working backend for a JARVIS-style personal AI assistant. Every piece
-listed as done in `docs/FEATURE_COMPARISON.md` has been executed and
-verified live during development — booted, hit with real HTTP requests,
-checked for correct behavior with and without credentials. Nothing here
-simulates success.
+Integrated source: XOFT AI Core v0.11.1, with the provider router, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, responsive command-center UI, mobile/desktop app sources, and test suite. The original source repository reports live verification during its own development; **the full test suite must still be run against this new integration copy before production deployment.**
 
 Start with **`docs/FEATURE_COMPARISON.md`** for a one-page table of what's
 live, what needs a credential, and what's genuinely out of a backend's
@@ -16,7 +12,7 @@ reach. This file is the setup guide.
 
 ---
 
-## 1. Requirements
+## Integration status\n\nThis repository is the new integration target. Its runtime source was copied from `xoft-Ai-core` (v0.11.1), which already contains the majority of the older `xoft` (v0.9.0) code with newer implementations and additional modules. Both original repositories remain unchanged. See [MERGE_REPORT.md](MERGE_REPORT.md) for the source selection and validation status.\n\n## 1. Requirements
 
 - **Node.js 22.5 or newer** (`node --version`) — the built-in `node:sqlite` layer needs it; matches `engines.node` in `package.json` and the Dockerfile base image
 - npm (comes with Node)
