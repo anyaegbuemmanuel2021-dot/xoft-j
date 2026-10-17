@@ -1,0 +1,22 @@
+# Optional: run XOFT AI CORE directly on a Linux server (no Docker) under systemd. Requires Node.js 22+.
+# Install:  sudo cp deploy/xoft-core.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now xoft-core
+# Edit User/WorkingDirectory first. Put Caddy or Nginx in front for HTTPS, and set HOST=127.0.0.1 and TRUST_PROXY=1 in .env.
+[Unit]
+Description=XOFT AI CORE
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xoft
+WorkingDirectory=/opt/xoft
+EnvironmentFile=/opt/xoft/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/xoft/data
+
+[Install]
+WantedBy=multi-user.target
