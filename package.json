@@ -1,20 +1,33 @@
 {
-  "name": "xoft-jarvis",
-  "version": "0.1.0",
-  "private": true,
-  "description": "XOFT & Jarvis — permission-first personal AI assistant",
+  "name": "xoft-core",
+  "version": "0.11.1",
+  "description": "XOFT AI CORE — provider-agnostic autonomous AI operating core: missions, tools, device runtime, voice, memory and optional AI gateways.",
   "type": "module",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "start:pc": "node start-pc.cjs",
     "dev": "node --watch src/index.js",
-    "check": "node --check src/index.js && node --check public/app.js"
+    "xoft": "node scripts/xoft.mjs",
+    "test": "node --test",
+    "typecheck:shared": "pnpm --filter @xoft/protocol typecheck",
+    "build:mobile": "pnpm --dir apps/mobile run typecheck",
+    "build:desktop": "pnpm --dir apps/desktop run build",
+    "universal:check": "pnpm run typecheck:shared && pnpm run build:mobile && pnpm run build:desktop",
+    "verify:deps": "node scripts/dependency-doctor.mjs"
   },
-  "engines": { "node": ">=22" },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "express-rate-limit": "^7.5.0",
-    "helmet": "^8.1.0"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "ws": "^8.21.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "productName": "XOFT AI CORE",
+  "bin": {
+    "xoft": "scripts/xoft.mjs"
   }
 }

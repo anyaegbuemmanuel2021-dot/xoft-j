@@ -1,0 +1,53 @@
+{
+  "coreUrl": "http://localhost:3000",
+  "apiKey": "",
+  "_comment_apiKey": "Only needed once you set AUTH_API_KEYS on xoft-core (see xoft-core/.env.example) \u2014 must match one of those keys. Leave blank while the core API is open (localhost/LAN dev default). Prefer deviceToken below once you have one \u2014 it's scoped to just this device, apiKey is the shared admin secret.",
+  "deviceToken": "",
+  "_comment_deviceToken": "Paste the one-time 'deviceToken' shown when a human runs `curl -X POST <coreUrl>/api/devices/<id>/trust` for this device. Once set, this agent uses it instead of apiKey. It's shown exactly once \u2014 if lost, revoke and re-trust the device on xoft-core for a new one.",
+  "deviceName": "My Windows PC",
+  "heartbeatIntervalMs": 30000,
+  "pollIntervalMs": 3000,
+  "stateReportIntervalMs": 60000,
+  "_comment_allowedRoots": "File-related commands (list_files, prepare_transfer, receive_transfer) can ONLY touch paths inside these directories. Nothing outside this list is ever reachable, no matter what a command asks for.",
+  "allowedRoots": [
+    "C:\\Users\\%USERNAME%\\Documents\\XoftShared"
+  ],
+  "_comment_appAllowlist": "Only these names can be launched/closed by device_launch_app / device_close_app \u2014 spec section 17 (no arbitrary shell execution). Add your own here; 'path' is what gets launched, 'processName' is what taskkill targets to close it.",
+  "appAllowlist": {
+    "chrome": {
+      "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "processName": "chrome.exe"
+    },
+    "vscode": {
+      "path": "C:\\Users\\%USERNAME%\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "processName": "Code.exe"
+    },
+    "notepad": {
+      "path": "notepad.exe",
+      "processName": "notepad.exe"
+    },
+    "explorer": {
+      "path": "explorer.exe",
+      "processName": "explorer.exe"
+    }
+  },
+  "_comment_workspaces": "Device Runtime: folders XOFT may search/read/edit/run commands in. Nothing outside these exists to it. Only you can change this list (edit here, or: node src/index.js --add-workspace <name> <path>). Sensitive files (.env, keys, tokens, this config) are always unreadable even inside a workspace.",
+  "workspaces": [
+    {
+      "name": "Projects",
+      "root": "C:\\Users\\%USERNAME%\\Projects"
+    }
+  ],
+  "_comment_policy": "Local policy behind core's permissions/approvals. allow | confirm | deny per class. 'confirm' cannot be answered on this device, so it means: refuse unless approved through xoft-core. Defaults: terminal.build=confirm, terminal.other=deny, app.close=confirm, everything else allow.  Classes: browser.observe/navigate/interact, file.read/write/move/delete/restore, terminal.safe/build/other, app.observe/launch/close.",
+  "policy": {
+    "terminal.build": "confirm",
+    "file.delete": "allow"
+  },
+  "_comment_browser": "debugPort: Chrome started with --remote-debugging-port=<port> --user-data-dir=<non-default dir> (Chrome 136+ ignores the flag on the default profile). autoLaunch:true lets XOFT start its OWN Chrome with a dedicated profile if none is listening. blockedHosts/allowedHosts restrict where the AI can navigate.",
+  "browser": {
+    "debugPort": 9222,
+    "autoLaunch": false,
+    "blockedHosts": [],
+    "allowedHosts": []
+  }
+}
