@@ -1,0 +1,13 @@
+{
+  "name": "XOFT AI CORE",
+  "short_name": "XOFT",
+  "description": "Personal AI operating assistant",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#05090b",
+  "theme_color": "#05090b",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "192x192 512x512", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
