@@ -1,49 +1,29 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#07111f"><meta name="description" content="XOFT & Jarvis personal AI assistant">
-  <title>XOFT & Jarvis — AI Assistant</title><link rel="stylesheet" href="/styles.css">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>XOFT AI CORE</title>
+<meta name="theme-color" content="#05090b" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/icons/icon.svg" />
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="/css/command-center.css" />
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <a class="brand" href="/" aria-label="XOFT Jarvis home"><span class="brand-mark">J</span><span><strong>XOFT <i>&</i> JARVIS</strong><small>PERSONAL INTELLIGENCE</small></span></a>
-      <button class="new-chat" id="newChat">＋ <span>New conversation</span></button>
-      <div class="nav-label">WORKSPACE</div>
-      <nav class="nav">
-        <button class="nav-item active" data-view="chat"><span>◉</span> Chat <kbd>01</kbd></button>
-        <button class="nav-item" data-view="tasks"><span>✓</span> Tasks <kbd>02</kbd></button>
-        <button class="nav-item" data-view="memory"><span>◈</span> Memory <kbd>03</kbd></button>
-        <button class="nav-item" data-view="agents"><span>✳</span> Agents & tools <kbd>04</kbd></button>
-        <button class="nav-item" data-view="approvals"><span>◇</span> Approvals <kbd>05</kbd></button>
-        <button class="nav-item" data-view="activity"><span>↗</span> Activity <kbd>06</kbd></button>
-        <button class="nav-item" data-view="settings"><span>⚙</span> Settings <kbd>07</kbd></button>
-      </nav>
-      <div class="side-bottom"><div class="status-dot"></div><div><strong id="connectionText">Connecting to core</strong><small id="providerText">Checking runtime…</small></div><button id="tokenButton" title="Set access token">⚿</button></div>
-    </aside>
-    <main class="main">
-      <header class="topbar"><button class="mobile-menu" id="mobileMenu" aria-label="Toggle menu">☰</button><div class="crumb">WORKSPACE <span>/</span> <b id="pageTitle">Chat</b></div><div class="top-actions"><span class="live-pill"><i></i> CORE STATUS</span><button class="icon-btn" id="refreshBtn" title="Refresh">↻</button><div class="avatar">X</div></div></header>
-      <section class="content">
-        <div class="hero-row"><div><div class="eyebrow"><span class="pulse"></span> PERSONAL AI SYSTEM <span class="version" id="version">V0.1</span></div><h1 id="heading">Think clearly.<br><span>Move intelligently.</span></h1><p id="subheading">Your personal intelligence layer, ready when you are.</p></div><div class="orb-wrap"><div class="orb"><div class="orb-core">J</div><span class="orbit o1"></span><span class="orbit o2"></span></div><div class="orb-caption">JARVIS CORE <span>● STANDBY</span></div></div></div>
-        <div class="metrics" id="metrics"><div class="metric"><span>CONVERSATIONS</span><strong id="mConvos">—</strong><small>Saved locally</small></div><div class="metric"><span>MEMORY NOTES</span><strong id="mMemory">—</strong><small>User controlled</small></div><div class="metric"><span>OPEN TASKS</span><strong id="mTasks">—</strong><small>Personal workflow</small></div><div class="metric"><span>PENDING APPROVALS</span><strong id="mApprovals">—</strong><small>Human in control</small></div></div>
-        <div class="view" id="view-chat">
-          <div class="section-heading"><div><span class="eyebrow">INTERFACE 01</span><h2>Conversation</h2></div><select id="providerSelect" aria-label="AI provider"><option value="openai">OpenAI</option><option value="anthropic">Anthropic / Claude</option></select></div>
-          <div class="chat-card"><div class="chat-head"><div class="assistant-badge">J</div><div><strong>Jarvis</strong><small><span class="status-dot"></span> Personal assistant · approval-first</small></div><button class="icon-btn right" id="clearChat" title="New conversation">＋</button></div>
-            <div class="messages" id="messages"><div class="welcome"><div class="welcome-symbol">✳</div><h3>How can I help you today?</h3><p>Ask a question, plan a project, or work through a problem. Jarvis will be clear about what it can and cannot do.</p><div class="suggestions"><button data-prompt="Help me plan my priorities for today.">⌁ <span>Plan my day</span></button><button data-prompt="Help me debug a programming problem.">⌘ <span>Debug code</span></button><button data-prompt="Help me plan the next milestone for my project.">↗ <span>Project planning</span></button></div></div></div>
-            <form id="chatForm" class="composer"><textarea id="messageInput" rows="1" maxlength="12000" placeholder="Message Jarvis… (Enter to send)" aria-label="Message Jarvis"></textarea><div class="composer-bottom"><span>AI responses may be inaccurate. Review important actions.</span><div><button type="button" class="voice-btn" id="voiceBtn" title="Voice input">🎙</button><button type="submit" class="send-btn" id="sendBtn">Send <span>↗</span></button></div></div></form>
-          </div>
-        </div>
-        <div class="view hidden" id="view-tasks"><div class="section-heading"><div><span class="eyebrow">WORKSPACE 02</span><h2>Tasks</h2><p>Keep track of your next moves.</p></div></div><form id="taskForm" class="inline-form"><input id="taskInput" placeholder="Add a task…" maxlength="240" required><button class="primary-btn">Add task +</button></form><div class="list-card" id="taskList"></div></div>
-        <div class="view hidden" id="view-memory"><div class="section-heading"><div><span class="eyebrow">WORKSPACE 03</span><h2>Memory</h2><p>Only save what you choose to remember.</p></div></div><form id="memoryForm" class="inline-form"><input id="memoryInput" placeholder="A preference, project detail, or useful note…" maxlength="1200" required><button class="primary-btn">Save memory +</button></form><div class="notice">Memory notes are included as context in future AI chats. Do not save passwords, API keys, or other secrets.</div><div class="list-card" id="memoryList"></div></div>
-        <div class="view hidden" id="view-agents"><div class="section-heading"><div><span class="eyebrow">WORKSPACE 04</span><h2>Agents & integrations</h2><p>Capability registry and integration readiness.</p></div></div><div class="feature-grid"><article class="feature"><span>✳</span><h3>AI conversation</h3><p>OpenAI and Anthropic provider adapters are built in. Add a key on the server to enable a provider.</p><b class="tag good">IMPLEMENTED</b></article><article class="feature"><span>◈</span><h3>Memory & history</h3><p>Persistent JSON store for conversations, memory notes, tasks, approvals and activity.</p><b class="tag good">IMPLEMENTED</b></article><article class="feature"><span>🎙</span><h3>Browser voice</h3><p>Voice input and spoken replies use browser speech features when supported.</p><b class="tag partial">BROWSER-DEPENDENT</b></article><article class="feature"><span>▣</span><h3>WhatsApp</h3><p>Not connected. An authenticated, supported adapter and account linking flow are still required.</p><b class="tag pending">NOT CONNECTED</b></article><article class="feature"><span>⌘</span><h3>Device control</h3><p>Disabled by default. No commands are run on your devices by this starter service.</p><b class="tag pending">DISABLED</b></article><article class="feature"><span>◇</span><h3>Approval queue</h3><p>Record and review approval decisions. This MVP does not execute the approved external action.</p><b class="tag partial">DECISION TRACKING</b></article></div></div>
-        <div class="view hidden" id="view-approvals"><div class="section-heading"><div><span class="eyebrow">WORKSPACE 05</span><h2>Approvals</h2><p>Keep consequential actions under your control.</p></div></div><form id="approvalForm" class="inline-form"><input id="approvalInput" placeholder="Describe an action to review…" maxlength="500" required><button class="primary-btn">Request review +</button></form><div class="notice">Approving a request records your decision; it does not trigger external actions in this version.</div><div class="list-card" id="approvalList"></div></div>
-        <div class="view hidden" id="view-activity"><div class="section-heading"><div><span class="eyebrow">WORKSPACE 06</span><h2>Activity</h2><p>A simple record of recent assistant operations.</p></div></div><div class="list-card" id="activityList"></div></div>
-        <div class="view hidden" id="view-settings"><div class="section-heading"><div><span class="eyebrow">WORKSPACE 07</span><h2>Settings</h2><p>Configure how your personal assistant runs.</p></div></div><div class="settings-card"><h3>Connection & security</h3><p>Provider API keys belong in server environment variables, never in this browser.</p><label for="accessToken">Access token (if configured by server)</label><input id="accessToken" type="password" autocomplete="current-password" placeholder="Paste server AUTH_TOKEN"><button class="primary-btn" id="saveToken">Save access token</button><hr><h3>Runtime</h3><div id="runtimeInfo" class="runtime-info">Loading runtime information…</div></div></div>
-        <footer>XOFT & JARVIS <span>·</span> PRIVATE INTELLIGENCE, WITH YOU IN CONTROL</footer>
-      </section>
-    </main>
+<div id="offline-banner" class="offline-banner">You are offline — showing cached data, actions will queue and sync automatically.</div>
+<div id="app">
+  <div id="sidebar">
+    <div class="brand">XOFT<small>personal AI operating system</small></div>
+    <div id="nav"></div>
+    <div id="conn-indicator"></div>
   </div>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js" defer></script>
-</body></html>
+  <div id="main">
+    <div id="topbar"><h1 id="page-title">Overview</h1></div>
+    <div id="content"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
