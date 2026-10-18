@@ -233,6 +233,10 @@ export class ProviderRouter {
     const active = candidates.filter((p) => !parked.includes(p));
     const healthy = active.filter((p) => hm?.isHealthy(p.name) ?? true);
     const unhealthy = active.filter((p) => !(hm?.isHealthy(p.name) ?? true));
+    // If every configured candidate is in hard cooldown, fail fast rather than retrying a
+    // known-dead gateway. If another active provider exists, keep cooled gateways as the
+    // final fallback after all active candidates have failed.
+    if (active.length === 0) return { order: [], parked };
     return { order: [...healthy, ...unhealthy, ...parked], parked };
   }
 
