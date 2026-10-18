@@ -148,18 +148,12 @@ export function mountCommandInput(el, store, controller) {
               continue;
             }
             wakeArmed = false;
-            autoListening = false;
-            autoBtn.setAttribute('aria-pressed', 'false');
-            autoBtn.textContent = 'AUTO LISTEN';
             stopRecognition();
             void submit(command, { fromVoice: true });
             return;
           }
           if (wakeArmed) {
             wakeArmed = false;
-            autoListening = false;
-            autoBtn.setAttribute('aria-pressed', 'false');
-            autoBtn.textContent = 'AUTO LISTEN';
             stopRecognition();
             void submit(heard, { fromVoice: true });
             return;
