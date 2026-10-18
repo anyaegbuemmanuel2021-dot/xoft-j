@@ -137,8 +137,16 @@ export const config = {
   providers: {
     openai: {
       apiKey: required('OPENAI_API_KEY'),
-      chatModel: required('OPENAI_CHAT_MODEL', 'gpt-4.1'),
-      fastModel: required('OPENAI_FAST_MODEL', 'gpt-4.1-mini'),
+      chatModel: required('OPENAI_CHAT_MODEL', 'gpt-6-astra'),
+      fastModel: required('OPENAI_FAST_MODEL', 'gpt-6-luna'),
+      // Explicit model tiers allow task-aware routing and manual tuning without code changes.
+      models: {
+        flagship: required('OPENAI_MODEL_FLAGSHIP', 'gpt-6-astra'),
+        balanced: required('OPENAI_MODEL_BALANCED', 'gpt-6.1-sol'),
+        efficient: required('OPENAI_MODEL_EFFICIENT', 'gpt-6-luna'),
+        coding: required('OPENAI_MODEL_CODING', 'gpt-5.6-sol'),
+        budget: required('OPENAI_MODEL_BUDGET', 'gpt-5.6-terra'),
+      },
       embeddingModel: required('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
     },
     gemini: {
