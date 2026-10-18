@@ -12,9 +12,27 @@ function sessionId() {
 }
 
 let mode = 'chat'; // 'chat' | 'advise'
-const HISTORY_KEY = 'xoft_chat_history_v1';
-let history = (() => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; } })();
-function persistHistory() { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-300))); } catch { /* preserve chat usability when storage is full */ } }
+const RECENT_KEY = 'xoft_recent_chat_sessions_v1';
+function historyKey(id = sessionId()) { return 'xoft_chat_history_' + id; }
+function readHistory(id = sessionId()) { try { return JSON.parse(localStorage.getItem(historyKey(id)) || '[]'); } catch { return []; } }
+let history = readHistory();
+function recentSessions() { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; } }
+function persistHistory() {
+  try {
+    localStorage.setItem(historyKey(), JSON.stringify(history.slice(-300)));
+    const list = recentSessions().filter(item => item.id !== sessionId());
+    list.unshift({ id: sessionId(), title: history.find(m => m.role === 'user')?.content?.slice(0, 44) || 'New chat', updatedAt: new Date().toISOString() });
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 40)));
+    renderRecentChats(document.querySelector('#content'));
+  } catch { /* preserve chat usability when storage is full */ }
+}
+function renderRecentChats(root, query = '') {
+  const list = root?.querySelector('#recent-chat-list');
+  if (!list) return;
+  const q = query.trim().toLowerCase();
+  const sessions = recentSessions().filter(item => !q || item.title.toLowerCase().includes(q));
+  list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || '<div class="empty">No saved chats yet.</div>';
+} }
 function formatChatText(value) {
   let text = esc(String(value ?? '').replace(/\r\n?/g, '\n'));
   const code = [];
@@ -30,6 +48,7 @@ function formatChatText(value) {
 
 export function render(container) {
   container.innerHTML = `
+    <div class="chat-layout"><aside class="chat-history-panel"><div class="chat-history-heading"><strong>Recent chats</strong><button id="chat-new" type="button" class="primary">+ New chat</button></div><input id="recent-chat-search" type="search" placeholder="Search recent chats…" aria-label="Search recent chats"><div id="recent-chat-list"></div><p class="chat-history-note">Saved locally. Opening a chat does not call AI or use tokens.</p></aside><section class="chat-main-panel">
     <div class="tabs">
       <button data-mode="chat" class="${mode === 'chat' ? 'active' : ''}">Chat</button>
       <button data-mode="advise" class="${mode === 'advise' ? 'active' : ''}">Advisor</button>
@@ -42,10 +61,14 @@ export function render(container) {
         <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
         <button id="chat-speak-stop" type="button" ${canSpeakOut() ? '' : 'disabled'}>Stop Speaking</button>
       </div>
-    </div>
+    </div></section></div>
   `;
   renderLog(container);
+  renderRecentChats(container);
 
+  onDelegate(container, 'click', '#chat-new', () => { const id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); history = []; persistHistory(); render(container); });
+  onDelegate(container, 'click', '[data-recent-session]', (el) => { localStorage.setItem(SESSION_KEY, el.dataset.recentSession); history = readHistory(el.dataset.recentSession); render(container); });
+  onDelegate(container, 'input', '#recent-chat-search', (el) => renderRecentChats(container, el.value));
   onDelegate(container, 'click', '[data-mode]', (el) => {
     mode = el.dataset.mode;
     render(container);
@@ -67,6 +90,7 @@ export function render(container) {
 }
 
 function renderLog(container) {
+  history = readHistory();
   const log = container.querySelector('#chat-log');
   log.innerHTML = history.map((m) => `
     <div class="msg ${m.role}">
