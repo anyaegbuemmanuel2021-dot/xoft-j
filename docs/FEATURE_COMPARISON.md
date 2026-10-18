@@ -134,6 +134,7 @@ with registry access is expected to resolve those 19.
 ## Model availability note (checked 18 October 2026)
 
 - Do not configure `gemini-2.0-flash`, `gemini-2.0-flash-001`, `gemini-2.0-flash-lite`, or `gemini-2.0-flash-lite-001`: Google's Gemini API documentation lists these as shut down, with a shutdown date of 1 June 2026.
-- XOFT's default Gemini model is `gemini-3.8-flash`. This is the configured default, not a guarantee that a particular API key, region, or quota can access it. Verify live access using the provider connection test or a real API request.
+- XOFT's default Gemini model is `gemini-3.8-flash`; Google's current model catalogue lists it as stable. This is the configured default, not a guarantee that a particular API key, region, or quota can access it. Verify live access using the provider connection test or a real API request.
+- Default Claude model: `claude-sonnet-5` (Anthropic lists it as active). Default xAI model: `grok-4.7` (xAI's model catalogue lists it as its flagship). OpenAI defaults remain `gpt-4.1` and `gpt-4.1-mini`; those are configured IDs, and access should still be tested against the actual API key and account.
 - OpenAI, Claude, Grok and optional gateways are configured independently. Their model IDs can change; use the provider's current model catalog and check each key/quota before production use.
 - The server cannot truthfully report a model as available just because a model ID is configured. A successful provider probe or inference request is needed to establish runtime availability.
