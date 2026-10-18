@@ -7,9 +7,9 @@ export class OpenAIProvider extends AIProvider {
   name = 'openai';
   capabilities = ['fast', 'cheap', 'coding', 'general', 'embeddings'];
 
-  constructor({ fast = false } = {}) {
+  constructor({ fast = false, model = null } = {}) {
     super();
-    this.model = fast ? config.providers.openai.fastModel : config.providers.openai.chatModel;
+    this.model = model ?? (fast ? config.providers.openai.fastModel : config.providers.openai.chatModel);
   }
 
   isConfigured() {
