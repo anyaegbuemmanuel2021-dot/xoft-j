@@ -10,17 +10,57 @@ const WAKE_PATTERN = /\bxoft\b/i;
 function friendlyProviderError(rawMessage) {
   const raw = String(rawMessage ?? '');
   let body = null;
-  try { body = JSON.parse(raw.replace(/^\s*\d{3}\s+/, '')); } catch { /* plain error */ }
-  if (body?.error !== 'AI_PROVIDERS_FAILED' && body?.error !== 'NO_AI_PROVIDER_AVAILABLE') return `Request failed: ${raw}`;
-  if (body.error === 'NO_AI_PROVIDER_AVAILABLE') return 'XOFT could not find a usable AI provider. Open Runtime Settings and configure or test a provider.';
-  const advice = (body.attempts ?? []).map((attempt) => {
-    const name = ({ openai: 'OpenAI', gemini: 'Gemini', claude: 'Claude', grok: 'Grok', ollama: 'Ollama', experiential: 'Experiential Labs', freellmapi: 'FreeLLMAPI', litellm: 'LiteLLM' })[attempt.provider] ?? attempt.provider;
-    if (attempt.errorType === 'rate_limit') return `${name} hit a usage or quota limit. Check its API usage and credits.`;
-    if (attempt.errorType === 'auth') return `${name} rejected its credentials. Check the API key.`;
-    if (attempt.errorType === 'invalid_request') return `${name} rejected the model or request. Check its model setting.`;
-    return `${name} is unavailable. Check its configuration and try again.`;
-  });
-  return ['XOFT is running, but its configured AI providers could not answer.', ...advice, 'Check Runtime Settings, then retry.'].join(' ');
+  try {
+    const candidate = raw.replace(/^\\s*\\d{3}\\s+/, '');
+    body = JSON.parse(candidate);
+  } catch { /* the server may return a plain-text/network error */ }
+
+  if (body?.error !== 'AI_PROVIDERS_FAILED' && body?.error !== 'NO_AI_PROVIDER_AVAILABLE' && body?.error !== 'INVALID_PROVIDER_CONFIG') {
+    if (/failed to fetch|networkerror|network request failed/i.test(raw)) {
+      return 'XOFT could not reach its server. Enable internet access, check the Railway deployment is running, and retry. If the server is awake but still unreachable, check its deployment logs.';
+    }
+    return `XOFT could not complete this request: ${raw || 'unknown error'}. Check Runtime Settings and Diagnostics for the exact cause.`;
+  }
+
+  const labels = {
+    openai: 'OpenAI', gemini: 'Gemini', claude: 'Claude', grok: 'Grok',
+    ollama: 'Ollama (local)', experiential: 'Experiential Labs',
+    freellmapi: 'FreeLLMAPI gateway', litellm: 'LiteLLM gateway',
+  };
+  const attempts = Array.isArray(body.attempts) ? body.attempts : [];
+  const tried = Array.isArray(body.tried) ? body.tried : [];
+  const names = [...new Set([...attempts.map((a) => a.provider), ...tried])].filter(Boolean);
+  const readable = (name) => labels[name] ?? name;
+  const advice = [];
+  for (const attempt of attempts) {
+    const name = readable(attempt.provider);
+    if (attempt.errorType === 'rate_limit') advice.push(`${name}: quota/rate limit reached — add credits or wait for the provider's quota window to reset.`);
+    else if (attempt.errorType === 'auth') advice.push(`${name}: credentials rejected — correct its API key in Railway Variables, then redeploy.`);
+    else if (attempt.errorType === 'invalid_request') advice.push(`${name}: model/request rejected — choose a model supported by that API key.`);
+    else if (attempt.errorType === 'timeout') advice.push(`${name}: timed out — check provider status/network or try a faster model.`);
+    else if (attempt.errorType === 'unavailable' || attempt.errorType === 'server_error') advice.push(`${name}: provider unavailable — it will be tried again on a later request.`);
+    else advice.push(`${name}: request failed — check its key, model, quota and provider status.`);
+  }
+
+  if (body.error === 'INVALID_PROVIDER_CONFIG') {
+    return 'XOFT’s AI routing settings are invalid. Correct AI_PRIMARY_PROVIDER and AI_FALLBACK_PROVIDERS in Railway Variables, or remove the invalid override, then redeploy.';
+  }
+  if (body.error === 'NO_AI_PROVIDER_AVAILABLE') {
+    return [
+      'XOFT could not find a configured AI provider for this request.',
+      'Enable at least one working provider in Railway Variables: OPENAI_API_KEY (OpenAI) or ANTHROPIC_API_KEY (Claude).',
+      'Optional additional fallbacks: GEMINI_API_KEY, XAI_API_KEY, or EXperiential gateway credentials. Set AI_FALLBACK_ENABLED=true.',
+      'For local fallback, OLLAMA_ENABLED=true only works if an Ollama service is actually reachable from the XOFT server.',
+      names.length ? `Providers considered: ${names.map(readable).join(', ')}.` : '',
+    ].filter(Boolean).join(' ');
+  }
+  return [
+    'XOFT tried its configured AI providers, but none completed this request.',
+    ...new Set(advice),
+    names.length ? `Attempted: ${names.map(readable).join(', ')}.` : '',
+    'To restore service, configure at least two independent providers for automatic fallback (for example OPENAI_API_KEY and ANTHROPIC_API_KEY), ensure their model names are valid, and check API credits/quotas in Railway Variables and provider dashboards.',
+    'XOFT cannot bypass missing credentials, exhausted quotas, provider outages, or permissions; the fallback chain can only use providers and tools that are actually enabled.',
+  ].filter(Boolean).join(' ');
 }
 function sessionId() {
   let id = localStorage.getItem(SESSION_KEY);
