@@ -104,20 +104,80 @@ function renderLog(container) {
 }
 
 
-// Free, browser-native speech recognition: no API key or paid speech service.
-// Works where the browser exposes Web Speech API (best support: Chrome/Edge).
+// Free-first STT: browser recognition first; local Whisper fallback if unsupported.
+import { transcribeAudioBlob } from '../voice/whisper-fallback.js';
 let activeRecognition = null;
-function toggleVoiceInput(container) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let whisperRecorder = null;
+let whisperStream = null;
+let whisperChunks = [];
+let whisperBusy = false;
+
+function setMicButton(container, label, pressed = false) {
   const button = container.querySelector('#chat-mic');
+  if (button) {
+    button.textContent = label;
+    button.setAttribute('aria-pressed', String(pressed));
+  }
+}
+
+async function startWhisperRecording(container) {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    toast('Voice input needs a supported browser with microphone access. Try Chrome over HTTPS.', 'warn');
+    return;
+  }
+  try {
+    whisperStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    whisperChunks = [];
+    whisperRecorder = new MediaRecorder(whisperStream);
+    whisperRecorder.ondataavailable = (event) => { if (event.data?.size) whisperChunks.push(event.data); };
+    whisperRecorder.onstop = async () => {
+      const blob = new Blob(whisperChunks, { type: whisperRecorder?.mimeType || 'audio/webm' });
+      whisperStream?.getTracks().forEach(track => track.stop());
+      whisperStream = null;
+      whisperRecorder = null;
+      whisperBusy = true;
+      setMicButton(container, '⏳ Loading Whisper…', true);
+      toast('Transcribing locally with Whisper. First use downloads a model and may take a few minutes.', 'info');
+      try {
+        const transcript = await transcribeAudioBlob(blob);
+        const input = container.querySelector('#chat-input');
+        if (input && transcript) {
+          input.value = [input.value.trim(), transcript].filter(Boolean).join(' ').trim();
+          input.focus();
+          toast('Whisper transcription ready. Review it, then tap Send.', 'success');
+        } else toast('Whisper did not detect speech. Try recording again.', 'warn');
+      } catch (error) {
+        console.error('[XOFT] Local Whisper failed:', error);
+        toast('Local Whisper failed. Check internet for the first model download, available memory, and microphone permission.', 'warn');
+      } finally {
+        whisperBusy = false;
+        whisperChunks = [];
+        setMicButton(container, '🎙️ Voice Input');
+      }
+    };
+    whisperRecorder.start();
+    setMicButton(container, '🔴 Recording for Whisper… tap to stop', true);
+    toast('Recording started. Tap the microphone button again to stop and transcribe.', 'info');
+  } catch {
+    toast('Microphone permission was denied or unavailable. Allow microphone access and retry.', 'warn');
+  }
+}
+
+function toggleVoiceInput(container) {
+  if (whisperBusy) return;
+  if (whisperRecorder && whisperRecorder.state !== 'inactive') {
+    whisperRecorder.stop();
+    return;
+  }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    toast('Voice input is not supported by this browser. Try Chrome and allow microphone access.', 'warn');
+    startWhisperRecording(container);
     return;
   }
   if (activeRecognition) {
     activeRecognition.stop();
     activeRecognition = null;
-    if (button) button.textContent = '🎙️ Voice Input';
+    setMicButton(container, '🎙️ Voice Input');
     return;
   }
   const recognition = new SpeechRecognition();
@@ -126,7 +186,7 @@ function toggleVoiceInput(container) {
   recognition.continuous = false;
   recognition.interimResults = true;
   let finalText = '';
-  if (button) { button.textContent = '🔴 Listening… tap to stop'; button.setAttribute('aria-pressed', 'true'); }
+  setMicButton(container, '🔴 Listening… tap to stop', true);
   recognition.onresult = (event) => {
     let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
@@ -138,19 +198,21 @@ function toggleVoiceInput(container) {
     if (input) input.value = [finalText, interim].filter(Boolean).join(' ').trim();
   };
   recognition.onerror = (event) => {
-    if (event.error !== 'aborted' && event.error !== 'no-speech') toast('Voice input issue: ' + event.error + '. Check microphone permission and try again.', 'warn');
+    if (event.error !== 'aborted' && event.error !== 'no-speech') {
+      toast('Browser speech recognition failed. If unavailable, use the local Whisper fallback by reopening Voice Input in a browser without Web Speech support.', 'warn');
+    }
   };
   recognition.onend = () => {
     if (activeRecognition === recognition) activeRecognition = null;
-    if (button) { button.textContent = '🎙️ Voice Input'; button.setAttribute('aria-pressed', 'false'); }
+    setMicButton(container, '🎙️ Voice Input');
     const input = container.querySelector('#chat-input');
     if (input && input.value.trim()) input.focus();
   };
   try { recognition.start(); }
-  catch (error) {
+  catch {
     activeRecognition = null;
-    if (button) button.textContent = '🎙️ Voice Input';
-    toast('Could not start microphone. Allow microphone permission and try again.', 'warn');
+    setMicButton(container, '🎙️ Voice Input');
+    toast('Browser recognition could not start. Try again or use a browser without Web Speech support for local Whisper.', 'warn');
   }
 }
 
