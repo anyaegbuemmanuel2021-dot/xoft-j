@@ -166,7 +166,7 @@ describe('ProviderRouter — configurable AI_PRIMARY_PROVIDER / AI_FALLBACK_PROV
     config.providers.claude.apiKey = before.claude; config.providers.xai.apiKey = before.xai;
   });
 
-  test('AI_FALLBACK_ENABLED=false means only the primary is tried — no cloud fallback even if others are configured', async () => {
+  test('all configured providers remain available as fallbacks even when the legacy fallback flag is false', async () => {
     const { ProviderRouter, TaskType } = await import('../src/providers/ProviderRouter.js');
     const before = { claude: config.providers.claude.apiKey, xai: config.providers.xai.apiKey };
     config.providers.claude.apiKey = 'k'; config.providers.xai.apiKey = null;
@@ -175,7 +175,10 @@ describe('ProviderRouter — configurable AI_PRIMARY_PROVIDER / AI_FALLBACK_PROV
     config.aiRouting.fallbackProviders = ['claude'];
 
     const router = new ProviderRouter();
-    assert.throws(() => router.select(TaskType.REASONING), /no configured provider available/);
+    assert.equal(router.select(TaskType.REASONING).name, 'claude');
+    const candidates = router._preferenceFor(TaskType.REASONING);
+    assert.ok(candidates.includes(router.getInstance('openai')));
+    assert.ok(candidates.includes(router.getInstance('gemini')));
 
     config.providers.claude.apiKey = before.claude; config.providers.xai.apiKey = before.xai;
   });
