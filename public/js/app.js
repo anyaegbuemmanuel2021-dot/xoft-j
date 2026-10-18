@@ -1,6 +1,7 @@
 import { registerRoute, startRouter } from './router.js';
 import { events, queueLength } from './api.js';
 import { toast } from './dom.js';
+import { isSpeakOutEnabled, setSpeakOutEnabled, stopSpeaking } from './voice/speak-out.js';
 import { connect as wsConnect, isConnected as wsIsConnected, wsEvents } from './ws.js';
 
 import * as command from './dashboard/XoftCommandCenter.js';
@@ -71,21 +72,20 @@ function wireGlobalVoice() {
   const toggle = document.getElementById('global-speak-toggle');
   const label = document.getElementById('speak-state');
   const paint = () => {
-    const enabled = localStorage.getItem('xoft_speak_out_enabled') !== 'false';
+    const enabled = isSpeakOutEnabled();
     toggle?.classList.toggle('is-on', enabled);
     toggle?.setAttribute('aria-pressed', String(enabled));
     if (label) label.textContent = enabled ? 'ON' : 'OFF';
   };
   toggle?.addEventListener('click', () => {
-    const enabled = localStorage.getItem('xoft_speak_out_enabled') !== 'false';
-    localStorage.setItem('xoft_speak_out_enabled', String(!enabled));
-    if (enabled && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+    const enabled = !isSpeakOutEnabled();
+    setSpeakOutEnabled(enabled);
     window.dispatchEvent(new CustomEvent('xoft:speakout-change'));
     paint();
-    toast(!enabled ? 'Speak Out enabled' : 'Speak Out disabled', 'info');
+    toast(enabled ? 'Speak Out enabled' : 'Speak Out disabled', 'info');
   });
   document.getElementById('global-stop-speaking')?.addEventListener('click', () => {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    stopSpeaking();
     toast('Speech stopped', 'info');
   });
   window.addEventListener('storage', (event) => { if (event.key === 'xoft_speak_out_enabled') paint(); });
