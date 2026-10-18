@@ -320,6 +320,7 @@ export function mountCommandInput(el, store, controller) {
     const state = event.detail?.state;
     isSpeaking = state === 'speaking' || state === 'loading';
     if (isSpeaking) stopRecognition();
+    if (state === 'loading') setVoiceStatus('Preparing XOFT voice…', 'processing');
     if (state === 'speaking') setVoiceStatus('XOFT is speaking…', 'speaking');
     if (state === 'error') setVoiceStatus(event.detail?.detail || 'Audio playback failed. Tap SPEAK to retry.', 'error');
     if (state === 'idle' && !recorder) {
