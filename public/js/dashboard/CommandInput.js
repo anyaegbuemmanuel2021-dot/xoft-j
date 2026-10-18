@@ -4,7 +4,8 @@ import { QUICK_COMMANDS } from './logic.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
 
 const SESSION_KEY = 'xoft_chat_session';
-const WAKE_PATTERN = /\b(?:hey\s+)?xoft\b/i;
+const CHAT_HISTORY_KEY = 'xoft_chat_history_v1';
+const WAKE_PATTERN = /\\bxoft\\b/i;
 
 function friendlyProviderError(rawMessage) {
   const raw = String(rawMessage ?? '');
@@ -62,7 +63,7 @@ export function mountCommandInput(el, store, controller) {
     <form class="cc-cmd" data-form autocomplete="off">
       <label class="cc-sr" for="cc-input">Message XOFT</label>
       <textarea id="cc-input" rows="2" placeholder="Talk or type to XOFT…" aria-describedby="cc-hint"></textarea>
-      <div class="cc-voice-status" data-voice-status data-state="idle" role="status" aria-live="polite">Ready · tap VOICE to talk, or enable AUTO LISTEN for “Hey XOFT”.</div>
+      <div class="cc-voice-status" data-voice-status data-state="idle" role="status" aria-live="polite">Ready · tap VOICE, or enable AUTO LISTEN and say “XOFT”.</div>
       <div class="cc-cmd-bar">
         <span id="cc-hint" class="cc-muted cc-hint">Enter to send · Shift+Enter for newline</span>
         <div class="cc-actions">
@@ -98,18 +99,19 @@ export function mountCommandInput(el, store, controller) {
   }
   function scrollLatest() {
     queueMicrotask(() => {
-      const last = exchangesEl.lastElementChild;
-      if (last) last.scrollIntoView({ block: 'end', behavior: 'smooth' });
-      const main = el.closest('.cc-main-home');
-      if (main) main.scrollTop = main.scrollHeight;
-      const content = document.getElementById('content');
-      if (content) content.scrollTop = content.scrollHeight;
+      // Keep the command centre in place; scroll the chat history pane itself.
+      exchangesEl.scrollTo({ top: exchangesEl.scrollHeight, behavior: 'smooth' });
     });
   }
   function paintExchanges() {
     const { exchanges, pending } = store.get('chat');
     sendBtn.disabled = pending;
-    exchangesEl.innerHTML = exchanges.slice(-8).map((x) => `
+    // Keep completed exchanges on this device across refreshes and page navigation.
+    try {
+      const saved = exchanges.filter((x) => x && x.status !== 'sending').slice(-100);
+      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(saved));
+    } catch { /* disabled or full browser storage must not block chat */ }
+    exchangesEl.innerHTML = exchanges.map((x) => `
       <article class="cc-exchange" data-status="${esc(x.status)}">
         <div class="cc-you"><span class="cc-tag">YOU</span> <span class="cc-message-text">${esc(x.user)}</span></div>
         <div class="cc-reply"><span class="cc-tag">XOFT</span>
@@ -137,7 +139,7 @@ export function mountCommandInput(el, store, controller) {
       instance.continuous = true;
       instance.interimResults = false;
       instance.maxAlternatives = 1;
-      instance.onstart = () => setVoiceStatus('AUTO LISTEN active · say “Hey XOFT” followed by your command.', 'listening');
+      instance.onstart = () => setVoiceStatus('AUTO LISTEN active · say “XOFT”, then your command. “Hey XOFT” also works.', 'listening');
       instance.onresult = (event) => {
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
           if (!event.results[i].isFinal) continue;
@@ -288,7 +290,7 @@ export function mountCommandInput(el, store, controller) {
       if (recorder) { try { recorder.stop(); } catch { /* ignore */ } }
       autoBtn.setAttribute('aria-pressed', 'true');
       autoBtn.textContent = 'LISTENING';
-      setVoiceStatus('Starting microphone · say “Hey XOFT” to begin a command.', 'listening');
+      setVoiceStatus('Starting microphone · say “XOFT” to begin a command.', 'listening');
       startRecognition();
     } else {
       stopRecognition();
@@ -331,13 +333,20 @@ export function mountCommandInput(el, store, controller) {
     if (state === 'error') setVoiceStatus(event.detail?.detail || 'Audio playback failed. Tap SPEAK to retry.', 'error');
     if (state === 'idle' && !recorder) {
       if (autoListening && !destroyed) {
-        setVoiceStatus('Ready · say “Hey XOFT” followed by your command.', 'listening');
+        setVoiceStatus('Ready · say “XOFT”, then your command.', 'listening');
         startRecognition();
       } else if (!store.get('chat').pending) setVoiceStatus('Ready.', 'idle');
     }
   };
   window.addEventListener('xoft:speech-state', onSpeechState);
 
+  // Restore the latest saved conversation before the first render.
+  try {
+    const saved = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || '[]');
+    if (Array.isArray(saved) && saved.length) {
+      store.set('chat', { pending: false, exchanges: saved.filter((x) => x && typeof x.user === 'string').slice(-100) });
+    }
+  } catch { /* ignore malformed local history */ }
   paintExchanges();
   const unsub = store.subscribe('chat', paintExchanges);
   return () => {
