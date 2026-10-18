@@ -9,7 +9,7 @@ the Railway dashboard; repository code cannot enable that account-level setting.
 
 In Railway, open the XOFT backend service and confirm:
 
-- Source repository: `anyaegbuemmanuel2021-dot/xoft-Ai-core`
+- Source repository: `anyaegbuemmanuel2021-dot/xoft-j`
 - Trigger branch: `main`
 - Auto-deploy: **Enabled**
 - Build uses the repository root `Dockerfile`
@@ -56,7 +56,7 @@ After pushing a commit to `main`:
    created from the new commit.
 2. Wait for the build and health check to pass.
 3. Test `GET /healthz` — it should return HTTP 200 and
-   `{"ok":true,"service":"xoft-core"}`.
+   `{"ok":true,"service":"xoft-ai-core"}`.
 4. Test `GET /readyz` — it should return HTTP 200 and report the configured
    storage mode and enabled connectors.
 5. Open the public XOFT dashboard, hard-refresh it, and test Chat, Command
