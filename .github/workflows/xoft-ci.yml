@@ -40,3 +40,37 @@ jobs:
         run: npm test
       - name: Build deployment image
         run: docker build --tag xoft-ci:latest .
+
+      - name: Run production-container smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name xoft-smoke \
+            -e NODE_ENV=production \
+            -e HOST=0.0.0.0 \
+            -e PORT=3000 \
+            -e AUTH_API_KEYS=ci-smoke-test-key-not-a-secret \
+            -e STORAGE_MODE=sqlite \
+            -e SQLITE_PATH=/app/data/xoft.sqlite \
+            -p 127.0.0.1:3000:3000 \
+            xoft-ci:latest
+          cleanup() {
+            docker logs xoft-smoke || true
+            docker rm -f xoft-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/healthz > /tmp/xoft-health.json; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "XOFT container did not become healthy in time."
+              exit 1
+            fi
+            sleep 2
+          done
+
+          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; assert.deepEqual(JSON.parse(fs.readFileSync('/tmp/xoft-health.json', 'utf8')), { ok: true, service: 'xoft-core' });"
+          curl --fail --silent http://127.0.0.1:3000/readyz > /tmp/xoft-ready.json
+          node --input-type=module -e "import fs from 'node:fs'; import assert from 'node:assert/strict'; const r = JSON.parse(fs.readFileSync('/tmp/xoft-ready.json', 'utf8')); assert.equal(r.ok, true); assert.equal(r.service, 'xoft-core'); assert.ok(r.storage);"
