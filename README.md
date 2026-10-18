@@ -6,7 +6,7 @@
 
 > **Railway deployment:** see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for Docker build settings, production variables, persistent volume, health checks, and GitHub auto-deploy troubleshooting.
 
-Integrated source: XOFT AI Core v0.11.1, with the provider router, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, responsive command-center UI, mobile/desktop app sources, and test suite. **GitHub Actions has passed on this integration copy:** 604/604 Node tests passed, the mobile/protocol typechecks passed, the desktop build passed, the Android debug APK built, and the Docker image built. Re-run CI after future code changes before deployment.
+Integrated source: XOFT AI Core v0.11.1, with the provider router, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, responsive command-center UI, mobile/desktop app sources, and test suite. **Validation baseline:** at integration commit `7d3d0d7eae6d1f55be8af4a1c5c89d7726bf654d`, 604/604 Node tests passed, mobile/protocol typechecks passed, the desktop build passed, the Android debug APK built, and the Docker image built. Re-run CI for the current head before deployment.
 
 Start with **`docs/FEATURE_COMPARISON.md`** for a one-page table of what's
 live, what needs a credential, and what's genuinely out of a backend's
@@ -14,7 +14,11 @@ reach. This file is the setup guide.
 
 ---
 
-## Integration status\n\nThis repository is the new integration target. Its runtime source was copied from `xoft-Ai-core` (v0.11.1), which already contains the majority of the older `xoft` (v0.9.0) code with newer implementations and additional modules. Both original repositories remain unchanged. See [MERGE_REPORT.md](MERGE_REPORT.md) for the source selection and validation status.\n\n## 1. Requirements
+## Integration status
+
+This repository is the new integration target. Its runtime source was copied from `xoft-Ai-core` (v0.11.1), which already contains the majority of the older `xoft` (v0.9.0) code with newer implementations and additional modules. Both original repositories remain unchanged. See [MERGE_REPORT.md](MERGE_REPORT.md) for the source selection and validation status.
+
+## 1. Requirements
 
 - **Node.js 22.5 or newer** (`node --version`) — the built-in `node:sqlite` layer needs it; matches `engines.node` in `package.json` and the Dockerfile base image
 - npm (comes with Node)
