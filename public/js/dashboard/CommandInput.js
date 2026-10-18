@@ -97,7 +97,9 @@ export function mountCommandInput(el, store, controller) {
   function scrollLatest() {
     requestAnimationFrame(() => {
       const last = exchangesEl.lastElementChild;
-      if (last) last.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (last) last.scrollIntoView({ block: 'end', behavior: 'smooth' });
+      const main = el.closest('.cc-main-home');
+      if (main) main.scrollTop = main.scrollHeight;
       const content = document.getElementById('content');
       if (content) content.scrollTop = content.scrollHeight;
     });
@@ -317,6 +319,7 @@ export function mountCommandInput(el, store, controller) {
   const onSpeechState = (event) => {
     const state = event.detail?.state;
     isSpeaking = state === 'speaking' || state === 'loading';
+    if (isSpeaking) stopRecognition();
     if (state === 'speaking') setVoiceStatus('XOFT is speaking…', 'speaking');
     if (state === 'error') setVoiceStatus(event.detail?.detail || 'Audio playback failed. Tap SPEAK to retry.', 'error');
     if (state === 'idle' && !recorder) {
