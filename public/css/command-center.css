@@ -520,3 +520,27 @@ body[data-route="command"] #content { min-width: 0; }
 .cc-model-active i[data-state="AUTH_ERROR"], .cc-model-active i[data-state="RATE_LIMITED"],
 .cc-model-active i[data-state="TIMEOUT"], .cc-model-active i[data-state="DEGRADED"],
 .cc-model-active i[data-state="UNAVAILABLE"] { background: var(--xoft-danger); box-shadow: 0 0 8px var(--xoft-danger); }
+
+
+/* ---- persistent, scrollable Command Centre conversation history ---- */
+.cc-home-core .cc-exchanges {
+  display: grid;
+  gap: 8px;
+  max-height: min(48dvh, 440px);
+  min-height: 72px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--xoft-cyan-dim) rgba(53, 224, 234, .06);
+  padding: 2px 5px 8px 0;
+  scroll-behavior: smooth;
+}
+.cc-home-core .cc-exchanges::-webkit-scrollbar { width: 8px; }
+.cc-home-core .cc-exchanges::-webkit-scrollbar-track { background: rgba(53, 224, 234, .06); border-radius: 8px; }
+.cc-home-core .cc-exchanges::-webkit-scrollbar-thumb { background: var(--xoft-cyan-dim); border: 2px solid var(--xoft-bg); border-radius: 8px; }
+.cc-home-core .cc-exchanges::-webkit-scrollbar-thumb:hover { background: var(--xoft-cyan); }
+.cc-home-core .cc-exchange { max-height: none; overflow: visible; }
+@media (max-width: 699px) {
+  .cc-home-core .cc-exchanges { max-height: min(44dvh, 400px); }
+}
