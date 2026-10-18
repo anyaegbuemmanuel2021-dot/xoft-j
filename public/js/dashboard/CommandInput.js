@@ -95,7 +95,7 @@ export function mountCommandInput(el, store, controller) {
     el.querySelector('[data-act="command"]').setAttribute('aria-expanded', String(open));
   }
   function scrollLatest() {
-    requestAnimationFrame(() => {
+    queueMicrotask(() => {
       const last = exchangesEl.lastElementChild;
       if (last) last.scrollIntoView({ block: 'end', behavior: 'smooth' });
       const main = el.closest('.cc-main-home');
