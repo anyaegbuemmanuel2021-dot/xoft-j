@@ -221,11 +221,14 @@ export class ProviderRouter {
    */
   _tryOrder(candidates) {
     const hm = this.healthManager;
+    // Prefer healthy providers, but never permanently skip a configured gateway.
+    // Gateways in cooldown are attempted LAST, only after every active candidate fails.
+    // Each candidate is still attempted at most once per request, so recovery stays bounded.
     const parked = candidates.filter((p) => isGateway(p) && hm?.isHardCooling?.(p.name));
     const active = candidates.filter((p) => !parked.includes(p));
     const healthy = active.filter((p) => hm?.isHealthy(p.name) ?? true);
     const unhealthy = active.filter((p) => !(hm?.isHealthy(p.name) ?? true));
-    return { order: [...healthy, ...unhealthy], parked };
+    return { order: [...healthy, ...unhealthy, ...parked], parked };
   }
 
   _recordFailure(provider, err) {
