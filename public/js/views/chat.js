@@ -204,8 +204,12 @@ function toggleVoiceInput(container) {
       toast('Browser speech service is unavailable. Starting the free local Whisper fallback…', 'warn');
     } else if (event.error === 'not-allowed') {
       toast('Microphone permission was blocked. Allow microphone access before using voice input.', 'warn');
-    } else if (event.error !== 'aborted' && event.error !== 'no-speech') {
-      toast('Browser speech recognition failed. Tap Voice Input to retry or use local Whisper in a browser without Web Speech support.', 'warn');
+    } else if (event.error === 'no-speech') {
+      fallbackToWhisper = true;
+      toast('No speech was detected by the browser. Switching to free local Whisper…', 'info');
+    } else if (event.error !== 'aborted') {
+      fallbackToWhisper = true;
+      toast('Browser speech recognition failed. Trying free local Whisper…', 'warn');
     }
   };
   recognition.onend = () => {
@@ -219,7 +223,8 @@ function toggleVoiceInput(container) {
   catch {
     activeRecognition = null;
     setMicButton(container, '🎙️ Voice Input');
-    toast('Browser recognition could not start. Try again or use a browser without Web Speech support for local Whisper.', 'warn');
+    toast('Browser recognition could not start. Trying free local Whisper…', 'warn');
+    startWhisperRecording(container);
   }
 }
 
