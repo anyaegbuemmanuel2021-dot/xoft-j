@@ -32,7 +32,7 @@ function renderRecentChats(root, query = '') {
   const q = query.trim().toLowerCase();
   const sessions = recentSessions().filter(item => !q || item.title.toLowerCase().includes(q));
   list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || '<div class="empty">No saved chats yet.</div>';
-} }
+}
 function formatChatText(value) {
   let text = esc(String(value ?? '').replace(/\r\n?/g, '\n'));
   const code = [];
