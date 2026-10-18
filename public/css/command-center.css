@@ -504,3 +504,7 @@ body[data-route="command"] #content { min-width: 0; }
 @media (prefers-reduced-motion: reduce) {
   .cc-speaking .cc-core-svg, .cc-speaking .cc-hub-core { animation: none !important; }
 }
+
+.cc-home-core .cc-exchange .cc-pre { white-space: pre-wrap; line-height: 1.32; }
+.cc-home-core .cc-message-text, .cc-home-core .cc-reply { overflow-wrap: anywhere; word-break: normal; }
+.cc-home-core .cc-exchange .cc-tag { margin-right: 4px; }
