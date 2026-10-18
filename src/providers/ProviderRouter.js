@@ -44,6 +44,9 @@ export class ProviderRouter {
     this._instances = {
       openai: new OpenAIProvider(),
       openaiFast: new OpenAIProvider({ fast: true }),
+      openaiBalanced: new OpenAIProvider({ model: config.providers.openai.models.balanced }),
+      openaiCoding: new OpenAIProvider({ model: config.providers.openai.models.coding }),
+      openaiBudget: new OpenAIProvider({ model: config.providers.openai.models.budget }),
       gemini: new GeminiProvider(),
       claude: new ClaudeProvider(),
       grok: new GrokProvider(),
@@ -78,7 +81,7 @@ export class ProviderRouter {
       const byName = (n) => this._instances[n] ?? null;
       const primary = byName(primaryProvider);
       if (!primary) {
-        throw new ProviderRoutingConfigError(`ProviderRouter: AI_PRIMARY_PROVIDER='${primaryProvider}' does not match any known provider (${Object.keys(this._instances).filter((n) => n !== 'openaiFast').join(', ')}).`);
+        throw new ProviderRoutingConfigError(`ProviderRouter: AI_PRIMARY_PROVIDER='${primaryProvider}' does not match any known provider (${Object.keys(this._instances).filter((n) => !n.startsWith('openai') || n === 'openai').join(', ')}).`);
       }
       if (!fallbackEnabled) return [primary, local].filter((p, i, arr) => p && arr.indexOf(p) === i);
       const fallbacks = fallbackProviders.map(byName).filter(Boolean);
@@ -92,13 +95,13 @@ export class ProviderRouter {
     const gw = [this._instances.litellm, this._instances.freellmapi];
     switch (taskType) {
       case TaskType.SIMPLE:
-        return [...gateway, this._instances.openaiFast, this._instances.gemini, this._instances.claude, this._instances.grok, ...gw, local];
+        return [...gateway, this._instances.openaiFast, this._instances.openaiBudget, this._instances.gemini, this._instances.claude, this._instances.grok, ...gw, local];
       case TaskType.REASONING:
         return [...gateway, this._instances.claude, this._instances.grok, this._instances.openai, this._instances.gemini, ...gw, local];
       case TaskType.CODING:
-        return [...gateway, this._instances.claude, this._instances.openai, this._instances.grok, this._instances.gemini, ...gw, local];
+        return [...gateway, this._instances.claude, this._instances.openaiCoding, this._instances.openai, this._instances.grok, this._instances.gemini, ...gw, local];
       case TaskType.LONG_CONTEXT:
-        return [...gateway, this._instances.gemini, this._instances.claude, this._instances.openai, this._instances.grok, ...gw, local];
+        return [...gateway, this._instances.gemini, this._instances.claude, this._instances.openaiBalanced, this._instances.openai, this._instances.grok, ...gw, local];
       case TaskType.RESEARCH:
         return [...gateway, this._instances.claude, this._instances.openai, this._instances.grok, this._instances.gemini, ...gw, local];
       default:
