@@ -49,7 +49,7 @@ function friendlyProviderError(rawMessage) {
     return [
       'XOFT could not find a configured AI provider for this request.',
       'Enable at least one working provider in Railway Variables: OPENAI_API_KEY (OpenAI) or ANTHROPIC_API_KEY (Claude).',
-      'Optional additional fallbacks: GEMINI_API_KEY, XAI_API_KEY, or EXperiential gateway credentials. Set AI_FALLBACK_ENABLED=true.',
+      'Optional additional fallbacks: GEMINI_API_KEY, XAI_API_KEY, or EXPERIENTIAL_API_KEY / gateway credentials. Set AI_FALLBACK_ENABLED=true.',
       'For local fallback, OLLAMA_ENABLED=true only works if an Ollama service is actually reachable from the XOFT server.',
       names.length ? `Providers considered: ${names.map(readable).join(', ')}.` : '',
     ].filter(Boolean).join(' ');
