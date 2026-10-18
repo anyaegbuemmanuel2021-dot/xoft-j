@@ -63,7 +63,13 @@ export function mountXoftCore(el, store) {
       <span><b>RUNNING</b> ${running}</span>`;
   }
   paintState(); paintMeta();
+  const onSpeechState = (event) => {
+    const speaking = event.detail?.state === 'speaking';
+    root.classList.toggle('cc-speaking', speaking);
+    root.setAttribute('aria-label', speaking ? 'XOFT is speaking' : 'XOFT core');
+  };
+  window.addEventListener('xoft:speech-state', onSpeechState);
   const u1 = store.subscribe(['core', 'tasks', 'status'], paintState);
   const u2 = store.subscribe(['providers', 'tasks'], paintMeta);
-  return () => { u1(); u2(); };
+  return () => { window.removeEventListener('xoft:speech-state', onSpeechState); u1(); u2(); };
 }
