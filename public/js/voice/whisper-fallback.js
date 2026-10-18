@@ -1,5 +1,5 @@
-// Optional free local STT fallback. Model files are cached by the browser after first download.
-// Audio is processed in the browser; no audio is sent to a paid transcription API.
+// Free local speech-to-text fallback. The model is downloaded from the public model repository
+// on first use and cached by the browser. Recorded audio is processed in-browser.
 let transcriberPromise;
 
 async function getTranscriber() {
@@ -19,23 +19,36 @@ async function getTranscriber() {
 
 export async function transcribeAudioBlob(blob) {
   if (!blob || !blob.size) throw new Error('No recorded audio was available.');
-  const { pipeline: _pipeline } = await getTranscriber().then(transcriber => ({ pipeline: transcriber }));
+
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass || !window.OfflineAudioContext) throw new Error('This browser does not support local audio processing.');
+  const OfflineAudioContextClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!AudioContextClass || !OfflineAudioContextClass) {
+    throw new Error('This browser does not support local audio processing.');
+  }
+
   const context = new AudioContextClass();
   try {
     const decoded = await context.decodeAudioData(await blob.arrayBuffer());
-    const rate = 16000;
-    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * rate), rate);
+    const sampleRate = 16000;
+    const frameCount = Math.ceil(decoded.duration * sampleRate);
+    if (!frameCount) throw new Error('The recording was empty.');
+
+    // Whisper expects mono, 16 kHz audio. The offline context also resamples it.
+    const offline = new OfflineAudioContextClass(1, frameCount, sampleRate);
     const source = offline.createBufferSource();
     const mono = context.createBuffer(1, decoded.length, decoded.sampleRate);
-    mono.copyToChannel(decoded.getChannelData(0), 0);
+    const channel = decoded.getChannelData(0);
+    mono.copyToChannel(channel, 0);
     source.buffer = mono;
     source.connect(offline.destination);
     source.start(0);
     const audio = await offline.startRendering();
-    const result = await _pipeline(audio.getChannelData(0), { sampling_rate: rate });
-    return String(result?.text || '').trim();
+
+    const transcriber = await getTranscriber();
+    const result = await transcriber(audio.getChannelData(0), { sampling_rate: sampleRate });
+    const text = String(result?.text || '').trim();
+    if (!text) throw new Error('Whisper did not detect any speech.');
+    return text;
   } finally {
     await context.close().catch(() => {});
   }
