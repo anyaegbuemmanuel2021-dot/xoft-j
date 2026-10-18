@@ -75,7 +75,7 @@ export class ProviderRouter {
    */
   _preferenceFor(taskType) {
     const local = this._instances.ollama;
-    const { primaryProvider, fallbackEnabled, fallbackProviders } = config.aiRouting;
+    const { primaryProvider, fallbackProviders } = config.aiRouting;
 
     if (primaryProvider) {
       const byName = (n) => this._instances[n] ?? null;
