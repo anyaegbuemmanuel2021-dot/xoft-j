@@ -508,3 +508,9 @@ body[data-route="command"] #content { min-width: 0; }
 .cc-home-core .cc-exchange .cc-pre { white-space: pre-wrap; line-height: 1.32; }
 .cc-home-core .cc-message-text, .cc-home-core .cc-reply { overflow-wrap: anywhere; word-break: normal; }
 .cc-home-core .cc-exchange .cc-tag { margin-right: 4px; }
+
+.cc-model-chip[data-state="NOT_CONFIGURED"] em { color: var(--xoft-muted); }
+.cc-model-chip[data-state="AUTH_ERROR"], .cc-model-chip[data-state="RATE_LIMITED"],
+.cc-model-chip[data-state="TIMEOUT"], .cc-model-chip[data-state="DEGRADED"],
+.cc-model-chip[data-state="UNAVAILABLE"] em { color: var(--xoft-danger); }
+.cc-model-chip[data-state="AVAILABLE"] em { color: var(--xoft-success); }
