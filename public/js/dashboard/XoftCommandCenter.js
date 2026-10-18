@@ -17,7 +17,6 @@ function mountModelStrip(el, store) {
   function paint() {
     const providers = store.get('providers').data ?? [];
     const active = currentModel(providers);
-    const configured = providers.filter((p) => p.configured);
     const samples = configured.map((p) => ({
       name: p.label || p.id,
       model: p.model || 'model not reported',
