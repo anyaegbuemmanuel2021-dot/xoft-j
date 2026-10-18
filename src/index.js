@@ -330,7 +330,18 @@ app.post('/webhooks/twilio/status', express.urlencoded({ extended: false }), (re
 // Real hardening: security headers + rate limiting on every API route, not
 // just a config flag that says "secure" — see SecurityAgent for the audit
 // that verifies these are actually active.
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      // Local Whisper loads its browser runtime from jsDelivr and model files from Hugging Face.
+      // Keep the allowlist narrow instead of disabling CSP for the app.
+      "script-src": ["'self'", "'wasm-unsafe-eval'", "https://cdn.jsdelivr.net"],
+      "connect-src": ["'self'", "https://cdn.jsdelivr.net", "https://huggingface.co", "https://*.huggingface.co"],
+      "worker-src": ["'self'", "blob:"],
+    },
+  },
+}));
 app.use('/api', rateLimit({
   windowMs: 60 * 1000,
   limit: Number(process.env.RATE_LIMIT_PER_MIN) || 120, // generous for normal use, still a real ceiling against abuse
