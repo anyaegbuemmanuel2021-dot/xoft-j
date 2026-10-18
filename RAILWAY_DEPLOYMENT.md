@@ -56,7 +56,7 @@ After pushing a commit to `main`:
    created from the new commit.
 2. Wait for the build and health check to pass.
 3. Test `GET /healthz` — it should return HTTP 200 and
-   `{"ok":true,"service":"xoft-ai-core"}`.
+   `{"ok":true,"service":"xoft-core"}`.
 4. Test `GET /readyz` — it should return HTTP 200 and report the configured
    storage mode and enabled connectors.
 5. Open the public XOFT dashboard, hard-refresh it, and test Chat, Command
