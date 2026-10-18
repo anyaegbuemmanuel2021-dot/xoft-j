@@ -83,9 +83,14 @@ export class ProviderRouter {
       if (!primary) {
         throw new ProviderRoutingConfigError(`ProviderRouter: AI_PRIMARY_PROVIDER='${primaryProvider}' does not match any known provider (${Object.keys(this._instances).filter((n) => !n.startsWith('openai') || n === 'openai').join(', ')}).`);
       }
-      if (!fallbackEnabled) return [primary, local].filter((p, i, arr) => p && arr.indexOf(p) === i);
       const fallbacks = fallbackProviders.map(byName).filter(Boolean);
-      return [primary, ...fallbacks, local].filter((p, i, arr) => p && arr.indexOf(p) === i);
+      // A preferred provider is first choice, not a single point of failure. After explicitly
+      // ordered fallbacks, append every other known provider/model variant; capability and
+      // credential checks later remove anything that cannot actually serve this request.
+      // AI_FALLBACK_ENABLED=false is retained for backwards-compatible config parsing, but
+      // cannot disable recovery: XOFT must try every configured candidate before giving up.
+      const allCandidates = Object.values(this._instances);
+      return [primary, ...fallbacks, ...allCandidates, local].filter((p, i, arr) => p && arr.indexOf(p) === i);
     }
 
     const experiential = this._instances.experiential;
