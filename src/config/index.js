@@ -147,11 +147,11 @@ export const config = {
     },
     claude: {
       apiKey: required('ANTHROPIC_API_KEY'),
-      model: required('ANTHROPIC_MODEL', 'claude-sonnet-4-6'),
+      model: required('ANTHROPIC_MODEL', 'claude-sonnet-5'),
     },
     xai: {
       apiKey: required('XAI_API_KEY'),
-      model: required('XAI_MODEL', 'grok-4'),
+      model: required('XAI_MODEL', 'grok-4.7'),
     },
     experiential: {
       apiKey: required('EXPERIENTIAL_API_KEY'),
