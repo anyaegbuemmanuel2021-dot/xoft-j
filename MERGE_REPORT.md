@@ -1,4 +1,4 @@
-# XOFT & Jarvis — merge report
+# XOFT — merge report
 
 ## What was integrated
 
