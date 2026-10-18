@@ -79,3 +79,22 @@ This configuration prepares the Node backend for Railway. It does not create
 or configure Railway's project, domain, environment variables, volume, or
 GitHub App permissions on your behalf. Those are account/project settings and
 must be verified in the Railway dashboard.
+
+## 6. Voice smoke test (after deployment)
+
+The dashboard voice feature is free-first:
+
+- **Speech output:** browser text-to-speech is attempted first. The server-side ElevenLabs endpoint is a fallback and requires `ELEVENLABS_API_KEY` plus a working account/voice configuration.
+- **Speech input:** browser speech recognition is attempted first. If it is unsupported or fails with a recoverable error, XOFT starts a microphone recording and uses the public `onnx-community/whisper-tiny.en` model through Transformers.js in the browser. It does **not** require an OpenAI or Hugging Face API key.
+- **First Whisper use:** allow the browser to download the model runtime and model weights from jsDelivr/Hugging Face. This requires internet access and can take time. Subsequent use may reuse the browser cache. The configured model is English-only and needs a compatible browser with microphone permission and enough memory.
+- **Privacy:** the local Whisper fallback processes the recording in the browser; it does not upload the audio to the XOFT server or a paid transcription API. Browser-native speech recognition may use a browser/vendor service according to that browser's implementation.
+
+Run these checks on the deployed HTTPS domain using Chrome or another supported browser:
+
+1. Open Chat and click **Voice Input**; say a short English sentence and check that recognized text appears in the input box.
+2. If browser recognition is unavailable, record again and allow the initial Whisper model download to finish. Confirm the transcript appears and review it before pressing Send.
+3. Send a harmless chat message, then use **Speak Out** to confirm the browser reads the response aloud.
+4. If browser speech output is unavailable, set `ELEVENLABS_API_KEY` (and the intended `ELEVENLABS_VOICE_ID`) in Railway and repeat the test.
+5. If Whisper fails, inspect browser DevTools Console/Network for CSP, CDN, model-download, audio-decoding, or memory errors. A green server `/healthz` response alone does not verify microphone/model operation.
+
+GitHub Actions now runs JavaScript syntax checks, `npm test`, and a Docker image build for pushes and pull requests to `main`. Wait for that workflow to finish successfully before treating the latest commit as CI-verified.
