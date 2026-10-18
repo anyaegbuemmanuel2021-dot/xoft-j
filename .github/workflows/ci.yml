@@ -1,7 +1,7 @@
 name: CI
 
 concurrency:
-  group: xoft-jarvis-${{ github.workflow }}-${{ github.ref }}
+  group: xoft-ai-core-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 on: [push, pull_request]
 jobs:
