@@ -12,7 +12,21 @@ function sessionId() {
 }
 
 let mode = 'chat'; // 'chat' | 'advise'
-const history = [];
+const HISTORY_KEY = 'xoft_chat_history_v1';
+let history = (() => { try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; } })();
+function persistHistory() { try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(-300))); } catch { /* preserve chat usability when storage is full */ } }
+function formatChatText(value) {
+  let text = esc(String(value ?? '').replace(/\r\n?/g, '\n'));
+  const code = [];
+  text = text.replace(/```([\w.+-]*)\n?([\s\S]*?)```/g, (_, lang, body) => `%%CODE${code.push('<pre class="chat-code"><code>' + body.trimEnd() + '</code></pre>') - 1}%%`);
+  text = text.replace(/`([^`\n]+)`/g, '<code class="chat-inline-code">$1</code>');
+  text = text.replace(/^###\s+(.+)$/gm, '<h4>$1</h4>').replace(/^##\s+(.+)$/gm, '<h3>$1</h3>').replace(/^#\s+(.+)$/gm, '<h2>$1</h2>');
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  text = text.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+  text = text.replace(/(<li>.*<\/li>\n?)+/g, match => '<ul>' + match.replace(/\n/g, '') + '</ul>');
+  text = text.replace(/%%CODE(\d+)%%/g, (_, i) => code[Number(i)] || '');
+  return text.split(/\n{2,}/).map(p => /^\s*<(h[234]|ul|pre)/.test(p.trim()) ? p : p.replace(/\n/g, '<br>')).join('');
+}
 
 export function render(container) {
   container.innerHTML = `
@@ -57,7 +71,7 @@ function renderLog(container) {
   log.innerHTML = history.map((m) => `
     <div class="msg ${m.role}">
       <div class="meta">${m.role === 'user' ? 'You' : 'XOFT'}</div>
-      ${esc(m.content)}
+      <div class="message-content">${formatChatText(m.content)}</div>
     </div>
   `).join('') || '<div class="empty">Say something to get started.</div>';
   log.scrollTop = log.scrollHeight;
@@ -68,7 +82,8 @@ async function send(container) {
   const text = input.value.trim();
   if (!text) return;
   input.value = '';
-  history.push({ role: 'user', content: text });
+  history.push({ role: 'user', content: text, at: new Date().toISOString() });
+  persistHistory();
   renderLog(container);
 
   try {
@@ -76,9 +91,11 @@ async function send(container) {
     const body = mode === 'chat' ? { message: text, sessionId: sessionId() } : { problem: text };
     const result = await api.post(endpoint, body);
     if (result.__queued) {
-      history.push({ role: 'assistant', content: '(offline — this message is queued and will send once back online)' });
+      history.push({ role: 'assistant', content: '(offline — this message is queued and will send once back online)', at: new Date().toISOString() });
+      persistHistory();
     } else {
-      history.push({ role: 'assistant', content: result.reply ?? result.advice ?? JSON.stringify(result) });
+      history.push({ role: 'assistant', content: result.reply ?? result.advice ?? JSON.stringify(result), at: new Date().toISOString() });
+      persistHistory();
       speakOut(result.reply ?? result.advice ?? JSON.stringify(result));
     }
   } catch (err) {
@@ -101,7 +118,8 @@ async function send(container) {
         friendly = ['XOFT is running, but its configured AI providers could not answer.', ...providerAdvice, 'Fix the provider issue, then retry. Check Settings → AI providers for configuration and connection tests.'].join(' ');
       }
     } catch { /* not a structured AI error */ }
-    history.push({ role: 'assistant', content: friendly ?? `Error: ${err.message}` });
+    history.push({ role: 'assistant', content: friendly ?? `Error: ${err.message}`, at: new Date().toISOString() });
+    persistHistory();
     toast(friendly ? 'AI is unavailable' : err.message, friendly ? 'warn' : 'err');
   }
   renderLog(container);
