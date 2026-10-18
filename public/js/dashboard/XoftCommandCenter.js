@@ -17,6 +17,8 @@ function mountModelStrip(el, store) {
   function paint() {
     const providers = store.get('providers').data ?? [];
     const active = currentModel(providers);
+    const activeProvider = providers.find((p) => p.label === active?.provider);
+    const activeState = activeProvider?.status || 'UNKNOWN';
     const samples = configured.map((p) => ({
       name: p.label || p.id,
       model: p.model || 'model not reported',
@@ -26,7 +28,7 @@ function mountModelStrip(el, store) {
     el.innerHTML = `
       <div class="cc-model-head">
         <span class="cc-model-kicker">INTELLIGENCE</span>
-        <span class="cc-model-active"><i></i><span>ACTIVE MODEL</span><strong title="${esc(active?.model || 'No active model reported')}">${esc(active?.model || 'No active model')}</strong></span>
+        <span class="cc-model-active"><i data-state="${esc(activeState)}"></i><span>ACTIVE MODEL</span><strong title="${esc(active?.model || 'No active model reported')}">${esc(active?.model || 'No active model')}</strong></span>
       </div>
       <div class="cc-model-list" aria-label="Configured model availability">
         ${samples.length ? samples.map((p) => `<span class="cc-model-chip" data-state="${esc(p.status)}"><b>${esc(p.name)}</b><span>${esc(p.model)}</span><em>${esc(statusLabel(p.status))}</em></span>`).join('') : '<span class="cc-model-empty">No configured provider reported yet. Open Runtime Settings to connect a model.</span>'}
