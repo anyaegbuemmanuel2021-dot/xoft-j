@@ -181,8 +181,12 @@ export async function speakOut(text) {
   stopSpeaking();
   const runId = speechRun;
   setSpeechState('loading');
+  // Free-first: use the device/browser voice by default, without making a network request.
+  const browserPlayed = await browserSpeak(spoken, runId);
+  if (browserPlayed || runId !== speechRun) return browserPlayed;
+  // Optional quality fallback: if browser speech is unsupported or fails, try configured ElevenLabs.
   const audioPlayed = await elevenLabsSpeak(spoken, runId);
   if (audioPlayed || runId !== speechRun) return audioPlayed;
-  // If the hosted voice endpoint is missing, blocked, or unavailable, use device TTS.
-  return browserSpeak(spoken, runId);
+  setSpeechState('error', 'Browser speech and ElevenLabs were unavailable.');
+  return false;
 }
