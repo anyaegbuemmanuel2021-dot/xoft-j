@@ -337,7 +337,7 @@ app.use(helmet({
       // Local Whisper loads its browser runtime from jsDelivr and model files from Hugging Face.
       // Keep the allowlist narrow instead of disabling CSP for the app.
       "script-src": ["'self'", "'wasm-unsafe-eval'", "https://cdn.jsdelivr.net"],
-      "connect-src": ["'self'", "https://cdn.jsdelivr.net", "https://huggingface.co", "https://*.huggingface.co"],
+      "connect-src": ["'self'", "https://cdn.jsdelivr.net", "https://huggingface.co", "https://*.huggingface.co", "https://hf.co", "https://*.hf.co", "https://*.xethub.hf.co"],
       "worker-src": ["'self'", "blob:"],
     },
   },
