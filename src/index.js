@@ -823,7 +823,14 @@ app.post('/api/voice/transcribe', async (req, res) => {
     return res.status(400).json({ error: 'send raw audio bytes with an audio/* Content-Type' });
   }
   try {
-    const text = await voiceService.speechToText(req.body);
+    const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const extension = mime === 'audio/mp4' || mime === 'audio/m4a' || mime === 'audio/x-m4a' ? 'm4a'
+      : mime === 'audio/ogg' || mime === 'application/ogg' ? 'ogg'
+      : mime === 'audio/mpeg' || mime === 'audio/mp3' ? 'mp3'
+      : mime === 'audio/wav' || mime === 'audio/x-wav' ? 'wav'
+      : mime === 'audio/webm' ? 'webm'
+      : 'webm';
+    const text = await voiceService.speechToText(req.body, `recording.${extension}`);
     res.json({ text });
   } catch (err) {
     res.status(502).json({ error: err.message });
