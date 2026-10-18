@@ -186,6 +186,7 @@ function toggleVoiceInput(container) {
   recognition.continuous = false;
   recognition.interimResults = true;
   let finalText = '';
+  let fallbackToWhisper = false;
   setMicButton(container, '🔴 Listening… tap to stop', true);
   recognition.onresult = (event) => {
     let interim = '';
@@ -198,8 +199,13 @@ function toggleVoiceInput(container) {
     if (input) input.value = [finalText, interim].filter(Boolean).join(' ').trim();
   };
   recognition.onerror = (event) => {
-    if (event.error !== 'aborted' && event.error !== 'no-speech') {
-      toast('Browser speech recognition failed. If unavailable, use the local Whisper fallback by reopening Voice Input in a browser without Web Speech support.', 'warn');
+    if (['network', 'service-not-allowed'].includes(event.error)) {
+      fallbackToWhisper = true;
+      toast('Browser speech service is unavailable. Starting the free local Whisper fallback…', 'warn');
+    } else if (event.error === 'not-allowed') {
+      toast('Microphone permission was blocked. Allow microphone access before using voice input.', 'warn');
+    } else if (event.error !== 'aborted' && event.error !== 'no-speech') {
+      toast('Browser speech recognition failed. Tap Voice Input to retry or use local Whisper in a browser without Web Speech support.', 'warn');
     }
   };
   recognition.onend = () => {
@@ -207,6 +213,7 @@ function toggleVoiceInput(container) {
     setMicButton(container, '🎙️ Voice Input');
     const input = container.querySelector('#chat-input');
     if (input && input.value.trim()) input.focus();
+    if (fallbackToWhisper) startWhisperRecording(container);
   };
   try { recognition.start(); }
   catch {
