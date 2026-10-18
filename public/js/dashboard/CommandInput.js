@@ -55,6 +55,8 @@ export function mountCommandInput(el, store, controller) {
   let isSpeaking = false;
   let destroyed = false;
   let recognitionRestartTimer = null;
+  // Start with the Nigeria-specific locale, then fall back to widely supported English if the browser rejects it.
+  let recognitionLanguage = 'en-NG';
 
   el.innerHTML = `
     <form class="cc-cmd" data-form autocomplete="off">
@@ -131,7 +133,7 @@ export function mountCommandInput(el, store, controller) {
     try {
       const instance = new Recognition();
       recognition = instance;
-      instance.lang = 'en-NG';
+      instance.lang = recognitionLanguage;
       instance.continuous = true;
       instance.interimResults = false;
       instance.maxAlternatives = 1;
@@ -163,7 +165,11 @@ export function mountCommandInput(el, store, controller) {
         }
       };
       instance.onerror = (event) => {
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        if (event.error === 'language-not-supported' && recognitionLanguage !== 'en-US') {
+          recognitionLanguage = 'en-US';
+          setVoiceStatus('Switching speech recognition language for browser compatibility…', 'processing');
+          try { instance.stop(); } catch { /* onend restarts with the fallback locale */ }
+        } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
           autoBtn.textContent = 'AUTO LISTEN';
