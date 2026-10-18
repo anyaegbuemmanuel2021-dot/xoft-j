@@ -111,7 +111,7 @@ export function mountCommandInput(el, store, controller) {
       <article class="cc-exchange" data-status="${esc(x.status)}">
         <div class="cc-you"><span class="cc-tag">YOU</span> <span class="cc-message-text">${esc(x.user)}</span></div>
         <div class="cc-reply"><span class="cc-tag">XOFT</span>
-          ${x.status === 'sending' ? '<span class="cc-muted">thinking…</span>' : x.status === 'error' ? `<span class="cc-err">${esc(String(x.reply ?? '').replace(/\\r\\n?/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim())}</span>` : `<span class="cc-pre">${esc(x.reply)}</span>`}
+          ${x.status === 'sending' ? '<span class="cc-muted">thinking…</span>' : x.status === 'error' ? `<span class="cc-err">${esc(String(x.reply ?? '').replace(/\\r\\n?/g, '\\n').replace(/\\n{3,}/g, '\\n\\n').trim())}</span>` : `<span class="cc-pre">${esc(String(x.reply ?? '').replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim())}</span>`}
         </div>
         ${x.action ? `<div class="cc-muted cc-meta">route: ${esc(x.action)}${x.taskId ? ' · <a href="#tasks">open tasks</a>' : ''}</div>` : ''}
         ${x.awaiting && x === exchanges[exchanges.length - 1] ? '<div class="cc-actions"><button type="button" data-say="yes, go ahead" class="cc-primary">CONFIRM</button><button type="button" data-say="cancel that">CANCEL</button></div>' : ''}
