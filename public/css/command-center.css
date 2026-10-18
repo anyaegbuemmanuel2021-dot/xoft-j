@@ -514,3 +514,9 @@ body[data-route="command"] #content { min-width: 0; }
 .cc-model-chip[data-state="TIMEOUT"], .cc-model-chip[data-state="DEGRADED"],
 .cc-model-chip[data-state="UNAVAILABLE"] em { color: var(--xoft-danger); }
 .cc-model-chip[data-state="AVAILABLE"] em { color: var(--xoft-success); }
+
+.cc-model-active i[data-state="NOT_CONFIGURED"] { background: var(--xoft-muted); box-shadow: none; }
+.cc-model-active i[data-state="UNKNOWN"] { background: var(--xoft-warning); box-shadow: 0 0 8px var(--xoft-warning); }
+.cc-model-active i[data-state="AUTH_ERROR"], .cc-model-active i[data-state="RATE_LIMITED"],
+.cc-model-active i[data-state="TIMEOUT"], .cc-model-active i[data-state="DEGRADED"],
+.cc-model-active i[data-state="UNAVAILABLE"] { background: var(--xoft-danger); box-shadow: 0 0 8px var(--xoft-danger); }
