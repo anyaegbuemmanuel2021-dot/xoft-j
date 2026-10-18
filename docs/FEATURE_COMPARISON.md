@@ -138,3 +138,10 @@ with registry access is expected to resolve those 19.
 - Default Claude model: `claude-sonnet-5` (Anthropic lists it as active). Default xAI model: `grok-4.7` (xAI's model catalogue lists it as its flagship). OpenAI defaults remain `gpt-4.1` and `gpt-4.1-mini`; those are configured IDs, and access should still be tested against the actual API key and account.
 - OpenAI, Claude, Grok and optional gateways are configured independently. Their model IDs can change; use the provider's current model catalog and check each key/quota before production use.
 - The server cannot truthfully report a model as available just because a model ID is configured. A successful provider probe or inference request is needed to establish runtime availability.
+
+
+## Current model routing and speech output (October 2026)
+
+XOFT's direct OpenAI provider is configured with five model tiers: flagship `gpt-6-astra`, balanced `gpt-6.1-sol`, efficient `gpt-6-luna`, coding `gpt-5.6-sol`, and budget `gpt-5.6-terra`. Simple tasks use the efficient tier, coding tasks can select the coding tier, and long-context tasks can select the balanced tier; the flagship remains the standard OpenAI chat/reasoning model. Exact model access still depends on the OpenAI API account and is not proven by configuration alone.
+
+Chat replies now try the existing protected `POST /api/voice/speak` endpoint first, which uses `ELEVENLABS_API_KEY` plus `ELEVENLABS_VOICE_ID`. If ElevenLabs is not configured or the endpoint cannot play audio, the browser's native speech synthesis is used as a fallback. This does not implement an always-listening wake word; the client still needs microphone permission and a user-initiated action for reliable playback.
