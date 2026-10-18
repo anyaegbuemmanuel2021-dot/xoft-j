@@ -5,7 +5,7 @@ import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeak
 
 const SESSION_KEY = 'xoft_chat_session';
 const CHAT_HISTORY_KEY = 'xoft_chat_history_v1';
-const WAKE_PATTERN = /\\bxoft\\b/i;
+const WAKE_PATTERN = /\bxoft\b/i;
 
 function friendlyProviderError(rawMessage) {
   const raw = String(rawMessage ?? '');
