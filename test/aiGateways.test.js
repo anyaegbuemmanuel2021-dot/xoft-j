@@ -36,7 +36,7 @@ function allOff() {
 function enableDirectOpenAI() {
   P.openai.apiKey = 'sk-test-direct-openai-key-0000';
   globalThis.fetch = async (url, opts) => {
-    if (String(url).startsWith('https://api.openai.com')) { directCalls++; return new Response(JSON.stringify({ choices: [{ message: { content: 'reply from DIRECT openai' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+    if (String(url).startsWith('https://api.openai.com')) { directCalls++; return new Response(JSON.stringify({ id: 'resp_test', object: 'response', status: 'completed', output_text: 'reply from DIRECT openai', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'reply from DIRECT openai', annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200, headers: { 'content-type': 'application/json' } }); }
     return realFetch(url, opts);
   };
 }
