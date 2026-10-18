@@ -58,6 +58,7 @@ export function render(container) {
       <div id="chat-input-row">
         <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Ask XOFT to do something…' : 'Describe a problem to reason through…'}"></textarea>
         <button id="chat-send" class="primary">Send</button>
+        <button id="chat-mic" type="button" title="Speak to XOFT" aria-label="Speak to XOFT">🎙️ Voice Input</button>
         <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
         <button id="chat-speak-stop" type="button" ${canSpeakOut() ? '' : 'disabled'}>Stop Speaking</button>
       </div>
@@ -75,6 +76,7 @@ export function render(container) {
   });
 
   onDelegate(container, 'click', '#chat-send', () => send(container));
+  onDelegate(container, 'click', '#chat-mic', () => toggleVoiceInput(container));
   onDelegate(container, 'click', '#chat-speak-toggle', (button) => {
     const enabled = !isSpeakOutEnabled();
     setSpeakOutEnabled(enabled);
@@ -99,6 +101,57 @@ function renderLog(container) {
     </div>
   `).join('') || '<div class="empty">Say something to get started.</div>';
   log.scrollTop = log.scrollHeight;
+}
+
+
+// Free, browser-native speech recognition: no API key or paid speech service.
+// Works where the browser exposes Web Speech API (best support: Chrome/Edge).
+let activeRecognition = null;
+function toggleVoiceInput(container) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const button = container.querySelector('#chat-mic');
+  if (!SpeechRecognition) {
+    toast('Voice input is not supported by this browser. Try Chrome and allow microphone access.', 'warn');
+    return;
+  }
+  if (activeRecognition) {
+    activeRecognition.stop();
+    activeRecognition = null;
+    if (button) button.textContent = '🎙️ Voice Input';
+    return;
+  }
+  const recognition = new SpeechRecognition();
+  activeRecognition = recognition;
+  recognition.lang = navigator.language || 'en-NG';
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  let finalText = '';
+  if (button) { button.textContent = '🔴 Listening… tap to stop'; button.setAttribute('aria-pressed', 'true'); }
+  recognition.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const transcript = event.results[i][0]?.transcript || '';
+      if (event.results[i].isFinal) finalText += transcript;
+      else interim += transcript;
+    }
+    const input = container.querySelector('#chat-input');
+    if (input) input.value = [finalText, interim].filter(Boolean).join(' ').trim();
+  };
+  recognition.onerror = (event) => {
+    if (event.error !== 'aborted' && event.error !== 'no-speech') toast('Voice input issue: ' + event.error + '. Check microphone permission and try again.', 'warn');
+  };
+  recognition.onend = () => {
+    if (activeRecognition === recognition) activeRecognition = null;
+    if (button) { button.textContent = '🎙️ Voice Input'; button.setAttribute('aria-pressed', 'false'); }
+    const input = container.querySelector('#chat-input');
+    if (input && input.value.trim()) input.focus();
+  };
+  try { recognition.start(); }
+  catch (error) {
+    activeRecognition = null;
+    if (button) button.textContent = '🎙️ Voice Input';
+    toast('Could not start microphone. Allow microphone permission and try again.', 'warn');
+  }
 }
 
 async function send(container) {
