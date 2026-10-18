@@ -39,8 +39,15 @@ describe('OpenAIProvider — unit tested (no real API key in this environment; m
       return {
         ok: true,
         json: async () => ({
-          choices: [{ message: { content: 'hi there', tool_calls: [{ function: { name: 'lookup', arguments: '{"q":"x"}' } }] } }],
-          usage: { prompt_tokens: 4, completion_tokens: 2 },
+          id: 'resp_test',
+          object: 'response',
+          status: 'completed',
+          output_text: 'hi there',
+          output: [
+            { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'hi there', annotations: [] }] },
+            { type: 'function_call', name: 'lookup', arguments: '{"q":"x"}', call_id: 'call_test' },
+          ],
+          usage: { input_tokens: 4, output_tokens: 2 },
         }),
       };
     });
@@ -48,14 +55,16 @@ describe('OpenAIProvider — unit tested (no real API key in this environment; m
       messages: [{ role: 'user', content: 'hi' }], system: 'be brief', maxTokens: 20,
       tools: [{ name: 'lookup', description: 'x', inputSchema: {} }],
     });
-    assert.equal(capturedUrl, 'https://api.openai.com/v1/chat/completions');
+    assert.equal(capturedUrl, 'https://api.openai.com/v1/responses');
     assert.equal(capturedHeaders.Authorization, 'Bearer k');
-    assert.equal(capturedBody.messages[0].role, 'system');
-    assert.equal(capturedBody.tools[0].function.name, 'lookup');
+    assert.equal(capturedBody.input[0].role, 'user');
+    assert.equal(capturedBody.instructions, 'be brief');
+    assert.equal(capturedBody.tools[0].name, 'lookup');
     assert.equal(result.text, 'hi there');
     assert.equal(result.toolCalls[0].name, 'lookup');
     assert.deepEqual(result.toolCalls[0].input, { q: 'x' });
     assert.equal(result.usage.inputTokens, 4);
+    assert.equal(result.usage.outputTokens, 2);
     config.providers.openai.apiKey = before;
   });
 
