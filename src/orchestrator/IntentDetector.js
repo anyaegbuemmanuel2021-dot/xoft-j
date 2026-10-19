@@ -40,7 +40,7 @@ export class IntentDetector {
     // faster and reduces provider cost/quota usage without guessing at destructive
     // memory actions.
     const text = String(message ?? '').trim();
-    const memoryRelated = /\\b(remember|remind me|memor(?:y|ies)|forget|recall|save (?:this|that|it)|note that|what have i told you|what do you know about me)\\b/i.test(text);
+    const memoryRelated = /\b(remember|remind me|memor(?:y|ies)|forget|recall|save (?:this|that|it)|note that|what have i told you|what do you know about me)\b/i.test(text);
     if (!memoryRelated) {
       return { intent: Intent.CONVERSATION, category: null, subject: null };
     }
