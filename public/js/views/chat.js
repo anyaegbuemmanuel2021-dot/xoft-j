@@ -80,6 +80,28 @@ export function render(container) {
   `;
   renderLog(container);
   renderRecentChats(container);
+  // Pull the owner's server-side chat index so saved conversations also appear
+  // on another browser/device using the same XOFT API credentials.
+  void api.get('/api/chats')
+    .then((result) => {
+      const remote = Array.isArray(result.sessions) ? result.sessions : [];
+      if (!remote.length) return;
+      const local = recentSessions();
+      const merged = new Map(local.map((item) => [item.id, item]));
+      for (const item of remote) {
+        if (!item || typeof item.sessionId !== 'string') continue;
+        const current = merged.get(item.sessionId);
+        merged.set(item.sessionId, {
+          id: item.sessionId,
+          title: item.title || current?.title || 'Saved chat',
+          updatedAt: item.updatedAt || current?.updatedAt || new Date().toISOString(),
+        });
+      }
+      const sorted = [...merged.values()].sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0)).slice(0, 100);
+      localStorage.setItem(RECENT_KEY, JSON.stringify(sorted));
+      renderRecentChats(container);
+    })
+    .catch((error) => console.warn('[XOFT] Server recent chats unavailable; showing local chats:', error));
   serverHistoryReady = false;
   const openingSessionId = sessionId();
   void api.get('/api/chats/' + encodeURIComponent(openingSessionId))
