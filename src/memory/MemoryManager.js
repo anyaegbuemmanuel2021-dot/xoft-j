@@ -5,34 +5,22 @@ import { EpisodicMemory } from './EpisodicMemory.js';
 import { ProceduralMemory } from './ProceduralMemory.js';
 
 /**
- * MemoryManager — single entry point the Orchestrator and agents use for
- * everything memory-related. Wraps:
- *   - ShortTermMemory: current conversation buffer
- *   - LongTermMemory:  structured, categorized facts (editable, deletable)
- *   - VectorMemory:    semantic search over past content
+ * MemoryManager — single entry point for XOFT memory.
  *
- * Deletion is a first-class operation, not an afterthought: forget() removes
- * from both structured and vector stores so "forget that" / "delete
- * everything about John" actually clears what it claims to.
+ * Structured memory is the source of truth. Embeddings are an optional
+ * enhancement only: a provider quota/network error must never undo or block
+ * a successful structured-memory write.
  */
 export class MemoryManager {
-  /**
-   * @param {object} deps
-   * @param {import('../providers/ProviderRouter.js').ProviderRouter} deps.router
-   * @param {string} deps.dataDir
-   */
   constructor({ router, dataDir = './data', sqliteStore = null }) {
     this.short = new ShortTermMemory();
     this.long = new LongTermMemory({ dataDir, sqliteStore });
     this.episodic = new EpisodicMemory({ dataDir, sqliteStore });
     this.procedural = new ProceduralMemory({ dataDir, sqliteStore });
 
-    // Vector memory needs an embedding function; only wire it up if an
-    // embedding-capable provider is actually configured. Otherwise semantic
-    // recall is unavailable and callers get a clear error, not fake results.
     let embedProvider = null;
     try {
-      embedProvider = router.selectEmbedding();
+      embedProvider = router?.selectEmbedding?.() ?? null;
     } catch {
       embedProvider = null;
     }
@@ -46,7 +34,6 @@ export class MemoryManager {
     }
   }
 
-  // --- conversation buffer ---
   addTurn(sessionId, role, content) {
     this.short.append(sessionId, role, content);
   }
@@ -55,87 +42,103 @@ export class MemoryManager {
     return this.short.getMessages(sessionId);
   }
 
-  // --- remembering ---
   /**
-   * Stores a fact in structured memory, and in vector memory if available.
-   * @param {object} [opts] provenance/confidence/tags/links — see LongTermMemory.remember.
-   * @returns {Promise<{longTermId:string, vectorId:string|null}>}
+   * Always persist the structured fact first. Embeddings are best-effort;
+   * quota exhaustion (including OpenAI 429 insufficient_quota) must not turn
+   * a successful memory write into a failed user request.
    */
   async remember(category, content, metadata = {}, opts = {}) {
     const longTermId = this.long.remember(category, content, metadata, opts);
     let vectorId = null;
     if (this.vectorEnabled) {
-      vectorId = await this.vector.add(content, { category, longTermId, ...metadata });
+      try {
+        vectorId = await this.vector.add(content, { category, longTermId, ...metadata });
+      } catch (error) {
+        // Disable repeated failing calls for this process. Structured memory
+        // remains available and is authoritative; restart may retry embeddings.
+        this.vectorEnabled = false;
+        console.warn('[XOFT memory] Embeddings unavailable; saved structured memory only:', error?.message ?? error);
+      }
     }
     return { longTermId, vectorId };
   }
 
-  // --- recalling ---
-  /** Exact/structured lookup: by category, text, tag, and/or device. Pass markAccessed:true from genuine "recall" call sites (not passive listing) to update lastAccessedAt. */
   recallStructured({ category, textIncludes, tag, relatedDeviceId, includeExpired, markAccessed = false } = {}) {
     const results = this.long.query({ category, textIncludes, tag, relatedDeviceId, includeExpired });
     if (markAccessed) results.forEach((e) => this.long.getById(e.id, { markAccessed: true }));
     return results;
   }
 
-  /**
-   * Generic edit — content/metadata/tags/importance/links/TTL. Does not
-   * touch provenance/history; use correct() for a user overriding content.
-   * Vector memory is intentionally NOT re-embedded here — that would need a
-   * real embedding call this method doesn't make. A corrected/updated
-   * entry's *structured* content is authoritative immediately; its semantic
-   * search twin (if any) reflects the old text until re-remembered. Known
-   * limitation, not silently glossed over.
-   */
   update(id, patch) {
     return this.long.update(id, patch);
   }
 
-  /** First-class user correction — see LongTermMemory.correct for what this preserves. */
   correct(id, newContent, opts = {}) {
     return this.long.correct(id, newContent, opts);
   }
 
-  /** Semantic lookup: "what do you remember about X" style queries. */
+  /**
+   * Semantic lookup prefers vectors when available. If embeddings are missing
+   * or fail, use a transparent local lexical ranking over structured memory.
+   * This is not vector semantics, but it provides useful offline recall without
+   * claiming embeddings succeeded or making a paid API request.
+   */
   async recallSemantic(query, topK = 5) {
-    if (!this.vectorEnabled) {
-      throw new Error(
-        'MemoryManager: semantic recall requires an embedding provider (OPENAI_API_KEY). ' +
-          'Structured recall via recallStructured() still works without it.'
-      );
+    if (this.vectorEnabled) {
+      try {
+        return await this.vector.search(query, topK);
+      } catch (error) {
+        this.vectorEnabled = false;
+        console.warn('[XOFT memory] Semantic embeddings unavailable; using local text search:', error?.message ?? error);
+      }
     }
-    return this.vector.search(query, topK);
+
+    const terms = [...new Set(String(query ?? '').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])]
+      .filter((term) => term.length > 1);
+    if (!terms.length) return [];
+
+    return this.recallStructured()
+      .map((entry) => {
+        const text = `${entry.content ?? ''} ${entry.category ?? ''} ${(entry.tags ?? []).join(' ')}`.toLowerCase();
+        const matched = terms.filter((term) => text.includes(term)).length;
+        return {
+          id: entry.id,
+          content: entry.content,
+          metadata: { category: entry.category, ...(entry.metadata ?? {}), longTermId: entry.id },
+          score: matched / terms.length,
+          createdAt: entry.createdAt,
+        };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.max(1, topK));
   }
 
-  // --- episodic (narrative "what happened") ---
   recordEpisode(opts) { return this.episodic.record(opts); }
   recallEpisodes(opts) { return this.episodic.recall(opts); }
   episodeTimeline(opts) { return this.episodic.timeline(opts); }
 
-  // --- procedural (learned "how to do X") ---
   learnProcedure(goalTag, task) { return this.procedural.learnFromTask(goalTag, task); }
   recallProcedures(goalTag, limit) { return this.procedural.recall(goalTag, limit); }
 
-  // --- forgetting ---
-  /** Forgets a single structured entry (and its vector twin, if any) by long-term id. */
+  /** Structured memory is authoritative; vector cleanup is best-effort. */
   async forgetById(longTermId) {
     const entry = this.long.getById(longTermId);
     const removedStructured = this.long.forget(longTermId);
     if (this.vectorEnabled && entry) {
-      // vector entries store longTermId in metadata; find and remove matches
-      const matches = await this.vector.search(entry.content, 50);
-      for (const m of matches) {
-        if (m.metadata?.longTermId === longTermId) this.vector.remove(m.id);
+      try {
+        const matches = await this.vector.search(entry.content, 50);
+        for (const match of matches) {
+          if (match.metadata?.longTermId === longTermId) this.vector.remove(match.id);
+        }
+      } catch (error) {
+        this.vectorEnabled = false;
+        console.warn('[XOFT memory] Could not clean up vector entry; structured deletion succeeded:', error?.message ?? error);
       }
     }
     return removedStructured;
   }
 
-  /**
-   * Forgets everything matching a filter, e.g. forgetWhere({textIncludes:'John'}).
-   * This is what "delete everything you remember about John" maps to.
-   * @returns {Promise<number>} count of structured entries removed
-   */
   async forgetWhere(filter) {
     const toRemove = this.long.query(filter);
     let removedCount = 0;
