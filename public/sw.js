@@ -5,7 +5,7 @@
 // per-endpoint. A service-worker-level cache for API calls would just be a
 // second, dumber cache fighting the first one.
 
-const CACHE_NAME = 'xoft-shell-v10';
+const CACHE_NAME = 'xoft-shell-v11';
 const SHELL_FILES = [
   '/',
   '/index.html',
@@ -77,16 +77,32 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const network = fetch(event.request)
-        .then((res) => {
-          //if (res.ok)
-          const copy = res.clone(); 
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, res.clone()));
-          return res;
-        })
-        .catch(() => cached);
-      return cached ?? network;
+    caches.match(event.request).then(async (cached) => {
+      // Prefer fresh code and HTML when online; use the shell cache only offline.
+      const preferNetwork = ['document', 'script', 'style'].includes(event.request.destination);
+      if (preferNetwork) {
+        try {
+          const response = await fetch(event.request, { cache: 'no-store' });
+          if (response.ok) {
+            const cache = await caches.open(CACHE_NAME);
+            await cache.put(event.request, response.clone());
+          }
+          return response;
+        } catch {
+          return cached || Response.error();
+        }
+      }
+      if (cached) return cached;
+      try {
+        const response = await fetch(event.request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(event.request, response.clone());
+        }
+        return response;
+      } catch {
+        return Response.error();
+      }
     })
   );
 });
