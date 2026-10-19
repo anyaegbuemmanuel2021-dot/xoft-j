@@ -8,10 +8,16 @@ export const title = 'Overview';
 export let cleanup = null;
 
 export async function render(container) {
-  const [status, world, autonomy, stop, queue, realtime] = await Promise.all([
+  const [status, world, autonomy, stop, queue, realtime, activityResult] = await Promise.all([
     api.get('/api/status'), api.get('/api/world-state'), api.get('/api/autonomy'),
     api.get('/api/emergency-stop'), api.get('/api/task-queue/status'), api.get('/api/realtime/status'),
+    api.get('/api/activity').catch(() => []),
   ]);
+  const recentActivity = Array.isArray(activityResult) ? activityResult.slice().reverse().slice(0, 6) : [];
+  const runningCount = Number(queue.running?.length || 0);
+  const pendingCount = Number(queue.pending?.length || 0);
+  const activityCount = Array.isArray(activityResult) ? activityResult.length : 0;
+  const recentWorkHtml = recentActivity.length ? recentActivity.map((item) => '<div class="row work-summary-item"><span class="work-summary-dot" aria-hidden="true"></span><span class="main">' + esc(String(item.type || 'Activity').replace(/[_-]+/g, ' ')) + '</span><small>' + esc(new Date(item.timestamp ?? item.createdAt ?? Date.now()).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })) + '</small></div>').join('') : '<div class="empty">No recent activity has been recorded yet. XOFT will show work here as activity events arrive.</div>';
 
   container.innerHTML = `
     ${status.__stale ? '<div class="empty">Offline — showing last known status.</div>' : ''}
@@ -35,6 +41,11 @@ export async function render(container) {
         <div class="row"><span class="main">Status</span>${stop.active ? badge('ACTIVE — ' + (stop.reason || 'no reason given'), 'err') : badge('inactive', 'ok')}</div>
         <button id="stop-toggle" class="${stop.active ? '' : 'danger'}">${stop.active ? 'Deactivate' : 'Activate emergency stop'}</button>
       `)}
+      ${card('Work Summary', `
+        <div class="work-summary-stats"><a href="#tasks"><strong>${runningCount}</strong><span>RUNNING</span></a><a href="#tasks"><strong>${pendingCount}</strong><span>QUEUED</span></a><a href="#activity"><strong>${activityCount}</strong><span>ACTIVITY ITEMS</span></a></div>
+        <div class="work-summary-list">${recentWorkHtml}</div>
+        <div class="work-summary-links"><a href="#activity">Open Activity Log →</a><a href="#tasks">View Tasks →</a><a href="#missions">Review Missions →</a><a href="#memory">Open Memory →</a></div>
+      `, { span2: true })}
       ${card('World State', `<pre>${esc(JSON.stringify(world, null, 2)).slice(0, 1200)}</pre>`, { span2: true })}
     </div>
   `;
