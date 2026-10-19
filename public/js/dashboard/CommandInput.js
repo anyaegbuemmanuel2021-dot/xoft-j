@@ -118,6 +118,8 @@ export function mountCommandInput(el, store, controller) {
   let wakeArmed = false;
   let isSpeaking = false;
   let destroyed = false;
+  let serverHistoryReady = false;
+  let historySaveTimer = null;
   let recognitionRestartTimer = null;
   // Start with the Nigeria-specific locale, then fall back to widely supported English if the browser rejects it.
   let recognitionLanguage = 'en-NG';
@@ -209,6 +211,13 @@ export function mountCommandInput(el, store, controller) {
         });
       }
       localStorage.setItem(recentKey, JSON.stringify(recent.slice(0, 40)));
+      if (serverHistoryReady) {
+        clearTimeout(historySaveTimer);
+        historySaveTimer = setTimeout(() => {
+          void api.put('/api/chats/' + encodeURIComponent(id), { messages, userId: 'web-user' })
+            .catch((error) => console.warn('[XOFT] Could not sync conversation history to server:', error));
+        }, 250);
+      }
     } catch { /* disabled or full browser storage must not block chat */ }
     exchangesEl.innerHTML = exchanges.map((x) => `
       <article class="cc-exchange" data-status="${esc(x.status)}">
@@ -463,6 +472,27 @@ export function mountCommandInput(el, store, controller) {
   } catch { /* ignore malformed local history */ }
   paintExchanges();
   const unsub = store.subscribe('chat', paintExchanges);
+  // Restore server history when local storage is empty. This request is background-only
+  // so opening the Command Centre remains responsive and never calls an AI model.
+  void api.get('/api/chats/' + encodeURIComponent(sessionId()))
+    .then((saved) => {
+      if (!store.get('chat').exchanges.length && Array.isArray(saved.messages) && saved.messages.length) {
+        const restored = [];
+        for (const msg of saved.messages) {
+          if (!msg || typeof msg.content !== 'string') continue;
+          if (msg.role === 'user') {
+            restored.push({ user: msg.content, reply: '', status: 'done', ts: Date.parse(msg.at) || Date.now() });
+          } else if (msg.role === 'assistant') {
+            const last = restored[restored.length - 1];
+            if (last && !last.reply) last.reply = msg.content;
+            else restored.push({ user: '', reply: msg.content, status: 'done', ts: Date.parse(msg.at) || Date.now() });
+          }
+        }
+        store.set('chat', { pending: false, exchanges: restored.filter((x) => x.user || x.reply).slice(-100) });
+      }
+    })
+    .catch((error) => console.warn('[XOFT] Server history unavailable; keeping local history:', error))
+    .finally(() => { serverHistoryReady = true; });
   return () => {
     destroyed = true;
     autoListening = false;
