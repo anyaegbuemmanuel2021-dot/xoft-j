@@ -173,6 +173,41 @@ export function mountCommandInput(el, store, controller) {
     try {
       const saved = exchanges.filter((x) => x && x.status !== 'sending').slice(-100);
       localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(saved));
+
+      // Keep Command Centre and the Chat page on the same conversation timeline.
+      // The Chat page uses role/content messages; the dashboard stores exchanges.
+      // Synchronize both formats locally so typed and transcribed voice turns appear
+      // under Recent chats immediately, without extra AI calls or API credits.
+      const id = sessionId();
+      const messages = saved.flatMap((x) => {
+        const at = new Date(Number(x.ts) || Date.now()).toISOString();
+        const user = { role: 'user', content: String(x.user ?? ''), at };
+        if (x.status === 'queued') {
+          return [user, { role: 'assistant', content: String(x.reply || 'Queued offline.'), at }];
+        }
+        if (x.status === 'error' || x.status === 'done') {
+          return [user, { role: 'assistant', content: String(x.reply ?? ''), at }];
+        }
+        return [user];
+      }).filter((m) => m.content.trim()).slice(-300);
+      localStorage.setItem('xoft_chat_history_' + id, JSON.stringify(messages));
+
+      const recentKey = 'xoft_recent_chat_sessions_v1';
+      let recent = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem(recentKey) || '[]');
+        if (Array.isArray(parsed)) recent = parsed;
+      } catch { /* recover from malformed recent-chat metadata */ }
+      const firstUser = messages.find((m) => m.role === 'user');
+      recent = recent.filter((item) => item && item.id !== id);
+      if (messages.length) {
+        recent.unshift({
+          id,
+          title: String(firstUser?.content || 'New chat').slice(0, 44),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+      localStorage.setItem(recentKey, JSON.stringify(recent.slice(0, 40)));
     } catch { /* disabled or full browser storage must not block chat */ }
     exchangesEl.innerHTML = exchanges.map((x) => `
       <article class="cc-exchange" data-status="${esc(x.status)}">
