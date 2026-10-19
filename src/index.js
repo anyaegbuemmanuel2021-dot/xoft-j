@@ -433,7 +433,10 @@ function chatHistoryKey(owner, sessionId) {
 }
 function chatOwner(req, body = {}) {
   const supplied = typeof body.userId === 'string' ? body.userId.trim().slice(0, 80) : '';
-  return supplied || (req.deviceAuth ? String(req.deviceAuth) : 'web-user');
+  // A per-device token is the authenticated identity and must take precedence over
+  // a caller-supplied userId. Otherwise a device token could read/write the shared
+  // web-user history namespace, and GET/PUT would resolve different owners.
+  return req.deviceAuth ? String(req.deviceAuth) : (supplied || 'web-user');
 }
 app.get('/api/chats', (req, res) => {
   const owner = chatOwner(req);
