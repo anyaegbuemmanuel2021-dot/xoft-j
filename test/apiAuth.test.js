@@ -13,7 +13,9 @@ async function bootServer(env, port) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-auth-test-'));
   const child = spawn(process.execPath, [path.join(ROOT, 'src', 'index.js')], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), MEMORY_DATA_DIR: dataDir, ...env },
+    // Give every child server its own SQLite file. Other test files start servers
+    // in parallel, so sharing the default ./data/xoft.sqlite can cause SQLITE_BUSY.
+    env: { ...process.env, PORT: String(port), MEMORY_DATA_DIR: dataDir, ...env, SQLITE_PATH: path.join(dataDir, 'test.sqlite') },
     stdio: 'pipe',
   });
   let stderr = '';
