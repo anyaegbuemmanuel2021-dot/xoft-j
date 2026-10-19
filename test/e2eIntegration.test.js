@@ -65,6 +65,27 @@ function waitForMessage(ws, timeoutMs = 40000) {
   });
 }
 
+function waitForMessageMatching(ws, predicate, timeoutMs = 40000) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+    };
+    const onMessage = (raw) => {
+      let message;
+      try { message = JSON.parse(raw.toString()); } catch { return; }
+      if (!predicate(message)) return;
+      cleanup();
+      resolve(message);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`no matching WS message received within ${timeoutMs}ms`));
+    }, timeoutMs);
+    ws.on('message', onMessage);
+  });
+}
+
 // Node's test runner can run separate TOP-LEVEL describe blocks in one file
 // concurrently with each other even when each individually sets
 // `{ concurrency: false }` (that option only serializes tests *within* a
@@ -101,7 +122,10 @@ describe('device lifecycle + scoped memory + realtime + revocation', { concurren
       });
       await waitForMessage(ws);
 
-      const nextEvent = waitForMessage(ws).then((m) => JSON.parse(m.toString()));
+      // Other legitimate events (for example engine.status) may arrive on this socket
+      // between the handshake and this action. Wait for the exact event under test,
+      // rather than assuming it must be the next message.
+      const nextEvent = waitForMessageMatching(ws, (message) => message.type === 'emergency_stop_activated');
       const stopRes = await server.call('POST', '/api/emergency-stop/activate', { reason: 'e2e ws check' });
       assert.equal(stopRes.status, 200);
       const event = await nextEvent;
