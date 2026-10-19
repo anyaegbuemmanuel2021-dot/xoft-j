@@ -15,7 +15,8 @@ export let cleanup = null;
 
 function mountModelStrip(el, store) {
   function paint() {
-    const providers = store.get('providers').data ?? [];
+    const providerData = store.get('providers')?.data;
+    const providers = Array.isArray(providerData) ? providerData.filter((p) => p && typeof p === 'object') : [];
     const active = currentModel(providers);
     const activeProvider = providers.find((p) => p.label === active?.provider);
     const activeState = activeProvider?.status || 'UNKNOWN';
