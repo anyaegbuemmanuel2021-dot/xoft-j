@@ -309,18 +309,21 @@ function toggleVoiceInput(container) {
     whisperRecorder.stop();
     return;
   }
+  // Prefer the local Whisper engine over browser speech recognition. Browser
+  // recognition varies by browser/vendor, often requires a network service, and
+  // has been unreliable on mobile. Recording and transcription stay in this tab.
+  if (activeRecognition) {
+    try { activeRecognition.abort(); } catch {}
+    activeRecognition = null;
+  }
+  startWhisperRecording(container);
+  return;
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     startWhisperRecording(container);
     return;
   }
-  if (activeRecognition) {
-    try { activeRecognition.stop(); } catch {}
-    activeRecognition = null;
-    setMicButton(container, '🎙️ Voice Input');
-    return;
-  }
-
   const recognition = new SpeechRecognition();
   activeRecognition = recognition;
   recognition.lang = navigator.language || 'en-NG';
@@ -411,16 +414,20 @@ function listenForConversationTurn(container) {
   if (!voiceConversationActive || whisperBusy || (whisperRecorder && whisperRecorder.state !== 'inactive')) return;
   if (activeRecognition) return;
 
+  // Hands-free mode uses the same local Whisper path as push-to-talk.
+  // This avoids relying on vendor-specific browser recognition services.
+  if (!voiceFallbackNoticeShown) {
+    voiceFallbackNoticeShown = true;
+    toast('Using local Whisper for voice input. First use downloads the speech model; later turns use the cached model.', 'info');
+  }
+  startWhisperRecording(container, { autoSegment: true });
+  return;
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    if (!voiceFallbackNoticeShown) {
-      voiceFallbackNoticeShown = true;
-      toast('Using free local Whisper for voice input. Its model downloads once and is then cached in this browser.', 'info');
-    }
     startWhisperRecording(container, { autoSegment: true });
     return;
   }
-
   const recognition = new SpeechRecognition();
   activeRecognition = recognition;
   recognition.lang = navigator.language || 'en-NG';
