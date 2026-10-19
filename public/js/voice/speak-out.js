@@ -103,7 +103,7 @@ function browserSpeak(text, runId) {
       if (preferred) { utterance.voice = preferred; utterance.lang = preferred.lang; }
       currentUtterance = utterance;
       // Some mobile browsers silently stall speechSynthesis without firing onstart/onend.
-      // Bound each chunk so ElevenLabs fallback can run instead of leaving XOFT stuck forever.
+      // Bound each chunk so browser/device speech cannot leave XOFT stuck forever.
       clearTimeout(watchdog);
       watchdog = setTimeout(() => {
         try { synth.cancel(); } catch { /* best effort */ }
