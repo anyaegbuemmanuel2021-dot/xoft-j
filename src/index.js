@@ -425,6 +425,36 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// Durable conversation history shared by Command Centre and Chat.
+ // The existing app uses a single-owner API-key model; namespace history by device/user
+ // and session so separate sessions never overwrite each other.
+function chatHistoryKey(owner, sessionId) {
+  return 'chat-history:' + encodeURIComponent(owner) + ':' + encodeURIComponent(sessionId);
+}
+function chatOwner(req, body = {}) {
+  const supplied = typeof body.userId === 'string' ? body.userId.trim().slice(0, 80) : '';
+  return supplied || (req.deviceAuth ? String(req.deviceAuth) : 'web-user');
+}
+app.get('/api/chats/:sessionId', (req, res) => {
+  const id = String(req.params.sessionId || '').slice(0, 120);
+  if (!id) return res.status(400).json({ error: 'sessionId is required' });
+  const owner = chatOwner(req);
+  const saved = durableStore?.get(chatHistoryKey(owner, id));
+  res.json({ sessionId: id, messages: Array.isArray(saved?.messages) ? saved.messages : [], updatedAt: saved?.updatedAt ?? null });
+});
+app.put('/api/chats/:sessionId', (req, res) => {
+  const id = String(req.params.sessionId || '').slice(0, 120);
+  const messages = req.body?.messages;
+  if (!id || !Array.isArray(messages)) return res.status(400).json({ error: 'sessionId and messages array are required' });
+  if (messages.length > 300) return res.status(413).json({ error: 'A conversation may contain at most 300 messages' });
+  const clean = messages.filter((m) => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string')
+    .slice(-300).map((m) => ({ role: m.role, content: m.content.slice(0, 12000), at: typeof m.at === 'string' ? m.at.slice(0, 40) : new Date().toISOString() }));
+  const owner = chatOwner(req, req.body);
+  const updatedAt = new Date().toISOString();
+  if (durableStore) durableStore.set(chatHistoryKey(owner, id), { sessionId: id, messages: clean, updatedAt });
+  res.json({ ok: true, sessionId: id, count: clean.length, updatedAt, durable: Boolean(durableStore) });
+});
+
 // GET /api/world-state -> live situational snapshot (tasks, approvals, automations, recent activity)
 app.get('/api/world-state', (_req, res) => {
   res.json(worldState.snapshot());
