@@ -344,9 +344,10 @@ app.use(helmet({
 }));
 app.use('/api', rateLimit({
   windowMs: 60 * 1000,
-  limit: Number(process.env.RATE_LIMIT_PER_MIN) || 120, // generous for normal use, still a real ceiling against abuse
+  limit: Number(process.env.RATE_LIMIT_PER_MIN) || 300, // dashboard polling can generate many lightweight reads; retain a bounded per-IP ceiling
   standardHeaders: true,
   legacyHeaders: false,
+  message: { error: 'RATE_LIMIT_EXCEEDED', message: 'XOFT received too many API requests from this connection. Wait one minute, then retry. If this repeats during normal use, check dashboard polling.' },
 }));
 
 // A second, much stricter limiter for routes that are expensive in a way
