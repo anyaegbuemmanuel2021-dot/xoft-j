@@ -138,10 +138,17 @@ export class Orchestrator {
     const addressFragment = this.address ? `\n\n${this.address.describeForPrompt(sessionId)}` : '';
     const styleFragment = this.userStyle ? (() => { const d = this.userStyle.describeForPrompt(); return d ? `\n\n${d}` : ''; })() : '';
 
-    const result = await this.router.complete(TaskType.REASONING, {
+    // Everyday conversation should favour the fast model. Reserve the slower reasoning
+    // route for tasks that clearly need multi-step analysis; personality and memory context
+    // remain enabled in both routes.
+    const trimmed = String(message ?? '').trim();
+    const needsDeepReasoning = trimmed.length > 500
+      || /\b(analy[sz]e|compare|debug|design|plan|research|step[- ]by[- ]step|evaluate|architecture|calculate|prove|review|why does|how should I build)\b/i.test(trimmed);
+    const taskType = needsDeepReasoning ? TaskType.REASONING : TaskType.SIMPLE;
+    const result = await this.router.complete(taskType, {
       system: ASSISTANT_SYSTEM_PROMPT + memoryContext + personalityFragment + addressFragment + styleFragment,
       messages: conversation,
-      maxTokens: 1024,
+      maxTokens: needsDeepReasoning ? 1024 : 420,
     });
 
     return { reply: result.text, meta: { usage: result.usage, provider: result.raw } };
