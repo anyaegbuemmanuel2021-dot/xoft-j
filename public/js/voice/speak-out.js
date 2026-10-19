@@ -24,8 +24,7 @@ export function setSpeakOutEnabled(enabled) {
 
 export function canSpeakOut() {
   return typeof window !== 'undefined'
-    && (typeof window.Audio === 'function'
-      || ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function'));
+    && ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function');
 }
 
 function releaseAudio() {
