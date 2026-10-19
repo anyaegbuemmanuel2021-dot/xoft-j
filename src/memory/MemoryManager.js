@@ -65,7 +65,13 @@ export class MemoryManager {
     const longTermId = this.long.remember(category, content, metadata, opts);
     let vectorId = null;
     if (this.vectorEnabled) {
-      vectorId = await this.vector.add(content, { category, longTermId, ...metadata });
+      try {
+        vectorId = await this.vector.add(content, { category, longTermId, ...metadata });
+      } catch (error) {
+        // Structured memory is the source of truth. Embeddings are optional,
+        // so quota/network errors must not turn a saved fact into a failed request.
+        console.warn('[XOFT] Memory saved without semantic index:', String(error?.message ?? error).slice(0, 240));
+      }
     }
     return { longTermId, vectorId };
   }
