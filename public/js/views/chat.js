@@ -193,6 +193,8 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       setMicButton(container, conversationSegment ? '⏳ Transcribing your voice…' : '⏳ Loading local Whisper…', true);
       if (!conversationSegment) {
         toast('Transcribing locally with Whisper. First use downloads a small speech model and may take a few minutes.', 'info');
+      } else {
+        setConversationButton(container, true, '⏳ Transcribing your voice…');
       }
 
       let voiceText = '';
@@ -227,6 +229,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
     recorder.start();
 
     if (conversationSegment) {
+      setConversationButton(container, true, '🟢 Listening for your voice…');
       setMicButton(container, '🟢 Listening for your voice…', true);
       // Free local fallback endpointing: stop 1.2 seconds after speech ends,
       // after 8 seconds of silence, or after 15 seconds total.
@@ -331,7 +334,7 @@ function toggleVoiceInput(container) {
     setMicButton(container, '🎙️ Voice Input');
     const input = container.querySelector('#chat-input');
     if (input && input.value.trim()) input.focus();
-    if (fallbackToWhisper) startWhisperRecording(container);
+    if (fallbackToWhisper && !voiceConversationActive) startWhisperRecording(container);
   };
   try {
     recognition.start();
