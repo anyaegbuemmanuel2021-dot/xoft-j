@@ -136,53 +136,6 @@ function browserSpeak(text, runId) {
   });
 }
 
-async function elevenLabsSpeak(text, runId) {
-  const headers = { 'Content-Type': 'application/json' };
-  try {
-    const key = localStorage.getItem('xoft_api_key');
-    if (key) headers['X-API-Key'] = key;
-  } catch { /* optional client key */ }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  try {
-    const response = await fetch('/api/voice/speak', {
-      method: 'POST', headers, signal: controller.signal,
-      body: JSON.stringify({ text }),
-    });
-    if (!response.ok || !(response.headers.get('content-type') || '').toLowerCase().includes('audio')) return false;
-    const blob = await response.blob();
-    if (!blob.size || runId !== speechRun) return false;
-    releaseAudio();
-    currentAudioUrl = URL.createObjectURL(blob);
-    const audio = new Audio();
-    currentAudio = audio;
-    audio.preload = 'auto';
-    audio.src = currentAudioUrl;
-    return await new Promise((resolve) => {
-      let settled = false;
-      const finish = (ok) => {
-        if (settled) return;
-        settled = true;
-        if (runId === speechRun) {
-          releaseAudio();
-          setSpeechState(ok ? 'idle' : 'error', ok ? '' : 'Audio playback failed.');
-        }
-        resolve(ok);
-      };
-      audio.onended = () => finish(true);
-      audio.onerror = () => finish(false);
-      audio.onplaying = () => { if (runId === speechRun) setSpeechState('speaking'); };
-      Promise.resolve(audio.play()).then(() => {
-        if (runId === speechRun) setSpeechState('speaking');
-      }).catch(() => finish(false));
-    });
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export async function speakOut(text) {
   const message = String(text ?? '').trim();
   if (!message || !isSpeakOutEnabled() || !canSpeakOut()) return false;
@@ -197,9 +150,8 @@ export async function speakOut(text) {
   // Free-first: use the device/browser voice by default, without making a network request.
   const browserPlayed = await browserSpeak(spoken, runId);
   if (browserPlayed || runId !== speechRun) return browserPlayed;
-  // Optional quality fallback: if browser speech is unsupported or fails, try configured ElevenLabs.
-  const audioPlayed = await elevenLabsSpeak(spoken, runId);
-  if (audioPlayed || runId !== speechRun) return audioPlayed;
-  setSpeechState('error', 'Browser speech and ElevenLabs were unavailable.');
+  // Free-only mode: never send speech text to a paid speech API. Keep audio local to the browser/device.
+  if (runId !== speechRun) return false;
+  setSpeechState('error', 'Free browser/device speech is unavailable. Enable text-to-speech in your browser or device settings.');
   return false;
 }
