@@ -77,12 +77,14 @@ function browserSpeak(text, runId) {
   return new Promise((resolve) => {
     let index = 0;
     let finished = false;
+    let watchdog = null;
     const finish = (success) => {
       if (finished) return;
       finished = true;
+      clearTimeout(watchdog);
       if (runId === speechRun) {
         currentUtterance = null;
-        setSpeechState(success ? 'idle' : 'error', success ? '' : 'Browser speech failed.');
+        setSpeechState(success ? 'idle' : 'error', success ? '' : 'Browser speech failed or timed out.');
       }
       resolve(success);
     };
@@ -101,9 +103,20 @@ function browserSpeak(text, runId) {
         ?? voices.find((v) => /^en/i.test(v.lang));
       if (preferred) { utterance.voice = preferred; utterance.lang = preferred.lang; }
       currentUtterance = utterance;
+      // Some mobile browsers silently stall speechSynthesis without firing onstart/onend.
+      // Bound each chunk so ElevenLabs fallback can run instead of leaving XOFT stuck forever.
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        try { synth.cancel(); } catch { /* best effort */ }
+        finish(false);
+      }, 20000);
       utterance.onstart = () => { if (runId === speechRun) setSpeechState('speaking'); };
-      utterance.onend = () => { if (runId === speechRun) next(); };
+      utterance.onend = () => {
+        clearTimeout(watchdog);
+        if (runId === speechRun) next();
+      };
       utterance.onerror = (event) => {
+        clearTimeout(watchdog);
         // A cancel caused by STOP is expected; don't report it as a failure.
         if (runId !== speechRun || event.error === 'canceled' || event.error === 'interrupted') return finish(false);
         finish(false);
