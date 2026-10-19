@@ -19,7 +19,7 @@ function mountModelStrip(el, store) {
     const active = currentModel(providers);
     const activeProvider = providers.find((p) => p.label === active?.provider);
     const activeState = activeProvider?.status || 'UNKNOWN';
-    const samples = configured.map((p) => ({
+    const samples = providers.filter((p) => p.configured).map((p) => ({
       name: p.label || p.id,
       model: p.model || 'model not reported',
       status: p.status || 'UNKNOWN',
