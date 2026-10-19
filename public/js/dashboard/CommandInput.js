@@ -464,8 +464,9 @@ export function mountCommandInput(el, store, controller) {
   // Restore the latest saved conversation before the first render.
   try {
     const sessionHistory = localStorage.getItem('xoft_command_center_history_' + sessionId());
-    const raw = sessionHistory ?? localStorage.getItem(CHAT_HISTORY_KEY) ?? '[]';
-    const saved = JSON.parse(raw);
+    // Do not fall back to the old global history key: after starting a new chat
+    // that would copy the previous conversation into the new session.
+    const saved = JSON.parse(sessionHistory ?? '[]');
     if (Array.isArray(saved) && saved.length) {
       store.set('chat', { pending: false, exchanges: saved.filter((x) => x && typeof x.user === 'string').slice(-100) });
     }
