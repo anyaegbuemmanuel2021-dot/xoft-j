@@ -214,6 +214,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       }
 
       whisperBusy = true;
+      setVoiceStatus('thinking', 'TRANSCRIBING YOUR VOICE');
       setMicButton(container, conversationSegment ? '⏳ Transcribing your voice…' : '⏳ Loading local Whisper…', true);
       if (!conversationSegment) {
         toast('Transcribing locally with Whisper. First use downloads a small speech model and may take a few minutes.', 'info');
@@ -253,6 +254,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
     recorder.start();
 
     if (conversationSegment) {
+      setVoiceStatus('listening', 'LISTENING · MICROPHONE ACTIVE');
       setConversationButton(container, true, '🟢 Listening for your voice…');
       setMicButton(container, '🟢 Listening for your voice…', true);
       // Free local fallback endpointing: stop 1.2 seconds after speech ends,
