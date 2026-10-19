@@ -1,4 +1,4 @@
-// Reliable XOFT speech output: ElevenLabs when available, browser TTS fallback.
+// Free-only XOFT speech output: use the device/browser voice engine; never call a paid voice API.
 const ENABLED_KEY = 'xoft_speak_out_enabled';
 let currentAudio = null;
 let currentAudioUrl = null;
