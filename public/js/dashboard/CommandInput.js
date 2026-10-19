@@ -173,6 +173,7 @@ export function mountCommandInput(el, store, controller) {
     try {
       const saved = exchanges.filter((x) => x && x.status !== 'sending').slice(-100);
       localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(saved));
+      localStorage.setItem('xoft_command_center_history_' + sessionId(), JSON.stringify(saved));
 
       // Keep Command Centre and the Chat page on the same conversation timeline.
       // The Chat page uses role/content messages; the dashboard stores exchanges.
@@ -453,7 +454,9 @@ export function mountCommandInput(el, store, controller) {
 
   // Restore the latest saved conversation before the first render.
   try {
-    const saved = JSON.parse(localStorage.getItem(CHAT_HISTORY_KEY) || '[]');
+    const sessionHistory = localStorage.getItem('xoft_command_center_history_' + sessionId());
+    const raw = sessionHistory ?? localStorage.getItem(CHAT_HISTORY_KEY) ?? '[]';
+    const saved = JSON.parse(raw);
     if (Array.isArray(saved) && saved.length) {
       store.set('chat', { pending: false, exchanges: saved.filter((x) => x && typeof x.user === 'string').slice(-100) });
     }
