@@ -54,6 +54,7 @@ export function render(container) {
       <button data-mode="chat" class="${mode === 'chat' ? 'active' : ''}">Chat</button>
       <button data-mode="advise" class="${mode === 'advise' ? 'active' : ''}">Advisor</button>
     </div>
+    <div id="xoft-voice-status" class="xoft-voice-status" data-state="idle" role="status" aria-live="polite" aria-label="XOFT voice status: standby"><span class="xoft-voice-orb" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="xoft-voice-status-copy"><strong class="xoft-voice-status-label">VOICE STANDBY</strong><small>Live microphone and speech status</small></span><span class="xoft-voice-live-dot" aria-hidden="true"></span></div>
     <div id="chat-view">
       <div id="chat-log"></div>
       <div id="chat-input-row">
@@ -117,6 +118,29 @@ let whisperBusy = false;
 let voiceConversationActive = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
+
+function setVoiceStatus(state, label) {
+  window.dispatchEvent(new CustomEvent('xoft:voice-state', { detail: { state, label } }));
+}
+
+// Bind once: navigation/rerendering must not stack event listeners.
+if (!window.__xoftVoiceStatusBound) {
+  window.__xoftVoiceStatusBound = true;
+  const paint = (state, label) => {
+    const el = document.querySelector('#xoft-voice-status');
+    if (!el) return;
+    el.dataset.state = state;
+    const text = el.querySelector('.xoft-voice-status-label');
+    if (text) text.textContent = label;
+    el.setAttribute('aria-label', 'XOFT voice status: ' + label);
+  };
+  window.addEventListener('xoft:voice-state', (e) => paint(e.detail?.state || 'idle', e.detail?.label || 'VOICE STANDBY'));
+  window.addEventListener('xoft:speech-state', (e) => {
+    if (e.detail?.state === 'speaking') paint('speaking', 'XOFT IS SPEAKING');
+    else if (e.detail?.state === 'loading') paint('thinking', 'PREPARING VOICE');
+    else if (e.detail?.state === 'idle' && !document.querySelector('#chat-voice-conversation.voice-conversation-active')) paint('idle', 'VOICE STANDBY');
+  });
+}
 
 function setMicButton(container, label, pressed = false) {
   const button = container.querySelector('#chat-mic');
@@ -303,6 +327,7 @@ function toggleVoiceInput(container) {
   let finalText = '';
   let fallbackToWhisper = false;
 
+  setVoiceStatus('listening', 'LISTENING · SPEAK NOW');
   setMicButton(container, '🔴 Listening… tap to stop', true);
   recognition.onresult = (event) => {
     const finalParts = [];
@@ -367,6 +392,7 @@ function stopVoiceConversation(container, silent = false) {
     try { whisperRecorder.stop(); } catch {}
   }
   setConversationButton(container, false);
+  setVoiceStatus('idle', 'VOICE STANDBY');
   setMicButton(container, '🎙️ Voice Input');
   if (!silent) toast('Voice conversation stopped.', 'info');
 }
@@ -401,6 +427,7 @@ function listenForConversationTurn(container) {
   let finalText = '';
   let fallbackToWhisper = false;
   let permissionDenied = false;
+  setVoiceStatus('listening', 'LISTENING · SPEAK NATURALLY');
   setConversationButton(container, true, '🟢 Listening… speak naturally');
 
   recognition.onresult = (event) => {
@@ -414,6 +441,7 @@ function listenForConversationTurn(container) {
     finalText = finalParts.join(' ').trim();
     const input = container.querySelector('#chat-input');
     if (input) input.value = [finalText, interimParts.join(' ')].filter(Boolean).join(' ').trim();
+    setVoiceStatus('listening', 'HEARING YOU');
     setConversationButton(container, true, '🟢 Hearing you…');
   };
 
@@ -448,6 +476,7 @@ function listenForConversationTurn(container) {
     if (finalText.trim()) {
       const input = container.querySelector('#chat-input');
       if (input) input.value = '';
+      setVoiceStatus('thinking', 'XOFT IS THINKING');
       setConversationButton(container, true, '⏳ XOFT is thinking…');
       void send(container, finalText.trim(), { voiceTurn: true });
       return;
@@ -489,6 +518,7 @@ function toggleVoiceConversation(container) {
   }
   voiceFallbackNoticeShown = false;
   voiceConversationActive = true;
+  setVoiceStatus('listening', 'STARTING MICROPHONE');
   setConversationButton(container, true, '🟢 Starting voice conversation…');
   toast('Voice conversation is on. Speak naturally; XOFT will answer aloud and then listen again. Tap Stop Voice Conversation to finish.', 'success');
   listenForConversationTurn(container);
@@ -502,6 +532,7 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
     return;
   }
   input.value = '';
+  if (voiceTurn) setVoiceStatus('thinking', 'XOFT IS THINKING');
   history.push({ role: 'user', content: text, at: new Date().toISOString() });
   persistHistory();
   renderLog(container);
@@ -554,6 +585,7 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
     }
   }
   if (voiceTurn && voiceConversationActive) {
+    setVoiceStatus('listening', 'LISTENING · YOUR TURN');
     setConversationButton(container, true, '🟢 Listening… speak naturally');
     scheduleConversationListen(container, 500);
   }
