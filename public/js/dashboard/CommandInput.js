@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { esc, toast } from '../dom.js';
 import { QUICK_COMMANDS } from './logic.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
+import { transcribeAudioBlob } from '../voice/whisper-fallback.js';
 
 const SESSION_KEY = 'xoft_chat_session';
 const CHAT_HISTORY_KEY = 'xoft_chat_history_v1';
@@ -67,21 +68,43 @@ function sessionId() {
   if (!id) { id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); }
   return id;
 }
-async function transcribe(blob) {
+async function transcribe(blob, onStatus = () => {}) {
   if (!blob || !blob.size) throw new Error('No audio was recorded. Hold the phone closer and try again.');
+
+  // Free/private path first: run Whisper in this browser so microphone audio does not
+  // require an OpenAI key, paid quota, or a reachable server-side transcription API.
+  let localError;
+  try {
+    onStatus('Loading local Whisper · first use downloads the speech model…');
+    const text = await transcribeAudioBlob(blob);
+    if (text) return text;
+    throw new Error('Local Whisper returned an empty transcript.');
+  } catch (error) {
+    localError = error;
+    console.warn('[XOFT] Local Whisper transcription failed; trying configured server STT:', error);
+  }
+
+  // Optional server-side fallback. This requires OPENAI_API_KEY and available API quota.
+  onStatus('Local Whisper unavailable · trying configured server transcription…');
   const key = localStorage.getItem('xoft_api_key');
   const type = blob.type || 'audio/webm';
-  const res = await fetch('/api/voice/transcribe', {
-    method: 'POST',
-    headers: { 'Content-Type': type, ...(key ? { 'X-API-Key': key } : {}) },
-    body: blob,
-  });
-  if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.text()).slice(0, 180); } catch { /* ignore */ }
-    throw new Error(`${res.status}${detail ? ': ' + detail : ''}`);
+  try {
+    const res = await fetch('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': type, ...(key ? { 'X-API-Key': key } : {}) },
+      body: blob,
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.text()).slice(0, 240); } catch { /* ignore */ }
+      throw new Error(`${res.status}${detail ? ': ' + detail : ''}`);
+    }
+    const text = String((await res.json()).text ?? '').trim();
+    if (!text) throw new Error('Server transcription returned an empty transcript.');
+    return text;
+  } catch (serverError) {
+    throw new Error(`Local Whisper failed (${localError?.message || 'unknown error'}); server STT failed (${serverError?.message || 'unknown error'}).`);
   }
-  return String((await res.json()).text ?? '').trim();
 }
 
 export function mountCommandInput(el, store, controller) {
@@ -215,7 +238,20 @@ export function mountCommandInput(el, store, controller) {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
           autoBtn.textContent = 'AUTO LISTEN';
-          setVoiceStatus('Microphone permission denied. Allow mic access in browser settings.', 'error');
+          setVoiceStatus('Microphone or browser speech permission denied. Allow mic access, then use VOICE for local Whisper transcription.', 'error');
+        } else if (event.error === 'network') {
+          // Web Speech often depends on a vendor cloud service. Don't restart it forever
+          // on a network failure; push-to-talk uses local Whisper and can work independently.
+          autoListening = false;
+          wakeArmed = false;
+          autoBtn.setAttribute('aria-pressed', 'false');
+          autoBtn.textContent = 'AUTO LISTEN';
+          setVoiceStatus('Browser live speech service is unreachable. Use VOICE for local Whisper, then say your command.', 'error');
+        } else if (event.error === 'audio-capture') {
+          autoListening = false;
+          autoBtn.setAttribute('aria-pressed', 'false');
+          autoBtn.textContent = 'AUTO LISTEN';
+          setVoiceStatus('No microphone was detected. Check Android microphone permission and close other apps using the mic.', 'error');
         } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           setVoiceStatus(`Listening issue: ${event.error}. Tap AUTO LISTEN to retry.`, 'error');
         }
@@ -290,10 +326,10 @@ export function mountCommandInput(el, store, controller) {
         recorder = null;
         voiceBtn.setAttribute('aria-pressed', 'false');
         voiceBtn.textContent = 'VOICE';
-        setVoiceStatus('Transcribing your voice…', 'processing');
+        setVoiceStatus('Transcribing your voice locally…', 'processing');
         try {
           const blob = new Blob(chunks, { type: chunks[0]?.type || preferredType || 'audio/webm' });
-          const text = await transcribe(blob);
+          const text = await transcribe(blob, (message) => setVoiceStatus(message, 'processing'));
           if (!text) { setVoiceStatus('No speech recognised. Speak clearly and try again.', 'error'); toast('No speech recognised — try again closer to the microphone.', 'warn'); return; }
           input.value = text;
           input.focus({ preventScroll: true });
