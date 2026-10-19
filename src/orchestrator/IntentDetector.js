@@ -34,9 +34,20 @@ export class IntentDetector {
    * @returns {Promise<{intent:string, category:string|null, subject:string|null}>}
    */
   async detect(message) {
+    // Most messages are ordinary conversation. Do not spend a second model call
+    // classifying every chat turn; reserve model-based classification for messages
+    // that plausibly ask to save, delete, or recall memory. This keeps casual chat
+    // faster and reduces provider cost/quota usage without guessing at destructive
+    // memory actions.
+    const text = String(message ?? '').trim();
+    const memoryRelated = /\\b(remember|remind me|memor(?:y|ies)|forget|recall|save (?:this|that|it)|note that|what have i told you|what do you know about me)\\b/i.test(text);
+    if (!memoryRelated) {
+      return { intent: Intent.CONVERSATION, category: null, subject: null };
+    }
+
     const result = await this.router.complete(TaskType.SIMPLE, {
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: message }],
+      messages: [{ role: 'user', content: text }],
       maxTokens: 150,
     });
 
