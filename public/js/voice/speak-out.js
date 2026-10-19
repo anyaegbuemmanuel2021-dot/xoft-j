@@ -52,7 +52,7 @@ export function stopSpeaking() {
   setSpeechState('idle');
 }
 
-function speechChunks(text, limit = 220) {
+function speechChunks(text, limit = 650) {
   const words = text.split(/\s+/);
   const chunks = [];
   let current = '';
@@ -92,7 +92,7 @@ function browserSpeak(text, runId) {
       if (index >= chunks.length) return finish(true);
       const utterance = new SpeechSynthesisUtterance(chunks[index++]);
       utterance.lang = 'en-NG';
-      utterance.rate = 0.96;
+      utterance.rate = 1.04;
       utterance.pitch = 1;
       utterance.volume = 1;
       const voices = synth.getVoices?.() ?? [];
