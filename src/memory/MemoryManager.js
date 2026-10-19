@@ -93,7 +93,7 @@ export class MemoryManager {
       }
     }
 
-    const terms = [...new Set(String(query ?? '').toLowerCase().match(/[\\p{L}\\p{N}]+/gu) ?? [])]
+    const terms = [...new Set(String(query ?? '').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])]
       .filter((term) => term.length > 1);
     if (!terms.length) return [];
 
