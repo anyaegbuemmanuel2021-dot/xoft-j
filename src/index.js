@@ -435,6 +435,12 @@ function chatOwner(req, body = {}) {
   const supplied = typeof body.userId === 'string' ? body.userId.trim().slice(0, 80) : '';
   return supplied || (req.deviceAuth ? String(req.deviceAuth) : 'web-user');
 }
+app.get('/api/chats', (req, res) => {
+  const owner = chatOwner(req);
+  const index = durableStore?.get('chat-history-index:' + encodeURIComponent(owner));
+  const sessions = Array.isArray(index) ? index.slice(0, 100) : [];
+  res.json({ sessions });
+});
 app.get('/api/chats/:sessionId', (req, res) => {
   const id = String(req.params.sessionId || '').slice(0, 120);
   if (!id) return res.status(400).json({ error: 'sessionId is required' });
@@ -451,7 +457,15 @@ app.put('/api/chats/:sessionId', (req, res) => {
     .slice(-300).map((m) => ({ role: m.role, content: m.content.slice(0, 12000), at: typeof m.at === 'string' ? m.at.slice(0, 40) : new Date().toISOString() }));
   const owner = chatOwner(req, req.body);
   const updatedAt = new Date().toISOString();
-  if (durableStore) durableStore.set(chatHistoryKey(owner, id), { sessionId: id, messages: clean, updatedAt });
+  if (durableStore) {
+    durableStore.set(chatHistoryKey(owner, id), { sessionId: id, messages: clean, updatedAt });
+    const indexKey = 'chat-history-index:' + encodeURIComponent(owner);
+    const existing = durableStore.get(indexKey);
+    const sessions = Array.isArray(existing) ? existing.filter((item) => item && item.sessionId !== id) : [];
+    const title = clean.find((message) => message.role === 'user')?.content?.slice(0, 44) || 'New chat';
+    sessions.unshift({ sessionId: id, title, updatedAt, count: clean.length });
+    durableStore.set(indexKey, sessions.slice(0, 100));
+  }
   res.json({ ok: true, sessionId: id, count: clean.length, updatedAt, durable: Boolean(durableStore) });
 });
 
