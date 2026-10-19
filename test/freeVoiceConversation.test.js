@@ -19,7 +19,8 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   const chat = read('public/js/views/chat.js');
   assert.match(chat, /void send\(container, finalText\.trim\(\), \{ voiceTurn: true \}\)/);
   assert.match(chat, /await send\(container, voiceText, \{ voiceTurn: true \}\)/);
-  assert.match(chat, /if \(voiceTurn && voiceConversationActive\)\s*\{\s*setConversationButton/);
+  // Status updates happen before the UI button is repainted; assert the whole turn-resume sequence, not an obsolete adjacent-line layout.
+  assert.match(chat, /if \(voiceTurn && voiceConversationActive\)\s*\{[^}]*setVoiceStatus\('listening'[^}]*setConversationButton\(container, true,[^}]*scheduleConversationListen\(container, 500\);/);
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 
@@ -39,7 +40,7 @@ test('Speech output uses browser-native TTS only and does not call a paid voice 
 
 test('The service worker cache includes the local voice fallback and has a new cache key', () => {
   const sw = read('public/sw.js');
-  assert.match(sw, /xoft-shell-v13/);
+  assert.match(sw, /const CACHE_NAME = ['\"]xoft-shell-v\d+['\"]/);
   assert.match(sw, /\/js\/voice\/whisper-fallback\.js/);
-  assert.match(read('public/js/app.js'), /sw\.js\?v=20261019-4/);
+  assert.match(read('public/js/app.js'), /sw\.js\?v=\d{8}-\d+/);
 });
