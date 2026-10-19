@@ -17,13 +17,24 @@ function historyKey(id = sessionId()) { return 'xoft_chat_history_' + id; }
 function readHistory(id = sessionId()) { try { return JSON.parse(localStorage.getItem(historyKey(id)) || '[]'); } catch { return []; } }
 let history = readHistory();
 function recentSessions() { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; } }
+let serverHistoryReady = false;
+let serverHistorySaveTimer = null;
 function persistHistory() {
   try {
-    localStorage.setItem(historyKey(), JSON.stringify(history.slice(-300)));
+    const messages = history.slice(-300);
+    localStorage.setItem(historyKey(), JSON.stringify(messages));
     const list = recentSessions().filter(item => item.id !== sessionId());
     list.unshift({ id: sessionId(), title: history.find(m => m.role === 'user')?.content?.slice(0, 44) || 'New chat', updatedAt: new Date().toISOString() });
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 40)));
     renderRecentChats(document.querySelector('#content'));
+    if (serverHistoryReady) {
+      clearTimeout(serverHistorySaveTimer);
+      const id = sessionId();
+      serverHistorySaveTimer = setTimeout(() => {
+        void api.put('/api/chats/' + encodeURIComponent(id), { messages })
+          .catch(error => console.warn('[XOFT] Server chat sync failed; local history remains saved:', error));
+      }, 250);
+    }
   } catch { /* preserve chat usability when storage is full */ }
 }
 function renderRecentChats(root, query = '') {
@@ -69,6 +80,21 @@ export function render(container) {
   `;
   renderLog(container);
   renderRecentChats(container);
+  serverHistoryReady = false;
+  const openingSessionId = sessionId();
+  void api.get('/api/chats/' + encodeURIComponent(openingSessionId))
+    .then(saved => {
+      if (sessionId() !== openingSessionId) return;
+      const local = readHistory(openingSessionId);
+      if (!local.length && Array.isArray(saved.messages) && saved.messages.length) {
+        history = saved.messages.filter(m => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-300);
+        localStorage.setItem(historyKey(openingSessionId), JSON.stringify(history));
+        renderLog(container);
+        renderRecentChats(container);
+      }
+    })
+    .catch(error => console.warn('[XOFT] Server chat history unavailable; using local copy:', error))
+    .finally(() => { if (sessionId() === openingSessionId) serverHistoryReady = true; });
 
   onDelegate(container, 'click', '#chat-new', () => { const id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); history = []; persistHistory(); render(container); });
   onDelegate(container, 'click', '[data-recent-session]', (el) => { localStorage.setItem(SESSION_KEY, el.dataset.recentSession); history = readHistory(el.dataset.recentSession); render(container); });
