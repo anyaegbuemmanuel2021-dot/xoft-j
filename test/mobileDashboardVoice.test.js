@@ -10,12 +10,14 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 test('Chat has an accessible live voice status indicator with distinct states', () => {
   const chat = read('public/js/views/chat.js');
   const css = read('public/css/app.css');
-  for (const state of ['idle', 'listening', 'thinking', 'speaking']) {
+  // Idle is the base/default styling; only active states need explicit CSS selectors.
+  for (const state of ['listening', 'thinking', 'speaking']) {
     assert.ok(
       css.includes('data-state="' + state + '"') || css.includes('[data-state="' + state + '"]'),
       'missing voice styling for ' + state
     );
   }
+  assert.match(chat, /data-state="idle"/);
   assert.match(chat, /id="xoft-voice-status"/);
   assert.match(chat, /aria-live="polite"/);
   assert.match(chat, /setVoiceStatus\('listening'/);
