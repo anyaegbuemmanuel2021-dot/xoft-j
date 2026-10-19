@@ -126,7 +126,9 @@ function wireConnectivity() {
 
 function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* offline shell is best-effort */ });
+    navigator.serviceWorker.register('/sw.js?v=20261019-2', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch(() => { /* offline shell is best-effort */ });
   }
 }
 
