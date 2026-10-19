@@ -108,15 +108,31 @@ export function render(container) {
     .then(saved => {
       if (sessionId() !== openingSessionId) return;
       const local = readHistory(openingSessionId);
-      if (!local.length && Array.isArray(saved.messages) && saved.messages.length) {
-        history = saved.messages.filter(m => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-300);
+      const remote = Array.isArray(saved.messages)
+        ? saved.messages.filter(m => m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string').slice(-300)
+        : [];
+      const localLastAt = Date.parse(local.at(-1)?.at || '') || 0;
+      const remoteLastAt = Date.parse(remote.at(-1)?.at || saved.updatedAt || '') || 0;
+
+      // Restore the newest known copy instead of letting an old local cache silently
+      // hide newer messages saved from another browser/device.
+      if (remote.length && (!local.length || remoteLastAt > localLastAt)) {
+        history = remote;
         localStorage.setItem(historyKey(openingSessionId), JSON.stringify(history));
         renderLog(container);
-        renderRecentChats(container);
+      } else {
+        history = local;
       }
+      renderRecentChats(container);
     })
     .catch(error => console.warn('[XOFT] Server chat history unavailable; using local copy:', error))
-    .finally(() => { if (sessionId() === openingSessionId) serverHistoryReady = true; });
+    .finally(() => {
+      if (sessionId() !== openingSessionId) return;
+      serverHistoryReady = true;
+      // Upload an existing local-only/newer copy once the initial fetch has finished.
+      // This also repairs a previous failed sync without requiring another user message.
+      if (history.length) persistHistory();
+    });
 
   onDelegate(container, 'click', '#chat-new', () => { const id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); history = []; persistHistory(); render(container); });
   onDelegate(container, 'click', '[data-recent-session]', (el) => { localStorage.setItem(SESSION_KEY, el.dataset.recentSession); history = readHistory(el.dataset.recentSession); render(container); });
