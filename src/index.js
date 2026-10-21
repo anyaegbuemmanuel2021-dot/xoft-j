@@ -342,7 +342,7 @@ app.post('/webhooks/twilio/status', express.urlencoded({ extended: false }), (re
 // Real hardening: security headers + rate limiting on every API route, not
 // just a config flag that says "secure" — see SecurityAgent for the audit
 // that verifies these are actually active.
-app.use(helmet({
+const helmetMiddleware = helmet({
   contentSecurityPolicy: {
     directives: {
       ...helmet.contentSecurityPolicy.getDefaultDirectives(),
@@ -353,14 +353,16 @@ app.use(helmet({
       "worker-src": ["'self'", "blob:"],
     },
   },
-}));
-app.use('/api', rateLimit({
+});
+app.use(helmetMiddleware);
+const apiRateLimitMiddleware = rateLimit({
   windowMs: 60 * 1000,
   limit: Number(process.env.RATE_LIMIT_PER_MIN) || 300, // dashboard polling can generate many lightweight reads; retain a bounded per-IP ceiling
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'RATE_LIMIT_EXCEEDED', message: 'XOFT received too many API requests from this connection. Wait one minute, then retry. If this repeats during normal use, check dashboard polling.' },
-}));
+});
+app.use('/api', apiRateLimitMiddleware);
 
 // A second, much stricter limiter for routes that are expensive in a way
 // the general 120/min ceiling doesn't account for: real external API cost
@@ -1392,9 +1394,10 @@ app.post('/api/security/audit', expensiveLimit, async (_req, res) => {
       toolRegistry,
       emergencyStop,
       permissionSystem,
-      hasHelmet: true, // app.use(helmet()) above — verified structurally, this IS the check passing
-      hasRateLimit: true, // app.use('/api', rateLimit(...)) above
-      hasExpensiveEndpointRateLimit: true, // expensiveLimit applied to /api/media/image, /api/media/video, /api/security/audit above
+      app,
+      helmetMiddleware,
+      apiRateLimitMiddleware,
+      expensiveLimit,
     });
     res.json(report);
   } catch (err) {
