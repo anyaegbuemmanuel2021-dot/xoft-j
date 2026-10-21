@@ -783,7 +783,7 @@ app.post('/api/social/handles/:id/arm', (req, res) => {
   try { return res.json(socialHandles.arm(req.params.id)); }
   catch (err) { return res.status(404).json({ error: err.message }); }
 });
-app.post('/api/social/handles/:id/analyze', async (req, res) => {
+app.post('/api/social/handles/:id/analyze', expensiveLimit, async (req, res) => {
   try { return res.json(await socialHandles.analyze(req.params.id)); }
   catch (err) {
     const ai = aiErrorToHttp(err);
@@ -791,7 +791,7 @@ app.post('/api/social/handles/:id/analyze', async (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 });
-app.post('/api/social/handles/:id/drafts', async (req, res) => {
+app.post('/api/social/handles/:id/drafts', expensiveLimit, async (req, res) => {
   try { return res.json(await socialHandles.generateDraft(req.params.id, req.body ?? {})); }
   catch (err) {
     const ai = aiErrorToHttp(err);
