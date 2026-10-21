@@ -3,6 +3,7 @@ name: Dependency audit details
 on:
   push:
     branches:
+      - main
       - fix/memory-fallback-excellent
   pull_request:
     branches:
