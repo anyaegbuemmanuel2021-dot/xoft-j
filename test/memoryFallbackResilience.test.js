@@ -170,4 +170,3 @@ test('device memory scope exposes only shared and own memories and protects shar
   });
 });
 
-});
