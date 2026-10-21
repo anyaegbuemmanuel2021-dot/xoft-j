@@ -18,8 +18,11 @@ const SECRET_PATTERNS = [
   { name: 'Generic bearer-looking secret assigned as a literal', regex: /(?:secret|token|password|api_?key)\s*[:=]\s*['"][A-Za-z0-9_\-./+]{16,}['"]/gi },
 ];
 
-const SCANNABLE_EXTENSIONS = new Set(['.js', '.json', '.md', '.html']);
-const SKIP_DIRS = new Set(['node_modules', 'data', '.git']);
+const SCANNABLE_EXTENSIONS = new Set([
+  '.js', '.cjs', '.mjs', '.ts', '.tsx', '.jsx', '.json', '.md', '.html',
+  '.yml', '.yaml', '.env', '.example', '.sh', '.toml', '.txt', '.xml',
+]);
+const SKIP_DIRS = new Set(['node_modules', 'data', '.git', '.next', 'dist', 'coverage', '.cache', 'vendor']);
 
 /**
  * SecurityAgent — spec section 27 (SecurityAgent) / "protect itself from
@@ -27,7 +30,7 @@ const SKIP_DIRS = new Set(['node_modules', 'data', '.git']);
  * codebase and runtime state:
  *   - real `npm audit` dependency vulnerability scan
  *   - static regex scan of the source tree for hardcoded credentials
- *     (values are redacted in the report, never printed in full)
+ *     across tracked project/config/documentation files (values are redacted in the report)
  *   - config hardening checks against XOFT's own security posture
  *   - anomaly check over the existing activity log (repeated failures,
  *     approval denials) — pattern-level only, no new tracking added
@@ -103,19 +106,21 @@ export class SecurityAgent {
         }
         const lines = content.split('\n');
         for (const { name, regex } of SECRET_PATTERNS) {
-          for (const line of lines) {
-            const match = line.match(regex);
+          lines.forEach((line, index) => {
+            regex.lastIndex = 0;
+            const match = regex.exec(line);
             if (match) {
-              const lineNumber = lines.indexOf(line) + 1;
               const value = match[0];
               const redacted = value.length > 10 ? `${value.slice(0, 6)}...(redacted)` : '(redacted)';
-              findings.push({ file: path.relative(this.projectRoot, fullPath), line: lineNumber, type: name, redacted });
+              findings.push({ file: path.relative(this.projectRoot, fullPath), line: index + 1, type: name, redacted });
             }
-          }
+          });
         }
       }
     };
-    walk(path.join(this.projectRoot, 'src'));
+    // Scan the project, not just src: credentials can leak through workflow files,
+    // scripts, examples, tests, and deployment configuration too.
+    walk(this.projectRoot);
     return { ok: true, findings };
   }
 
@@ -210,9 +215,15 @@ export class SecurityAgent {
     const secrets = this.scanForExposedSecrets();
     const config = this.checkConfigHardening(deps);
 
+    const severity = dependencies.bySeverity ?? {};
+    const dependencyIssues = dependencies.ok
+      ? (dependencies.totalVulnerabilities > 0
+        ? [`Dependency vulnerabilities detected (critical: ${severity.critical ?? 0}, high: ${severity.high ?? 0}, moderate: ${severity.moderate ?? 0}, low: ${severity.low ?? 0})`]
+        : [])
+      : [`Dependency audit could not complete: ${dependencies.error ?? 'unknown scan error'}`];
     const criticalIssues = [
-      ...(dependencies.ok && dependencies.bySeverity?.critical > 0 ? [`${dependencies.bySeverity.critical} critical dependency vulnerability(ies)`] : []),
-      ...(secrets.findings.length > 0 ? [`${secrets.findings.length} possible hardcoded secret(s) found in source`] : []),
+      ...dependencyIssues,
+      ...(secrets.findings.length > 0 ? [`${secrets.findings.length} possible hardcoded secret(s) found in project files`] : []),
       ...(config.checks.filter((c) => !c.pass).map((c) => c.name)),
     ];
 
@@ -224,6 +235,12 @@ export class SecurityAgent {
       secrets,
       config,
       activity,
+      scope: {
+        dependencyAudit: 'npm audit against the current lockfile; requires registry/network access',
+        secretScan: 'pattern-based scan of project text/config files; may have false positives and cannot guarantee secret absence',
+        configurationChecks: 'selected runtime hardening checks, not an exhaustive route/permission audit',
+        notCovered: ['dynamic penetration testing', 'all API route authorization combinations', 'container/host hardening review', 'third-party service account review', 'supply-chain provenance/signature verification'],
+      },
     };
   }
 }
