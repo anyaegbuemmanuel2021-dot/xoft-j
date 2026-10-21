@@ -26,8 +26,8 @@ const MEMORY_STOP_WORDS = new Set([
 function memoryTokens(value) {
   return String(value ?? '')
     .normalize('NFKC')
-    .toLocaleLowerCase()
-    .match(/[\\p{L}\\p{N}]+/gu) ?? [];
+    .toLowerCase()
+    .match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
 /**
