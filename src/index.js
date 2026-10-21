@@ -581,7 +581,9 @@ function memoryEntryMutable(req, entry) {
 // GET /api/memory?category=&textIncludes=&tag=&relatedDeviceId=&markAccessed=true -> structured memory entries
 app.get('/api/memory', (req, res) => {
   const { category, textIncludes, tag, relatedDeviceId, markAccessed } = req.query;
-  const results = memory.recallStructured({ category, textIncludes, tag, relatedDeviceId, markAccessed: markAccessed === 'true' });
+  const results = memory.withScope(req.deviceAuth ?? null, () =>
+    memory.recallStructured({ category, textIncludes, tag, relatedDeviceId, markAccessed: markAccessed === 'true' })
+  );
   res.json(results.filter((e) => memoryEntryAccessible(req, e)));
 });
 
