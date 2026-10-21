@@ -120,4 +120,18 @@ describe('ApprovalSystem — restart survival', () => {
     assert.equal(resumed.status, 'failed');
     assert.equal(getCalls(), 0, 'a rejected step must never actually run');
   });
+
+  test('an approval decision cannot be replayed or reversed', () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-approval-one-way-'));
+    const activityLog = new ActivityLog({ dataDir });
+    const eventBus = new EventBus({ activityLog });
+    const { tool } = makeExternalTool('test.one_way_approval');
+    const system = new ApprovalSystem({ activityLog, eventBus, dataDir });
+    const { approvalId } = system.evaluate({ tool, input: { to: 'jane' }, taskId: 'task-one-way' });
+
+    assert.equal(system.approve(approvalId).status, 'approved');
+    assert.throws(() => system.approve(approvalId), /no pending approval/);
+    assert.throws(() => system.reject(approvalId), /no pending approval/);
+    assert.equal(system.get(approvalId).status, 'approved');
+  });
 });
