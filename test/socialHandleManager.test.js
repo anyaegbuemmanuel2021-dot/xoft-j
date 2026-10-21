@@ -8,7 +8,7 @@ import { SocialHandleManager } from '../src/social/SocialHandleManager.js';
 function fixture(router = { async complete(_task, params) { return { text: params.messages[1].content.includes('Create a') ? 'Original draft' : 'Style analysis', provider: 'mock' }; } }) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-social-test-'));
   const manager = new SocialHandleManager({ dataDir, router });
-  return { manager, cleanup: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
+  return { manager, dataDir, router, cleanup: () => fs.rmSync(dataDir, { recursive: true, force: true }) };
 }
 
 test('new handles start stopped and duplicate platform handles are rejected case-insensitively', () => {
@@ -34,9 +34,9 @@ test('kill switch disables only the selected handle and state persists across ma
     assert.equal(stopped.workflowEnabled, false);
     assert.match(stopped.killReason, /emergency stop/);
     assert.equal(f.manager.list().find((x) => x.id === b.id).workflowEnabled, true);
-    const reopened = new SocialHandleManager({ dataDir: path.dirname(path.join(f.manager.store?.filePath ?? '', '')) });
-    // The persisted state assertion is made through the original manager, whose store is authoritative.
-    assert.equal(f.manager.list().find((x) => x.id === a.id).killSwitch, true);
+    const reopened = new SocialHandleManager({ dataDir: f.dataDir, router: f.router });
+    assert.equal(reopened.list().find((x) => x.id === a.id).killSwitch, true);
+    assert.equal(reopened.list().find((x) => x.id === b.id).workflowEnabled, true);
   } finally { f.cleanup(); }
 });
 

@@ -29,6 +29,15 @@ export async function render(container) {
     const payload = { platform: value('social-platform'), handle: value('social-handle'), profileUrl: value('social-url'), niche: value('social-niche'), audience: value('social-audience'), notes: value('social-notes'), samplePosts };
     await guarded(async () => { await api.post('/api/social/handles', payload); toast('Handle added and safely paused', 'ok'); await render(container); }, 'Add social handle');
   });
+  onDelegate(container, 'click', '[data-copy-draft]', async (el) => {
+    const text = el.closest('details')?.querySelector('.social-output')?.textContent ?? '';
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Draft copied', 'ok');
+    } catch {
+      toast('Clipboard unavailable — select and copy the draft text manually', 'warn');
+    }
+  });
   onDelegate(container, 'click', '[data-social-action]', async (el) => {
     const cardNode = el.closest('[data-social-card]');
     const id = cardNode?.dataset.socialCard;
@@ -86,6 +95,7 @@ function renderHandle(handle) {
   return card(`${handle.platform} · @${handle.handle}`, `
     <div data-social-card="${esc(handle.id)}">
       <div class="inline">${badge(state, stateTone)}<span class="muted">${esc(handle.profileUrl || 'No profile URL')}</span></div>
+      <div class="form-row"><label>Profile URL (reference only)</label><input data-url type="url" maxlength="500" value="${esc(handle.profileUrl || '')}" placeholder="https://…" /></div>
       <div class="form-row"><label>Niche</label><input data-niche maxlength="160" value="${esc(handle.niche || '')}" /></div>
       <div class="form-row"><label>Audience</label><input data-audience maxlength="300" value="${esc(handle.audience || '')}" /></div>
       <div class="form-row"><label>Profile notes</label><textarea data-notes maxlength="3000">${esc(handle.notes || '')}</textarea></div>
