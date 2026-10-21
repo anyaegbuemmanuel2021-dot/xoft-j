@@ -1,4 +1,24 @@
 import { WebSocketServer } from 'ws';
+import { EventType } from '../events/EventBus.js';
+
+// Device credentials are not dashboard credentials. A device socket may
+// receive only events explicitly classified as device-scoped, and only when
+// the payload names that same authenticated device.
+const DEVICE_EVENT_TYPES = new Set([
+  EventType.DEVICE_CONNECTED,
+  EventType.DEVICE_REVOKED,
+  EventType.DEVICE_TRUSTED,
+  EventType.DEVICE_ONLINE,
+  EventType.DEVICE_OFFLINE,
+  EventType.DEVICE_STATE_UPDATED,
+  EventType.DEVICE_BATTERY_LOW,
+  EventType.DEVICE_CAPABILITIES_UPDATED,
+  EventType.DEVICE_COMMAND_QUEUED,
+  EventType.DEVICE_COMMAND_STARTED,
+  EventType.DEVICE_COMMAND_COMPLETED,
+  EventType.DEVICE_COMMAND_FAILED,
+  EventType.DEVICE_SECURITY_ALERT,
+]);
 
 /**
  * RealtimeServer — bridges the existing in-process EventBus to WebSocket
@@ -38,13 +58,14 @@ export class RealtimeServer {
     }
 
     this.wss.on('connection', (ws, req) => {
-      if (!this._authenticate(req)) {
-        // 4401 (a private-use close code) rather than just severing the
-        // socket, so a well-behaved client can distinguish "rejected" from
-        // "network blip" and knows retrying with the same credentials is pointless.
+      const auth = this._authenticate(req);
+      if (!auth) {
+        // 4401 (a private-use close code) distinguishes invalid credentials
+        // from a network interruption.
         ws.close(4401, 'unauthorized');
         return;
       }
+      ws.xoftAuth = auth;
       this.clients.add(ws);
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });
@@ -82,30 +103,89 @@ export class RealtimeServer {
   }
 
   /**
-   * Browsers can't set custom headers on a WebSocket handshake, so the same
-   * shared API key / device token accepted via header on REST is also
-   * accepted as a `?key=` query param here — same credential, same
-   * `config.auth.apiKeys` / DeviceTokenService check as `/api/*`, not a
-   * separate weaker auth path.
+   * Authenticated identity is kept on the connection for authorization on
+   * every broadcast. This is important because a device token is scoped to
+   * one device and can be revoked while its WebSocket is already open.
+   *
+   * Query-string credentials remain accepted for backwards compatibility
+   * with browser clients; clients should prefer first-party secure session
+   * auth or headers wherever the platform permits because URLs can be logged.
    */
   _authenticate(req) {
-    if (!this.apiKeys.length) return true; // matches REST's own "open on localhost by default" behavior
     let key = null;
     try {
       key = new URL(req.url, 'http://localhost').searchParams.get('key');
     } catch { /* fall through to header */ }
     key = key ?? req.headers['x-api-key'] ?? null;
-    if (key && this.apiKeys.includes(key)) return true;
+
+    if (key && this.apiKeys.includes(key)) return { kind: 'admin' };
+
     const deviceId = key && this.deviceTokenService ? this.deviceTokenService.verify(key) : null;
-    return Boolean(deviceId);
+    if (deviceId) return { kind: 'device', deviceId, token: key };
+
+    // Preserve the existing open-local-development mode only when no shared
+    // API keys are configured. A valid device token above is still identified
+    // and scoped even in this mode.
+    if (!this.apiKeys.length) return { kind: 'open' };
+    return null;
+  }
+
+  _closeRevokedDeviceSocket(ws, code = 4401, reason = 'unauthorized') {
+    this.clients.delete(ws);
+    try {
+      if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+        ws.close(code, reason);
+      }
+    } catch {
+      ws.terminate();
+    }
+  }
+
+  _mayReceiveEvent(ws, event) {
+    const auth = ws.xoftAuth;
+    if (!auth || auth.kind !== 'device') return true;
+
+    // Device revocation is emitted before its stored tokens are invalidated.
+    // Close that device's stream synchronously on this event so there is no
+    // race window in which it can keep receiving privileged/global events.
+    if (event?.type === EventType.DEVICE_REVOKED && event.payload?.deviceId === auth.deviceId) {
+      this._closeRevokedDeviceSocket(ws, 4403, 'device revoked');
+      return false;
+    }
+
+    // Re-check stored credentials as defense in depth for any token revocation
+    // path that did not emit a device_revoked event through this EventBus.
+    const liveDeviceId = this.deviceTokenService?.verify(auth.token);
+    if (liveDeviceId !== auth.deviceId) {
+      this._closeRevokedDeviceSocket(ws, 4401, 'device token revoked');
+      return false;
+    }
+
+    // Deny by default: engine status, chat, approvals, task state, memory and
+    // all other global/server events are dashboard-only. Device clients may
+    // see only explicitly allowlisted device events for their own identity.
+    return DEVICE_EVENT_TYPES.has(event?.type)
+      && event?.payload?.deviceId === auth.deviceId;
   }
 
   broadcast(event) {
     if (!this.wss || this.clients.size === 0) return;
-    const payload = JSON.stringify(event);
+    let payload;
+    try {
+      payload = JSON.stringify(event);
+    } catch (err) {
+      this.activityLog?.log({ type: 'realtime_serialize_failed', detail: { error: err?.message ?? String(err) } });
+      return;
+    }
+
     for (const ws of this.clients) {
-      if (ws.readyState === ws.OPEN) {
-        try { ws.send(payload); } catch { this.clients.delete(ws); }
+      if (ws.readyState !== ws.OPEN) continue;
+      if (!this._mayReceiveEvent(ws, event)) continue;
+      try {
+        ws.send(payload);
+      } catch {
+        this.clients.delete(ws);
+        try { ws.terminate(); } catch { /* already closed */ }
       }
     }
   }
