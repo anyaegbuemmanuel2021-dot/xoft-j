@@ -5,7 +5,7 @@
 // per-endpoint. A service-worker-level cache for API calls would just be a
 // second, dumber cache fighting the first one.
 
-const CACHE_NAME = 'xoft-shell-v15';
+const CACHE_NAME = 'xoft-shell-v16';
 const SHELL_FILES = [
   '/',
   '/index.html',
@@ -49,6 +49,7 @@ const SHELL_FILES = [
   '/js/views/activity.js',
   '/js/views/settings.js',
   '/js/views/integrations.js',
+  '/js/views/social.js',
   '/js/views/aiGateways.js',
   '/js/views/runtime.js',
   '/js/views/engines.js',
