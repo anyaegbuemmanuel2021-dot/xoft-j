@@ -122,4 +122,51 @@ test('forget removes a vector twin by metadata without retrying a failed embeddi
     assert.equal(embedCalls, 1, 'forget must not call the embeddings provider');
     assert.equal(manager.vectorEnabled, true, 'provider status is unrelated to metadata-only deletion');
   });
+
+test('device memory scope exposes only shared and own memories and protects shared/other-device mutations', async () => {
+  await withDataDir(async (dataDir) => {
+    const manager = new MemoryManager({
+      dataDir,
+      router: { selectEmbedding() { throw new Error('no embedding provider'); } },
+    });
+
+    const shared = await manager.remember('preference', 'global preference citrus orange');
+    const ownA = await manager.withScope('device-a', () =>
+      manager.remember('fact', 'deviceA secret violet')
+    );
+    const ownB = await manager.withScope('device-b', () =>
+      manager.remember('fact', 'deviceB private emerald')
+    );
+
+    await manager.withScope('device-a', async () => {
+      const visible = manager.recallStructured();
+      assert.ok(visible.some((entry) => entry.id === shared.longTermId), 'shared entries remain readable');
+      assert.ok(visible.some((entry) => entry.id === ownA.longTermId), 'a device can read its own entries');
+      assert.ok(!visible.some((entry) => entry.id === ownB.longTermId), 'another device private entry must be invisible');
+
+      const semantic = await manager.recallSemantic('deviceB private emerald', 5);
+      assert.ok(!semantic.some((entry) => entry.id === ownB.longTermId), 'lexical fallback must enforce the same scope');
+
+      await assert.rejects(
+        manager.forgetById(shared.longTermId),
+        /may only delete memory scoped to that same device/
+      );
+      await assert.rejects(
+        manager.forgetById(ownB.longTermId),
+        /may only delete memory scoped to that same device/
+      );
+      assert.throws(
+        () => manager.update(shared.longTermId, { tags: ['device-a'] }),
+        /may only modify memory scoped to that same device/
+      );
+      assert.equal(await manager.forgetWhere({ textIncludes: 'citrus orange' }), 0, 'device tokens cannot delete shared memory');
+      assert.equal(await manager.forgetWhere({ textIncludes: 'deviceA secret' }), 1, 'device tokens can delete their own memory');
+    });
+
+    assert.ok(manager.long.getById(shared.longTermId), 'shared memory must remain intact');
+    assert.ok(manager.long.getById(ownB.longTermId), 'other-device memory must remain intact');
+    assert.equal(manager.long.getById(ownA.longTermId), null, 'own scoped deletion should succeed');
+  });
+});
+
 });
