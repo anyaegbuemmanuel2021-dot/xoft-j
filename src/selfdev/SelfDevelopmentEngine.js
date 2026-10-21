@@ -64,7 +64,14 @@ export class SelfDevelopmentEngine {
     // resolve symlinks on the existing part so a link cannot point outside
     let probe = abs;
     while (!fs.existsSync(probe) && probe !== this.repoRoot) probe = path.dirname(probe);
-    if (fs.existsSync(probe) && !fs.realpathSync(probe).startsWith(fs.realpathSync(this.repoRoot))) throw new Error(`Path resolves outside the repository: ${rel}`);
+    if (fs.existsSync(probe)) {
+      const realRoot = fs.realpathSync(this.repoRoot);
+      const realProbe = fs.realpathSync(probe);
+      const realRelative = path.relative(realRoot, realProbe);
+      if (realRelative === '..' || realRelative.startsWith(`..${path.sep}`) || path.isAbsolute(realRelative)) {
+        throw new Error(`Path resolves outside the repository: ${rel}`);
+      }
+    }
     return norm;
   }
 
