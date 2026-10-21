@@ -36,6 +36,16 @@ test('symlink targets sharing the repository path prefix cannot escape containme
   fs.rmSync(outside, { recursive: true, force: true });
 });
 
+test('selfdev test copy excludes environment secrets and does not symlink dependencies', () => {
+  const { root, eng } = repo();
+  fs.writeFileSync(path.join(root, '.env'), 'OPENAI_API_KEY=fixture-secret-do-not-copy\n');
+  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'sd-copy-'));
+  eng._copyRepo(dest);
+  assert.equal(fs.existsSync(path.join(dest, '.env')), false, 'secret env file must not enter test copy');
+  assert.equal(fs.lstatSync(dest).isDirectory(), true);
+  fs.rmSync(dest, { recursive: true, force: true });
+});
+
 test('propose never touches the live tree; sandbox test passes only when the change is good', async () => {
   const { root, eng } = repo();
   const good = eng.propose({ title: 'v2', files: { 'src/util.js': 'export const v = 2;\n' } });
