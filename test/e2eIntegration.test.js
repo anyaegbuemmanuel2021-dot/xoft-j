@@ -115,12 +115,16 @@ describe('device lifecycle + scoped memory + realtime + revocation', { concurren
       const mem = await server.call('POST', '/api/memory', { category: 'device', content: 'has 512GB SSD', relatedDeviceId: reg.body.id });
       assert.equal(mem.status, 201);
 
-      const ws = new WebSocket(`ws://127.0.0.1:36001/ws?key=${ADMIN}`);
+      // Browser-safe WS authentication: keep the bearer key out of the URL
+      // and send it only in the first message after the connection opens.
+      const ws = new WebSocket('ws://127.0.0.1:36001/ws');
       await new Promise((resolve, reject) => {
         const t = setTimeout(() => reject(new Error('ws did not open in time')), 3000);
         ws.once('open', () => { clearTimeout(t); resolve(); });
       });
-      await waitForMessage(ws);
+      const connected = waitForMessage(ws);
+      ws.send(JSON.stringify({ type: 'authenticate', token: ADMIN }));
+      await connected;
 
       // Other legitimate events (for example engine.status) may arrive on this socket
       // between the handshake and this action. Wait for the exact event under test,
