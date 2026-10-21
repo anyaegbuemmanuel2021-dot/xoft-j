@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
 
 permissions:
   contents: read
@@ -36,8 +38,25 @@ jobs:
           while IFS= read -r -d '' file; do
             node --check "$file"
           done < <(find src public/js -type f -name '*.js' -print0)
-      - name: Audit production and development dependencies
-        run: npm audit --audit-level=high
+      - name: Audit dependencies and retain machine-readable report
+        id: dependency_audit
+        continue-on-error: true
+        run: npm audit --audit-level=high --json > npm-audit.json
+
+      - name: Upload npm audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report-${{ github.run_id }}
+          path: npm-audit.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Enforce dependency audit gate
+        if: steps.dependency_audit.outcome == 'failure'
+        run: |
+          echo "Dependency audit failed. Download the npm-audit-report artifact for details."
+          exit 1
       - name: Run automated tests
         run: npm test
       - name: Build deployment image
