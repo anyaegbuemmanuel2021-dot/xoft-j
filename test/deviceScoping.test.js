@@ -171,4 +171,48 @@ describe('Per-device token scoping (Phase 3F)', { concurrency: false }, () => {
     }
   });
 
+
+  test('device memory writes stay private and cannot be reclassified as shared', async () => {
+    const server = await bootServer(35806);
+    try {
+      const a = await server.registerAndTrust('device-memory-a');
+      const created = await server.call('POST', '/api/memory', {
+        key: a.token,
+        body: { category: 'fact', content: 'private device memory value' },
+      });
+      assert.equal(created.status, 201);
+      const privateId = created.body.longTermId;
+
+      const privateEntry = await server.call('GET', '/api/memory', { key: a.token });
+      assert.ok(privateEntry.body.some((entry) => entry.id === privateId && entry.relatedDeviceId === a.deviceId));
+
+      const attemptedShare = await server.call('PATCH', `/api/memory/${privateId}`, {
+        key: a.token,
+        body: { relatedDeviceId: null },
+      });
+      assert.equal(attemptedShare.status, 403, 'a device cannot promote private memory into shared memory');
+
+      const shared = await server.call('POST', '/api/memory', {
+        key: ADMIN_KEY,
+        body: { category: 'fact', content: 'shared memory is readable but admin-owned' },
+      });
+      assert.equal(shared.status, 201);
+
+      const editShared = await server.call('PATCH', `/api/memory/${shared.body.longTermId}`, {
+        key: a.token,
+        body: { content: 'changed by device' },
+      });
+      assert.equal(editShared.status, 403);
+
+      const deleteShared = await server.call('DELETE', `/api/memory/${shared.body.longTermId}`, { key: a.token });
+      assert.equal(deleteShared.status, 403);
+
+      const deleteOwn = await server.call('DELETE', `/api/memory/${privateId}`, { key: a.token });
+      assert.equal(deleteOwn.status, 200);
+      assert.equal(deleteOwn.body.removed, true);
+    } finally {
+      server.stop();
+    }
+  });
+
 });
