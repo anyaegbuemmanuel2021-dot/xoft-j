@@ -800,8 +800,8 @@ app.get('/api/experiences', (req, res) => {
 });
 
 // GET /api/realtime/status -> is the WebSocket bridge up, and how many
-// clients are attached right now. Connect to ws(s)://<host>/ws?key=<apiKey>
-// for the actual event stream (same key /api/* accepts).
+// clients are attached right now. Connect to ws(s)://<host>/ws and send
+// {"type":"authenticate","token":"<apiKey>"} as the first frame. Do not put credentials in URLs.
 app.get('/api/realtime/status', (_req, res) => {
   res.json({ available: Boolean(realtimeServer?.wss), clients: realtimeServer?.clientCount() ?? 0 });
 });
