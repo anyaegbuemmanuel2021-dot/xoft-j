@@ -200,19 +200,17 @@ export class MemoryManager {
 
   // --- forgetting ---
   /** Forgets a single structured entry (and its vector twin, if any) by long-term id. */
+  /**
+   * Structured memory is authoritative. Remove its vector twin by exact stored
+   * metadata, not semantic search; this works offline, costs no API calls, and
+   * prevents forgotten content from resurfacing after a restart.
+   */
   async forgetById(longTermId) {
     const entry = this.long.getById(longTermId);
     const removedStructured = this.long.forget(longTermId);
-    if (this.vectorEnabled && entry) {
+    if (this.vector && entry) {
       try {
-        // Vector cleanup is best-effort. A provider outage must never resurrect
-        // or prevent deletion of the authoritative structured-memory record.
-        const matches = await this.vector.search(entry.content, 50);
-        for (const match of matches) {
-          if (match.metadata?.longTermId === longTermId) {
-            await this.vector.remove(match.id);
-          }
-        }
+        this.vector.removeByMetadata('longTermId', longTermId);
       } catch (error) {
         this.vectorEnabled = false;
         const code = error?.status ?? error?.statusCode ?? error?.code;
