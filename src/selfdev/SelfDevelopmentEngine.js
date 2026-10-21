@@ -22,12 +22,14 @@ export const PROTECTED = [
   'src/tools/ToolRegistry.js', 'src/tools/Tool.js', '.env', '.git/', 'node_modules/', 'data/', 'package-lock.json',
 ];
 const COPY_EXCLUDE = new Set(['node_modules', '.git', 'data']);
+const SANDBOX_ENV_ALLOWLIST = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'HOME', 'USERPROFILE', 'LANG', 'LC_ALL', 'CI'];
 const MAX_FILES = 20;
 const MAX_BYTES = 300_000;
 
 function run(cmd, args, { cwd, timeoutMs }) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, NODE_ENV: 'test' } });
+    const safeEnv = Object.fromEntries(SANDBOX_ENV_ALLOWLIST.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...safeEnv, NODE_ENV: 'test' } });
     let out = '';
     const cap = (d) => { out = (out + d).slice(-20_000); };
     child.stdout.on('data', cap); child.stderr.on('data', cap);
@@ -100,9 +102,25 @@ export class SelfDevelopmentEngine {
   }
 
   _copyRepo(dest) {
-    fs.cpSync(this.repoRoot, dest, { recursive: true, filter: (src) => !COPY_EXCLUDE.has(path.basename(src)) });
-    const nm = path.join(this.repoRoot, 'node_modules');
-    if (fs.existsSync(nm)) fs.symlinkSync(fs.realpathSync(nm), path.join(dest, 'node_modules'), 'dir');
+    const root = path.resolve(this.repoRoot);
+    fs.cpSync(root, dest, {
+      recursive: true,
+      dereference: true,
+      filter: (src) => {
+        const base = path.basename(src);
+        if (COPY_EXCLUDE.has(base)) return false;
+        // Never place runtime credentials or symlinks to host files in the test copy.
+        if (/^\.env(?:\.|$)/i.test(base) && base !== '.env.example') return false;
+        try { if (fs.lstatSync(src).isSymbolicLink()) return false; } catch { return false; }
+        return true;
+      },
+    });
+    // Do not symlink live dependencies into the test copy: untrusted proposed
+    // code could otherwise mutate the production project's node_modules.
+    const nm = path.join(root, 'node_modules');
+    if (fs.existsSync(nm)) {
+      fs.cpSync(nm, path.join(dest, 'node_modules'), { recursive: true, dereference: true });
+    }
   }
 
   async sandboxTest(id) {
