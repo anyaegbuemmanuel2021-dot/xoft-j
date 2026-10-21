@@ -13,8 +13,8 @@ let manuallyClosed = false;
 
 function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const key = localStorage.getItem('xoft_api_key');
-  return `${proto}//${location.host}/ws${key ? '?key=' + encodeURIComponent(key) : ''}`;
+  // Never put bearer credentials in the URL: proxies/access logs can retain them.
+  return `${proto}//${location.host}/ws`;
 }
 
 export function isConnected() {
@@ -34,6 +34,14 @@ export function connect() {
 
   socket.addEventListener('open', () => {
     backoffMs = 1000;
+    const token = localStorage.getItem('xoft_api_key');
+    if (token) {
+      try {
+        socket.send(JSON.stringify({ type: 'authenticate', token }));
+      } catch {
+        socket.close();
+      }
+    }
     wsEvents.dispatchEvent(new Event('open'));
   });
 
