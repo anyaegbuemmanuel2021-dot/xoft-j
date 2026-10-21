@@ -623,8 +623,10 @@ app.patch('/api/memory/:id', (req, res) => {
   const entry = memory.long.getById(req.params.id);
   if (!entry) return res.status(404).json({ error: 'no such memory entry' });
   if (!memoryEntryMutable(req, entry)) return res.status(403).json({ error: 'A device token may only edit memory scoped to that device; shared memory requires the admin key.' });
-  try { res.json(memory.update(req.params.id, req.body ?? {})); }
-  catch (err) { res.status(403).json({ error: err.message }); }
+  try {
+    const updated = memory.withScope(req.deviceAuth ?? null, () => memory.update(req.params.id, req.body ?? {}));
+    res.json(updated);
+  } catch (err) { res.status(403).json({ error: err.message }); }
 });
 
 // POST /api/memory/:id/correct { content, reason?, confidence? } -> first-class
