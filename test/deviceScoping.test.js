@@ -145,4 +145,30 @@ describe('Per-device token scoping (Phase 3F)', { concurrency: false }, () => {
       server.stop();
     }
   });
+
+  test('device credentials are restricted to device-scoped routes', async () => {
+    const server = await bootServer(35805);
+    try {
+      const a = await server.registerAndTrust('device-limited-a');
+      const ownStopStatus = await server.call('GET', '/api/emergency-stop', { key: a.token });
+      assert.equal(ownStopStatus.status, 200);
+
+      for (const route of ['/api/tasks', '/api/approvals', '/api/knowledge-graph/stats']) {
+        const response = await server.call('GET', route, { key: a.token });
+        assert.equal(response.status, 403, `unexpected access to ${route}`);
+      }
+
+      const writeStop = await server.call('POST', '/api/emergency-stop/deactivate', { key: a.token });
+      assert.equal(writeStop.status, 403);
+
+      const register = await server.call('POST', '/api/devices', {
+        key: a.token,
+        body: { name: 'device-escalation-attempt', platform: 'desktop' },
+      });
+      assert.equal(register.status, 403);
+    } finally {
+      server.stop();
+    }
+  });
+
 });
