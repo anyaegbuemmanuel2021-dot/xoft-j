@@ -102,8 +102,12 @@ export class Orchestrator {
     });
 
     let semantic = [];
-    if (this.memory.vectorEnabled) {
+    try {
+      // MemoryManager chooses vector search or a local lexical fallback. Do not
+      // skip recall just because embedding credits are absent/exhausted.
       semantic = await this.memory.recallSemantic(message, 5);
+    } catch {
+      // Memory retrieval must not block the user's explicit recall request.
     }
 
     const merged = new Map();
@@ -122,16 +126,16 @@ export class Orchestrator {
     const conversation = this.memory.getConversation(sessionId);
 
     let memoryContext = '';
-    if (this.memory.vectorEnabled) {
-      try {
-        const relevant = await this.memory.recallSemantic(message, 3);
-        const useful = relevant.filter((r) => r.score > 0.75);
-        if (useful.length) {
-          memoryContext = `\n\nMEMORY CONTEXT:\n${useful.map((r) => `- ${r.content}`).join('\n')}`;
-        }
-      } catch {
-        // Semantic recall unavailable — proceed without it, don't block the reply.
+    try {
+      // Always attempt retrieval. MemoryManager uses semantic vectors when
+      // healthy and deterministic local lexical recall when they're unavailable.
+      const relevant = await this.memory.recallSemantic(message, 3);
+      const useful = relevant.filter((r) => r.score > 0.75);
+      if (useful.length) {
+        memoryContext = `\n\nMEMORY CONTEXT:\n${useful.map((r) => `- ${r.content}`).join('\n')}`;
       }
+    } catch {
+      // Memory retrieval must never block the reply.
     }
 
     const personalityFragment = this.personality ? `\n\n${this.personality.describeForPrompt()}` : '';
