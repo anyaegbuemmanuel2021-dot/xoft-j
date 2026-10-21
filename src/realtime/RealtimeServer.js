@@ -26,13 +26,11 @@ const DEVICE_EVENT_TYPES = new Set([
  * the event bus; it's a thin broadcast layer on top of both.
  *
  * Deliberately minimal for the target hardware (single low-end machine,
- * single-user assistant): no per-client topic subscriptions, no message
- * queue infrastructure, no reconnection protocol beyond what `ws` gives for
- * free — every event goes to every connected client, and a client that
- * misses one because it was briefly disconnected is expected to re-sync via
- * the existing REST GET endpoints (`/api/tasks`, `/api/events`, etc.) on
- * reconnect, the same "REST remains the source of truth, WebSocket is a
- * push convenience" split the spec asks for.
+ * single-user assistant): no message queue infrastructure or replay log.
+ * Admin connections receive the full event stream; device-token connections
+ * are restricted to an explicit allowlist of events scoped to their own
+ * device. A client that misses an event while disconnected re-syncs through
+ * the REST endpoints, keeping REST as the source of truth.
  *
  * If `ws` fails to bind for any reason, the whole thing degrades to a no-op
  * (`this.wss` stays null) rather than crashing the process — REST keeps
@@ -120,7 +118,7 @@ export class RealtimeServer {
     }, heartbeatMs);
     this._heartbeat.unref?.();
 
-    // Bridge: every EventBus event goes out to every connected client.
+    // Bridge EventBus events; broadcast() applies per-connection authorization.
     if (this.eventBus) {
       const forward = (event) => this.broadcast(event);
       this.eventBus.on('*', forward);
@@ -156,10 +154,10 @@ export class RealtimeServer {
     const deviceId = key && this.deviceTokenService ? this.deviceTokenService.verify(key) : null;
     if (deviceId) return { kind: 'device', deviceId, token: key };
 
-    // Preserve the existing open-local-development mode only if no keys and
-    // no credentials are configured. A valid per-device token above still
-    // receives device-only authorization even in this mode.
-    if (!this.apiKeys.length && !key) return { kind: 'open' };
+    // Preserve the existing open-local-development mode when no admin keys
+    // are configured. If a valid device token was supplied, it was identified
+    // above and is still restricted to its own event stream.
+    if (!this.apiKeys.length) return { kind: 'open' };
     return null;
   }
 
