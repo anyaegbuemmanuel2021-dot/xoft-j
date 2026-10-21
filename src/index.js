@@ -327,7 +327,6 @@ app.post('/webhooks/twilio/status', express.urlencoded({ extended: false }), (re
   // Fail closed: never accept unauthenticated status callbacks when the public
   // URL is missing. Prefer Twilio's exact configured callback URL so signature
   // validation matches the URL Twilio signed, including any proxy/base-path.
-  const expectedUrl = config.twilio.statusCallbackUrl
   const publicBaseUrl = config.twilio.publicBaseUrl.endsWith('/')
     ? config.twilio.publicBaseUrl.slice(0, -1)
     : config.twilio.publicBaseUrl;
