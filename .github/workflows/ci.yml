@@ -12,6 +12,8 @@ jobs:
       - uses: actions/setup-node@v7
         with: { node-version: 22, cache: npm }
       - run: npm ci
+      - name: Audit production and development dependencies for high-severity vulnerabilities
+        run: npm audit --audit-level=high
       - run: npm test
       - run: node --check src/index.js
       - run: node --check src/integrations/WhatsAppInboxStore.js
