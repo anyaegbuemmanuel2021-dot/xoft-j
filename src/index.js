@@ -457,11 +457,18 @@ app.post('/api/chat', async (req, res) => {
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
+  if (String(sessionId).length > 120) {
+    return res.status(400).json({ error: 'sessionId must be 120 characters or fewer' });
+  }
   try {
-    // Optional body.userId lets several people share one login/device and still be addressed correctly.
-    const who = typeof userId === 'string' && userId.trim() ? userId.trim().slice(0, 80) : (req.deviceAuth ?? 'web-user');
+    // Device credentials are the authoritative user identity; never allow a
+    // device to select another user's profile or short-term conversation
+    // buffer by spoofing userId/sessionId in the request body.
+    const suppliedUserId = typeof userId === 'string' && userId.trim() ? userId.trim().slice(0, 80) : 'web-user';
+    const who = req.deviceAuth ? String(req.deviceAuth) : suppliedUserId;
+    const scopedSessionId = req.deviceAuth ? `device:${req.deviceAuth}:${String(sessionId)}` : String(sessionId);
     const result = await memory.withScope(req.deviceAuth ?? null, () =>
-      channelGateway.handle({ channel: 'web', userId: who, sessionId, message })
+      channelGateway.handle({ channel: 'web', userId: who, sessionId: scopedSessionId, message })
     );
     res.json(result);
   } catch (err) {
