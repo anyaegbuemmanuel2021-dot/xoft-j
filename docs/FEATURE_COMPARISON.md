@@ -83,6 +83,8 @@ Status key:
 | 57 | Specialist agents (research/code/data/writing, auto-routed or explicit) | READY | any 1 AI key | `src/agents/specialists/` |
 | 58 | Per-domain autonomy (files/browser/devices/communication/social/finance/memory) | LIVE | — | `src/autonomy/DomainAutonomy.js` |
 | 59 | Live checks of WhatsApp/Twilio/AI-provider reachability (real API calls, not just isConfigured()) | READY | WhatsApp/Twilio credentials for those two; AI providers already covered by #1 | `WhatsAppService.checkLive()`, `TwilioService.checkLive()`, `GET /api/integrations/live-check` |
+| 60 | Social Studio: persistent multi-platform handle registry, supplied-sample style analysis, original content drafts, per-handle kill switch | LIVE for account management; AI analysis/drafts READY with a configured provider | One configured AI provider for analysis/drafts; user-supplied samples | `src/social/SocialHandleManager.js`, `public/js/views/social.js` |
+| 61 | Automatic profile scraping, scheduled publishing, direct platform posting and engagement analytics | NOT CONNECTED | Platform-specific official APIs, permissions, credentials, rate-limit handling and verified publishing workflows | Future integration work; Social Studio never claims to publish |
 
 ## Why some rows say NOT BUILT instead of "coming later"
 
@@ -145,3 +147,17 @@ with registry access is expected to resolve those 19.
 XOFT's direct OpenAI provider is configured with five model tiers: flagship `gpt-6-astra`, balanced `gpt-6.1-sol`, efficient `gpt-6-luna`, coding `gpt-5.6-sol`, and budget `gpt-5.6-terra`. Simple tasks use the efficient tier, coding tasks can select the coding tier, and long-context tasks can select the balanced tier; the flagship remains the standard OpenAI chat/reasoning model. Exact model access still depends on the OpenAI API account and is not proven by configuration alone.
 
 Chat replies now try the existing protected `POST /api/voice/speak` endpoint first, which uses `ELEVENLABS_API_KEY` plus `ELEVENLABS_VOICE_ID`. If ElevenLabs is not configured or the endpoint cannot play audio, the browser's native speech synthesis is used as a fallback. This does not implement an always-listening wake word; the client still needs microphone permission and a user-initiated action for reliable playback.
+
+
+## Current verification — 2026-10-21
+
+The latest verified code commit is `5b12afca730908e7ed77fbe207c9eecde72fac5f`:
+643/643 Node tests passed, the dependency audit reported zero vulnerabilities,
+the Docker image and production-container smoke test passed, and the Android,
+protocol, mobile, and desktop checks passed. See the repository's GitHub
+Actions for the exact run results. This is a verified code baseline; external
+provider credentials and a live hosted deployment still require separate
+runtime verification.
+
+The 2026-09-29 test counts above are historical and should not be interpreted
+as the current result.

@@ -4,7 +4,7 @@
 
 > **Railway deployment:** see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for Docker build settings, production variables, persistent volume, health checks, and GitHub auto-deploy troubleshooting.
 
-Integrated source: XOFT AI Core v0.11.1, with provider routing, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, a responsive command-center UI, mobile/desktop sources, and automated tests. **Latest verified baseline before this update:** commit `2fd74ed74311852895c525803873c19bc868de8a` passed 638/638 Node tests, dependency audit (0 reported vulnerabilities), Docker build and production-container smoke test, Android build, and universal protocol/mobile/desktop checks. The social workspace added in this commit is awaiting its own CI run; do not treat it as verified until CI passes.
+Integrated source: XOFT AI Core v0.11.1, with provider routing, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, a responsive command-center UI, mobile/desktop sources, and automated tests. **Latest verified code baseline:** commit `5b12afca730908e7ed77fbe207c9eecde72fac5f` passed 643/643 Node tests, dependency audit (0 reported vulnerabilities), Docker build and production-container smoke test, Android build, and universal protocol/mobile/desktop checks. Social Studio is included in that verified code baseline. The documentation update following it is also covered by CI.
 
 Start with **`docs/FEATURE_COMPARISON.md`** for a one-page table of what's
 live, what needs a credential, and what's genuinely out of a backend's
@@ -170,14 +170,29 @@ audio and POSTs it here, then plays back what `/api/voice/speak` returns.
 
 ### 4d. WhatsApp / Phone calls / Screen control
 
-These need either a WhatsApp Business API account + Twilio account (for
-messaging/calls from an assistant number), or a native Android/iOS
-companion app for anything involving the user's own phone (personal
-WhatsApp, screen automation, notification reading). Full interface spec:
-**`docs/MOBILE_COMPANION_CONTRACT.md`**. Until one of those exists, the
-`send_whatsapp_message` / `make_phone_call` tools are registered (so the
-planner knows they conceptually exist) but calling them returns a clear
-"not configured" error rather than pretending to succeed.
+WhatsApp Business text messaging is implemented through Meta's official
+Cloud API when the WhatsApp credentials and public HTTPS webhook are
+configured. XOFT can store inbound/outbound history, analyze supplied or saved
+conversations, and mark supported inbound messages as read. It cannot mirror
+a personal WhatsApp account's private chats or automatically publish WhatsApp
+Status stories through the official Cloud API.
+
+Twilio voice flows are implemented when the account, phone number, public
+webhook URLs, and signature validation settings are configured. Personal phone
+screen control, notifications, SMS, and contacts require the native
+Android/iOS companion and explicit operating-system permissions. See
+`docs/COMMUNICATION_INTEGRATIONS.md` and
+`docs/MOBILE_COMPANION_CONTRACT.md`.
+
+### 4e. Social Studio (multi-handle workspace)
+
+Open **Social Studio** in the dashboard to register multiple Instagram,
+TikTok, YouTube, Facebook, LinkedIn, X, Threads, or Pinterest handles. Each
+handle has its own pause/kill switch, saved profile notes and sample posts,
+AI style analysis, and a persistent draft library. New handles start stopped.
+Profile URLs are stored as references only: this version does not scrape
+profiles or publish content. Drafts are never sent automatically. See
+`docs/SOCIAL_STUDIO.md` for the precise scope and API endpoints.
 
 ## 5. What's new: the Executive Brain
 
