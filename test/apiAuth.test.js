@@ -75,6 +75,24 @@ describe('API authentication (real server, integration)', { concurrency: false }
     }
   });
 
+  test('status callback rejects requests when signature URL configuration is absent', async () => {
+    const server = await bootServer({
+      TWILIO_AUTH_TOKEN: '',
+      TWILIO_STATUS_CALLBACK_URL: '',
+      TWILIO_PUBLIC_BASE_URL: '',
+    }, 3117);
+    try {
+      const res = await fetch('http://localhost:3117/webhooks/twilio/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ CallSid: 'CA-test', CallStatus: 'completed' }),
+      });
+      assert.equal(res.status, 403);
+    } finally {
+      server.stop();
+    }
+  });
+
   test('device pairing routes are covered by auth too, not just /api/status', async () => {
     const server = await bootServer({ AUTH_API_KEYS: 'secretA' }, 3104);
     try {
