@@ -96,7 +96,9 @@ export class SecurityAgent {
           walk(fullPath);
           continue;
         }
-        if (!SCANNABLE_EXTENSIONS.has(path.extname(entry.name))) continue;
+        // Dotfiles such as .env have no extension according to path.extname().
+        // Include them explicitly: environment files are a common secret-leak source.
+        if (!SCANNABLE_EXTENSIONS.has(path.extname(entry.name)) && !/^\.env(?:\.|$)/i.test(entry.name)) continue;
 
         let content;
         try {
