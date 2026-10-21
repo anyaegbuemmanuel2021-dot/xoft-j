@@ -14,7 +14,7 @@ async function bootServer(env, port) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-ws-test-'));
   const child = spawn(process.execPath, [path.join(ROOT, 'src', 'index.js')], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), MEMORY_DATA_DIR: dataDir, ...env },
+    env: { ...process.env, PORT: String(port), MEMORY_DATA_DIR: dataDir, STORAGE_MODE: 'sqlite', SQLITE_PATH: path.join(dataDir, 'test.sqlite'), ...env },
     stdio: 'pipe',
   });
   let stderr = '';
@@ -26,7 +26,7 @@ async function bootServer(env, port) {
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/status`, { headers });
-      if (res.ok) return { child, base: `http://127.0.0.1:${port}`, stop: () => child.kill('SIGKILL') };
+      if (res.ok) return { child, base: `http://127.0.0.1:${port}`, dataDir, stop: () => child.kill('SIGKILL') };
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -55,27 +55,6 @@ function waitForMessageMatching(ws, predicate, timeoutMs = 3000) {
   });
 }
 
-function expectNoMessageMatching(ws, predicate, durationMs = 250) {
-  return new Promise((resolve, reject) => {
-    const onMessage = (raw) => {
-      let message;
-      try { message = JSON.parse(raw.toString()); } catch { return; }
-      if (predicate(message)) {
-        cleanup();
-        reject(new Error(`unexpected WebSocket message: ${message.type}`));
-      }
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      ws.off('message', onMessage);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, durationMs);
-    ws.on('message', onMessage);
-  });
-}
 
 function waitFor(ws, event, timeoutMs = 3000) {
   return new Promise((resolve, reject) => {
@@ -219,7 +198,7 @@ describe('RealtimeServer (WebSocket bridge)', () => {
   test('device WebSockets receive only their own device events, never global or another device events', async () => {
     const port = 34808;
     const ADMIN = 'realtime-device-admin-key';
-    const { base, stop } = await bootServer({ AUTH_API_KEYS: ADMIN, STORAGE_MODE: 'sqlite', SQLITE_PATH: path.join(os.tmpdir(), `xoft-ws-${port}.sqlite`) }, port);
+    const { base, stop } = await bootServer({ AUTH_API_KEYS: ADMIN }, port);
     const call = async (method, urlPath, { key = ADMIN, body } = {}) => {
       const headers = { 'X-API-Key': key, ...(body ? { 'Content-Type': 'application/json' } : {}) };
       const response = await fetch(`${base}${urlPath}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
