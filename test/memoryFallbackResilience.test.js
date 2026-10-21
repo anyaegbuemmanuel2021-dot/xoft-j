@@ -95,17 +95,31 @@ test('a query-time embedding failure falls back locally and is not retried on th
   });
 });
 
-test('structured memory deletion succeeds even if vector cleanup fails', async () => {
+test('forget removes a vector twin by metadata without retrying a failed embedding provider', async () => {
   await withDataDir(async (dataDir) => {
+    let embedCalls = 0;
+    let failEmbeddings = false;
     const manager = new MemoryManager({
       dataDir,
-      router: { selectEmbedding: () => ({ async embed() { return [1, 0]; } }) },
+      router: {
+        selectEmbedding: () => ({
+          async embed() {
+            embedCalls += 1;
+            if (failEmbeddings) throw new Error('429 insufficient_quota');
+            return [1, 0];
+          },
+        }),
+      },
     });
     const saved = await manager.remember('fact', 'temporary test memory');
-    manager.vector.search = async () => { throw new Error('embedding provider unavailable'); };
+    assert.equal(embedCalls, 1);
+    assert.equal(manager.vector._load().entries.length, 1);
 
+    failEmbeddings = true;
     assert.equal(await manager.forgetById(saved.longTermId), true);
     assert.equal(manager.long.getById(saved.longTermId), null);
-    assert.equal(manager.vectorEnabled, false);
+    assert.equal(manager.vector._load().entries.length, 0, 'vector data for forgotten memory must be removed immediately');
+    assert.equal(embedCalls, 1, 'forget must not call the embeddings provider');
+    assert.equal(manager.vectorEnabled, true, 'provider status is unrelated to metadata-only deletion');
   });
 });
