@@ -122,6 +122,7 @@ test('forget removes a vector twin by metadata without retrying a failed embeddi
     assert.equal(embedCalls, 1, 'forget must not call the embeddings provider');
     assert.equal(manager.vectorEnabled, true, 'provider status is unrelated to metadata-only deletion');
   });
+});
 
 test('device memory scope exposes only shared and own memories and protects shared/other-device mutations', async () => {
   await withDataDir(async (dataDir) => {
