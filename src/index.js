@@ -324,7 +324,14 @@ app.post('/webhooks/twilio/voice/respond', express.urlencoded({ extended: false 
 });
 
 app.post('/webhooks/twilio/status', express.urlencoded({ extended: false }), (req, res) => {
-  if (config.twilio.publicBaseUrl && !twilioService.validateSignature(`${config.twilio.publicBaseUrl}/webhooks/twilio/status`, req.body, req.get('x-twilio-signature'))) return res.sendStatus(403);
+  // Fail closed: never accept unauthenticated status callbacks when the public
+  // URL is missing. Prefer Twilio's exact configured callback URL so signature
+  // validation matches the URL Twilio signed, including any proxy/base-path.
+  const expectedUrl = config.twilio.statusCallbackUrl
+    || (config.twilio.publicBaseUrl ? `${config.twilio.publicBaseUrl.replace(/\\/$/, '')}/webhooks/twilio/status` : '');
+  if (!expectedUrl || !twilioService.validateSignature(expectedUrl, req.body, req.get('x-twilio-signature'))) {
+    return res.sendStatus(403);
+  }
   activityLog.log({ type: 'twilio_call_status', detail: { callSid: req.body?.CallSid, status: req.body?.CallStatus, from: req.body?.From, to: req.body?.To } });
   res.sendStatus(204);
 });
