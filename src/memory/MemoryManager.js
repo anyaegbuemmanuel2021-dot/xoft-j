@@ -4,6 +4,32 @@ import { VectorMemory } from './VectorMemory.js';
 import { EpisodicMemory } from './EpisodicMemory.js';
 import { ProceduralMemory } from './ProceduralMemory.js';
 
+// Keep the local fallback useful without treating common grammatical words as
+// meaningful matches. Negations (not/no/never) deliberately remain searchable.
+const MEMORY_STOP_WORDS = new Set([
+  'a', 'about', 'above', 'after', 'again', 'against', 'all', 'am', 'an',
+  'and', 'any', 'are', 'as', 'at', 'be', 'because', 'been', 'before',
+  'being', 'below', 'between', 'both', 'but', 'by', 'can', 'could', 'did',
+  'do', 'does', 'doing', 'down', 'during', 'each', 'few', 'for', 'from',
+  'further', 'had', 'has', 'have', 'having', 'he', 'her', 'here', 'hers',
+  'herself', 'him', 'himself', 'his', 'how', 'i', 'if', 'in', 'into', 'is',
+  'it', 'its', 'itself', 'just', 'me', 'more', 'most', 'my', 'myself',
+  'of', 'on', 'once', 'only', 'or', 'other', 'our', 'ours', 'ourselves',
+  'out', 'over', 'own', 'same', 'she', 'should', 'so', 'some', 'such',
+  'than', 'that', 'the', 'their', 'theirs', 'them', 'themselves', 'then',
+  'there', 'these', 'they', 'this', 'those', 'through', 'to', 'too', 'under',
+  'until', 'up', 'very', 'was', 'we', 'were', 'what', 'when', 'where',
+  'which', 'while', 'who', 'whom', 'why', 'will', 'with', 'you', 'your',
+  'yours', 'yourself', 'yourselves',
+]);
+
+function memoryTokens(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .match(/[\\p{L}\\p{N}]+/gu) ?? [];
+}
+
 /**
  * MemoryManager — single entry point the Orchestrator and agents use for
  * everything memory-related. Wraps:
@@ -68,9 +94,14 @@ export class MemoryManager {
       try {
         vectorId = await this.vector.add(content, { category, longTermId, ...metadata });
       } catch (error) {
-        // Structured memory is the source of truth. Embeddings are optional,
-        // so quota/network errors must not turn a saved fact into a failed request.
-        console.warn('[XOFT] Memory saved without semantic index:', String(error?.message ?? error).slice(0, 240));
+        // Structured memory is authoritative. Stop repeated provider calls for
+        // this process after quota/network/storage failure; local recall remains.
+        this.vectorEnabled = false;
+        const code = error?.status ?? error?.statusCode ?? error?.code;
+        console.warn(
+          '[XOFT memory] Embeddings unavailable; structured memory was saved and local recall remains active.',
+          code ? `code=${String(code).slice(0, 40)}` : ''
+        );
       }
     }
     return { longTermId, vectorId };
@@ -102,15 +133,60 @@ export class MemoryManager {
     return this.long.correct(id, newContent, opts);
   }
 
-  /** Semantic lookup: "what do you remember about X" style queries. */
+  /**
+   * Semantic lookup prefers provider-backed vectors while available. When the
+   * provider is absent or fails, transparently fall back to a deterministic
+   * local lexical ranking over non-expired structured memory.
+   */
   async recallSemantic(query, topK = 5) {
-    if (!this.vectorEnabled) {
-      throw new Error(
-        'MemoryManager: semantic recall requires an embedding provider (OPENAI_API_KEY). ' +
-          'Structured recall via recallStructured() still works without it.'
-      );
+    const limit = Number.isFinite(Number(topK)) ? Math.max(0, Math.floor(Number(topK))) : 5;
+    if (limit === 0) return [];
+
+    if (this.vectorEnabled) {
+      try {
+        return await this.vector.search(String(query ?? ''), limit);
+      } catch (error) {
+        this.vectorEnabled = false;
+        const code = error?.status ?? error?.statusCode ?? error?.code;
+        console.warn(
+          '[XOFT memory] Semantic provider unavailable; using local lexical recall.',
+          code ? `code=${String(code).slice(0, 40)}` : ''
+        );
+      }
     }
-    return this.vector.search(query, topK);
+
+    const terms = [...new Set(memoryTokens(query))]
+      .filter((term) => term.length > 1 && !MEMORY_STOP_WORDS.has(term));
+    if (terms.length === 0) return [];
+
+    return this.recallStructured()
+      .map((entry) => {
+        const indexedText = [
+          entry.content ?? '',
+          entry.category ?? '',
+          ...(Array.isArray(entry.tags) ? entry.tags : []),
+          JSON.stringify(entry.metadata ?? {}),
+        ].join(' ');
+        const indexedTerms = new Set(memoryTokens(indexedText));
+        const matchedTerms = terms.filter((term) => indexedTerms.has(term));
+        const score = matchedTerms.length / terms.length;
+        return {
+          id: entry.id,
+          content: entry.content,
+          metadata: {
+            category: entry.category,
+            ...(entry.metadata ?? {}),
+            tags: entry.tags ?? [],
+            longTermId: entry.id,
+            relatedDeviceId: entry.relatedDeviceId ?? null,
+          },
+          score,
+          createdAt: entry.createdAt,
+        };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? '')))
+      .slice(0, limit);
   }
 
   // --- episodic (narrative "what happened") ---
@@ -128,10 +204,22 @@ export class MemoryManager {
     const entry = this.long.getById(longTermId);
     const removedStructured = this.long.forget(longTermId);
     if (this.vectorEnabled && entry) {
-      // vector entries store longTermId in metadata; find and remove matches
-      const matches = await this.vector.search(entry.content, 50);
-      for (const m of matches) {
-        if (m.metadata?.longTermId === longTermId) this.vector.remove(m.id);
+      try {
+        // Vector cleanup is best-effort. A provider outage must never resurrect
+        // or prevent deletion of the authoritative structured-memory record.
+        const matches = await this.vector.search(entry.content, 50);
+        for (const match of matches) {
+          if (match.metadata?.longTermId === longTermId) {
+            await this.vector.remove(match.id);
+          }
+        }
+      } catch (error) {
+        this.vectorEnabled = false;
+        const code = error?.status ?? error?.statusCode ?? error?.code;
+        console.warn(
+          '[XOFT memory] Vector cleanup failed; structured deletion succeeded.',
+          code ? `code=${String(code).slice(0, 40)}` : ''
+        );
       }
     }
     return removedStructured;
