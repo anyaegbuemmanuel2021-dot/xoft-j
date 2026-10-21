@@ -24,6 +24,18 @@ test('protected modules, traversal and absolute paths are rejected at proposal t
   }
 });
 
+test('symlink targets sharing the repository path prefix cannot escape containment', () => {
+  const { root, eng } = repo();
+  const outside = `${root}-outside`;
+  fs.mkdirSync(outside, { recursive: true });
+  fs.symlinkSync(outside, path.join(root, 'escape'), 'dir');
+  assert.throws(
+    () => eng.propose({ title: 'escape', files: { 'escape/evil.js': 'export const pwned = true;' } }),
+    /Path resolves outside the repository/,
+  );
+  fs.rmSync(outside, { recursive: true, force: true });
+});
+
 test('propose never touches the live tree; sandbox test passes only when the change is good', async () => {
   const { root, eng } = repo();
   const good = eng.propose({ title: 'v2', files: { 'src/util.js': 'export const v = 2;\n' } });
