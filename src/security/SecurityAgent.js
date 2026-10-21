@@ -127,8 +127,17 @@ export class SecurityAgent {
   }
 
   /** Real checks against XOFT's own declared security posture — not guesses. */
-  checkConfigHardening({ toolRegistry, emergencyStop, permissionSystem, hasHelmet, hasRateLimit, hasExpensiveEndpointRateLimit }) {
+  checkConfigHardening({ toolRegistry, emergencyStop, permissionSystem, app, helmetMiddleware, apiRateLimitMiddleware, expensiveLimit }) {
     const checks = [];
+    const stack = Array.isArray(app?._router?.stack) ? app._router.stack : [];
+    const middlewareMounted = (middleware, mountPath) => Boolean(middleware && stack.some((layer) =>
+      layer.handle === middleware && (mountPath === undefined || layer.regexp?.test?.(mountPath))
+    ));
+    const routeHasMiddleware = (routePath, middleware) => Boolean(middleware && stack.some((layer) =>
+      layer.route?.path === routePath && layer.route.stack?.some((routeLayer) => routeLayer.handle === middleware)
+    ));
+    const expensiveRoutes = ['/api/media/image', '/api/media/video', '/api/security/audit'];
+    const expensiveRoutesProtected = expensiveRoutes.every((routePath) => routeHasMiddleware(routePath, expensiveLimit));
 
     // Every HIGH_IMPACT-risk tool must be unable to auto-approve — verify the actual registered tools, not just trust the design doc.
     const highImpactTools = toolRegistry.list().filter((t) => t.riskLevel === 3);
@@ -152,22 +161,22 @@ export class SecurityAgent {
 
     checks.push({
       name: 'HTTP security headers (helmet)',
-      pass: Boolean(hasHelmet),
-      detail: hasHelmet ? 'helmet middleware is active.' : 'No security-headers middleware detected.',
+      pass: middlewareMounted(helmetMiddleware),
+      detail: middlewareMounted(helmetMiddleware) ? 'The configured Helmet middleware instance is registered on the Express application.' : 'The configured Helmet middleware instance was not found in the live Express middleware stack.',
     });
 
     checks.push({
       name: 'API rate limiting',
-      pass: Boolean(hasRateLimit),
-      detail: hasRateLimit ? 'Rate limiting middleware is active on API routes.' : 'No rate limiting detected — API is exposed to abuse/brute force.',
+      pass: middlewareMounted(apiRateLimitMiddleware, '/api'),
+      detail: middlewareMounted(apiRateLimitMiddleware, '/api') ? 'The configured API rate-limit middleware instance is mounted on /api.' : 'The configured API rate-limit middleware instance was not found mounted on /api.',
     });
 
     checks.push({
       name: 'Stricter rate limiting on expensive endpoints',
-      pass: Boolean(hasExpensiveEndpointRateLimit),
-      detail: hasExpensiveEndpointRateLimit
-        ? 'Image/video generation and the security-audit endpoint (real external API cost / real CPU-disk work) have a tighter limit than general API traffic.'
-        : 'Media generation and the security-audit endpoint share only the general rate limit — a compromised or malicious credential could run up real API costs or CPU load quickly.',
+      pass: expensiveRoutesProtected,
+      detail: expensiveRoutesProtected
+        ? 'The stricter rate-limit middleware is registered on image generation, video generation, and security-audit routes.'
+        : `The stricter rate-limit middleware is missing from: ${expensiveRoutes.filter((routePath) => !routeHasMiddleware(routePath, expensiveLimit)).join(', ')}.`,
     });
 
     checks.push({
