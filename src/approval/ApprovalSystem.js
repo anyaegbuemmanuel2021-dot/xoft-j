@@ -139,7 +139,11 @@ export class ApprovalSystem {
   _patch(approvalId, patch) {
     const data = this._load();
     const record = data.approvals.find((a) => a.id === approvalId);
-    if (!record) throw new Error(`ApprovalSystem: no pending approval '${approvalId}'`);
+    if (!record || record.status !== 'pending') {
+      throw new Error(`ApprovalSystem: no pending approval '${approvalId}'`);
+    }
+    // Decisions are one-way and idempotency-sensitive: an approved action must
+    // never be approved a second time, because API handlers may execute it.
     Object.assign(record, patch);
     this._save(data);
     return record;
