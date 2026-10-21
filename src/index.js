@@ -328,7 +328,11 @@ app.post('/webhooks/twilio/status', express.urlencoded({ extended: false }), (re
   // URL is missing. Prefer Twilio's exact configured callback URL so signature
   // validation matches the URL Twilio signed, including any proxy/base-path.
   const expectedUrl = config.twilio.statusCallbackUrl
-    || (config.twilio.publicBaseUrl ? `${config.twilio.publicBaseUrl.replace(/\\/$/, '')}/webhooks/twilio/status` : '');
+  const publicBaseUrl = config.twilio.publicBaseUrl.endsWith('/')
+    ? config.twilio.publicBaseUrl.slice(0, -1)
+    : config.twilio.publicBaseUrl;
+  const expectedUrl = config.twilio.statusCallbackUrl
+    || (publicBaseUrl ? `${publicBaseUrl}/webhooks/twilio/status` : '');
   if (!expectedUrl || !twilioService.validateSignature(expectedUrl, req.body, req.get('x-twilio-signature'))) {
     return res.sendStatus(403);
   }
