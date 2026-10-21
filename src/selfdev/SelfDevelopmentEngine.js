@@ -124,6 +124,12 @@ export class SelfDevelopmentEngine {
   }
 
   async sandboxTest(id) {
+    // This currently runs Node tests as the XOFT OS user, not inside a kernel/container
+    // security boundary. Never execute proposed code on a production host until a real
+    // isolated runner is configured; a temp directory alone is not a sandbox.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Self-development test execution is disabled in production until an OS-isolated sandbox runner is configured.');
+    }
     if (this.emergencyStop?.isActive?.()) throw new Error('Emergency stop is active');
     const p = this._read(id);
     const tmp = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'xoft-sandbox-'));
