@@ -27,8 +27,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Install locked dependencies (retry transient registry failures)
+        run: npm ci --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000 --fetch-timeout=300000
       - name: Check server and browser JavaScript syntax
         shell: bash
         run: |
