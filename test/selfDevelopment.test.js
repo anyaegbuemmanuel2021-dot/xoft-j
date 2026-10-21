@@ -46,6 +46,19 @@ test('selfdev test copy excludes environment secrets and does not symlink depend
   fs.rmSync(dest, { recursive: true, force: true });
 });
 
+test('selfdev refuses to execute proposed code on a production host', async () => {
+  const { eng } = repo();
+  const p = eng.propose({ title: 'production guard', files: { 'src/util.js': 'export const v = 2;\n' } });
+  const previous = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    await assert.rejects(() => eng.sandboxTest(p.id), /disabled in production/);
+  } finally {
+    if (previous === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previous;
+  }
+});
+
 test('propose never touches the live tree; sandbox test passes only when the change is good', async () => {
   const { root, eng } = repo();
   const good = eng.propose({ title: 'v2', files: { 'src/util.js': 'export const v = 2;\n' } });
