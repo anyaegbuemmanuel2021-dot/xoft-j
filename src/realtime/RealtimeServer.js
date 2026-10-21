@@ -40,7 +40,7 @@ const DEVICE_EVENT_TYPES = new Set([
  * failed."
  */
 export class RealtimeServer {
-  constructor({ server, eventBus, activityLog, apiKeys = [], deviceTokenService = null, path = '/ws', heartbeatMs = 30000 }) {
+  constructor({ server, eventBus, activityLog, apiKeys = [], deviceTokenService = null, path = '/ws', heartbeatMs = 30000, authTimeoutMs = 3000 }) {
     this.eventBus = eventBus;
     this.activityLog = activityLog;
     this.apiKeys = apiKeys;
@@ -57,21 +57,47 @@ export class RealtimeServer {
       return;
     }
 
+    this.authTimeoutMs = Math.max(250, Number(authTimeoutMs) || 3000);
     this.wss.on('connection', (ws, req) => {
       const auth = this._authenticate(req);
-      if (!auth) {
-        // 4401 (a private-use close code) distinguishes invalid credentials
-        // from a network interruption.
-        ws.close(4401, 'unauthorized');
+      if (auth) {
+        this._acceptConnection(ws, auth);
         return;
       }
-      ws.xoftAuth = auth;
-      this.clients.add(ws);
-      ws.isAlive = true;
-      ws.on('pong', () => { ws.isAlive = true; });
-      ws.on('close', () => this.clients.delete(ws));
-      ws.on('error', () => this.clients.delete(ws));
-      ws.send(JSON.stringify({ type: 'connected', ts: new Date().toISOString() }));
+
+      // Browser WebSocket APIs cannot set Authorization headers. Require a
+      // short-lived first-frame authentication message instead of putting
+      // bearer tokens in URLs (which are commonly copied into access logs).
+      let authenticated = false;
+      const timeout = setTimeout(() => {
+        if (!authenticated) this._closeRevokedDeviceSocket(ws, 4401, 'authentication required');
+      }, this.authTimeoutMs);
+      timeout.unref?.();
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        ws.off('message', authenticateMessage);
+      };
+      const authenticateMessage = (raw) => {
+        if (authenticated) return;
+        authenticated = true;
+        cleanup();
+        let frame;
+        try { frame = JSON.parse(raw.toString()); } catch { frame = null; }
+        if (!frame || frame.type !== 'authenticate' || typeof frame.token !== 'string' || !frame.token) {
+          this._closeRevokedDeviceSocket(ws, 4401, 'authentication required');
+          return;
+        }
+        const frameAuth = this._authenticate({ url: '/', headers: { 'x-api-key': frame.token } });
+        if (!frameAuth) {
+          this._closeRevokedDeviceSocket(ws, 4401, 'unauthorized');
+          return;
+        }
+        this._acceptConnection(ws, frameAuth);
+      };
+      ws.on('message', authenticateMessage);
+      ws.once('close', cleanup);
+      ws.once('error', cleanup);
     });
 
     this.wss.on('error', (err) => {
@@ -102,31 +128,38 @@ export class RealtimeServer {
     }
   }
 
+  _acceptConnection(ws, auth) {
+    ws.xoftAuth = auth;
+    this.clients.add(ws);
+    ws.isAlive = true;
+    ws.on('pong', () => { ws.isAlive = true; });
+    ws.on('close', () => this.clients.delete(ws));
+    ws.on('error', () => this.clients.delete(ws));
+    try {
+      ws.send(JSON.stringify({ type: 'connected', ts: new Date().toISOString() }));
+    } catch {
+      this.clients.delete(ws);
+      ws.terminate();
+    }
+  }
+
   /**
    * Authenticated identity is kept on the connection for authorization on
-   * every broadcast. This is important because a device token is scoped to
-   * one device and can be revoked while its WebSocket is already open.
-   *
-   * Query-string credentials remain accepted for backwards compatibility
-   * with browser clients; clients should prefer first-party secure session
-   * auth or headers wherever the platform permits because URLs can be logged.
+   * every broadcast. Accept credentials only in a non-URL header or in the
+   * first WebSocket frame; URL/query-string bearer tokens are intentionally
+   * ignored to prevent credential leakage into access logs and analytics.
    */
   _authenticate(req) {
-    let key = null;
-    try {
-      key = new URL(req.url, 'http://localhost').searchParams.get('key');
-    } catch { /* fall through to header */ }
-    key = key ?? req.headers['x-api-key'] ?? null;
-
+    const key = req?.headers?.['x-api-key'] ?? null;
     if (key && this.apiKeys.includes(key)) return { kind: 'admin' };
 
     const deviceId = key && this.deviceTokenService ? this.deviceTokenService.verify(key) : null;
     if (deviceId) return { kind: 'device', deviceId, token: key };
 
-    // Preserve the existing open-local-development mode only when no shared
-    // API keys are configured. A valid device token above is still identified
-    // and scoped even in this mode.
-    if (!this.apiKeys.length) return { kind: 'open' };
+    // Preserve the existing open-local-development mode only if no keys and
+    // no credentials are configured. A valid per-device token above still
+    // receives device-only authorization even in this mode.
+    if (!this.apiKeys.length && !key) return { kind: 'open' };
     return null;
   }
 
