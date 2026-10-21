@@ -98,6 +98,7 @@ import { WhatsAppService } from './integrations/WhatsAppService.js';
 import { WhatsAppInboxStore } from './integrations/WhatsAppInboxStore.js';
 import { TwilioService } from './integrations/TwilioService.js';
 import { buildCommunicationTools } from './tools/builtins/communicationTools.js';
+import { SocialHandleManager } from './social/SocialHandleManager.js';
 
 const durableStore = config.storage.mode === 'sqlite' ? new SqliteStore(config.storage.sqlitePath) : null;
 const modelHealth = new ModelHealthManager();
@@ -106,6 +107,7 @@ const router = new ProviderRouter(modelHealth, { privacy: config.privacy.routing
 // corrupt file just means "use the environment".
 const gatewaySettings = new GatewaySettingsStore({ dataDir: config.memory.dataDir, config }).load();
 const activityLog = new ActivityLog({ dataDir: config.memory.dataDir });
+const socialHandles = new SocialHandleManager({ dataDir: config.memory.dataDir, sqliteStore: durableStore, activityLog, router });
 const visionInterpreter = new VisionInterpreter({ providerRouter: router, activityLog });
 const eventBus = new EventBus({ activityLog });
 // Assigned once the HTTP server exists (RealtimeServer needs it to attach
@@ -754,6 +756,48 @@ app.post('/api/whatsapp/status-draft', (req, res) => {
   if (!text) return res.status(400).json({ error: 'text is required' });
   if (text.length > 700) return res.status(400).json({ error: 'status draft must be 700 characters or fewer' });
   res.json({ success: true, published: false, draft: text, message: 'Draft prepared. Open WhatsApp and post it as your Status; automatic publishing is not supported by the official Cloud API.' });
+});
+
+// --- Social Studio: per-handle style workspace and independent kill switches ---
+// XOFT never pretends a profile was scraped or a post was published. Analysis uses
+// profile notes and sample posts supplied by the user; publishing requires a real,
+// separately configured platform API and is intentionally not exposed by this module.
+app.get('/api/social/handles', (_req, res) => res.json(socialHandles.list()));
+app.post('/api/social/handles', (req, res) => {
+  try { return res.status(201).json(socialHandles.add(req.body ?? {})); }
+  catch (err) { return res.status(400).json({ error: err.message }); }
+});
+app.post('/api/social/handles/:id/update', (req, res) => {
+  try { return res.json(socialHandles.update(req.params.id, req.body ?? {})); }
+  catch (err) { return res.status(400).json({ error: err.message }); }
+});
+app.post('/api/social/handles/:id/remove', (req, res) => {
+  try { return res.json({ success: socialHandles.remove(req.params.id) }); }
+  catch (err) { return res.status(400).json({ error: err.message }); }
+});
+app.post('/api/social/handles/:id/kill', (req, res) => {
+  try { return res.json(socialHandles.kill(req.params.id, req.body?.reason)); }
+  catch (err) { return res.status(404).json({ error: err.message }); }
+});
+app.post('/api/social/handles/:id/arm', (req, res) => {
+  try { return res.json(socialHandles.arm(req.params.id)); }
+  catch (err) { return res.status(404).json({ error: err.message }); }
+});
+app.post('/api/social/handles/:id/analyze', async (req, res) => {
+  try { return res.json(await socialHandles.analyze(req.params.id)); }
+  catch (err) {
+    const ai = aiErrorToHttp(err);
+    if (ai) return res.status(ai.status).json(ai.body);
+    return res.status(400).json({ error: err.message });
+  }
+});
+app.post('/api/social/handles/:id/drafts', async (req, res) => {
+  try { return res.json(await socialHandles.generateDraft(req.params.id, req.body ?? {})); }
+  catch (err) {
+    const ai = aiErrorToHttp(err);
+    if (ai) return res.status(ai.status).json(ai.body);
+    return res.status(400).json({ error: err.message });
+  }
 });
 
 // --- Tools ---

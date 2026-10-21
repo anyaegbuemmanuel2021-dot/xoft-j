@@ -1,12 +1,10 @@
 # XOFT
 
-> **Live UI concept preview:** [Open the XOFT interactive command-centre demo](https://xoft-jarvis-ui-preview-uf9q5v.v2.appdeploy.ai/). The preview uses mock data only; chat replies are simulated, integrations are not connected, and no real actions are sent. The source for this concept is [`public/sample-ui.html`](public/sample-ui.html). Review the layout before deciding whether to replace or merge it into the live dashboard.
-
 > Provider-agnostic personal AI assistant. **Start here: [docs/SETUP_AND_HOSTING.md](docs/SETUP_AND_HOSTING.md)** (setup, going live, API keys, and hosting).
 
 > **Railway deployment:** see [RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md) for Docker build settings, production variables, persistent volume, health checks, and GitHub auto-deploy troubleshooting.
 
-Integrated source: XOFT AI Core v0.11.1, with the provider router, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, responsive command-center UI, mobile/desktop app sources, and test suite. **Validation baseline:** at integration commit `7d3d0d7eae6d1f55be8af4a1c5c89d7726bf654d`, 604/604 Node tests passed, mobile/protocol typechecks passed, the desktop build passed, the Android debug APK built, and the Docker image built. Re-run CI for the current head before deployment.
+Integrated source: XOFT AI Core v0.11.1, with provider routing, agent/tool orchestration, memory, missions, voice, runtime safety, connectors, a responsive command-center UI, mobile/desktop sources, and automated tests. **Latest verified baseline before this update:** commit `2fd74ed74311852895c525803873c19bc868de8a` passed 638/638 Node tests, dependency audit (0 reported vulnerabilities), Docker build and production-container smoke test, Android build, and universal protocol/mobile/desktop checks. The social workspace added in this commit is awaiting its own CI run; do not treat it as verified until CI passes.
 
 Start with **`docs/FEATURE_COMPARISON.md`** for a one-page table of what's
 live, what needs a credential, and what's genuinely out of a backend's

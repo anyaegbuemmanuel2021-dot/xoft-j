@@ -18,6 +18,7 @@ import * as automation from './views/automation.js';
 import * as activity from './views/activity.js';
 import * as settings from './views/settings.js';
 import * as integrations from './views/integrations.js';
+import * as social from './views/social.js';
 
 const ICONS = {
   command: '<path d="M12 2v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/>',
@@ -43,7 +44,7 @@ const icon = (name) => `<svg class="nav-icon" viewBox="0 0 24 24" width="18" hei
 const NAV = [
   { group: 'Workspace', items: [['command', 'Command Center', command, 'command'], ['overview', 'Overview', overview, 'overview'], ['chat', 'Chat', chat, 'chat']] },
   { group: 'Intelligence', items: [['tasks', 'Tasks', tasks, 'tasks'], ['engines', 'Agents', engines, 'agents'], ['missions', 'Missions & Goals', missions, 'missions'], ['memory', 'Memory', memory, 'memory']] },
-  { group: 'Automation', items: [['automation', 'Automations', automation, 'automation'], ['approvals', 'Approvals', approvals, 'approvals'], ['integrations', 'Plugins & Apps', integrations, 'plugins']] },
+  { group: 'Automation', items: [['automation', 'Automations', automation, 'automation'], ['social', 'Social Studio', social, 'plugins'], ['approvals', 'Approvals', approvals, 'approvals'], ['integrations', 'Plugins & Apps', integrations, 'plugins']] },
   { group: 'System', items: [['devices', 'Devices', devices, 'devices'], ['runtime', 'Device Runtime', runtime, 'runtime'], ['activity', 'Activity Log', activity, 'activity'], ['settings', 'Runtime Settings', settings, 'settings']] },
 ];
 
