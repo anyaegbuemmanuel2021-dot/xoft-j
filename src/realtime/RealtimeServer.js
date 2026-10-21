@@ -38,18 +38,20 @@ const DEVICE_EVENT_TYPES = new Set([
  * failed."
  */
 export class RealtimeServer {
-  constructor({ server, eventBus, activityLog, apiKeys = [], deviceTokenService = null, path = '/ws', heartbeatMs = 30000, authTimeoutMs = 3000 }) {
+  constructor({ server, eventBus, activityLog, apiKeys = [], deviceTokenService = null, path = '/ws', heartbeatMs = 30000, authTimeoutMs = 3000, maxPendingAuthentications = 32, maxPayload = 64 * 1024 }) {
     this.eventBus = eventBus;
     this.activityLog = activityLog;
     this.apiKeys = apiKeys;
     this.deviceTokenService = deviceTokenService;
     this.clients = new Set();
+    this.pendingAuthentications = new Set();
+    this.maxPendingAuthentications = Math.max(1, Number(maxPendingAuthentications) || 32);
     this.wss = null;
     this._heartbeat = null;
     this._unlistenEventBus = null;
 
     try {
-      this.wss = new WebSocketServer({ server, path });
+      this.wss = new WebSocketServer({ server, path, maxPayload, perMessageDeflate: false });
     } catch (err) {
       this.activityLog?.log({ type: 'realtime_init_failed', detail: { error: err.message } });
       return;
@@ -57,6 +59,10 @@ export class RealtimeServer {
 
     this.authTimeoutMs = Math.max(250, Number(authTimeoutMs) || 3000);
     this.wss.on('connection', (ws, req) => {
+      if (!this._originAllowed(req)) {
+        ws.close(4403, 'origin not allowed');
+        return;
+      }
       const auth = this._authenticate(req);
       if (auth) {
         this._acceptConnection(ws, auth);
@@ -65,7 +71,13 @@ export class RealtimeServer {
 
       // Browser WebSocket APIs cannot set Authorization headers. Require a
       // short-lived first-frame authentication message instead of putting
-      // bearer tokens in URLs (which are commonly copied into access logs).
+      // bearer tokens in URLs. Bound pending handshakes to limit unauthenticated
+      // connection exhaustion before a client proves possession of a token.
+      if (this.pendingAuthentications.size >= this.maxPendingAuthentications) {
+        ws.close(4429, 'authentication capacity reached');
+        return;
+      }
+      this.pendingAuthentications.add(ws);
       let authenticated = false;
       const timeout = setTimeout(() => {
         if (!authenticated) this._closeRevokedDeviceSocket(ws, 4401, 'authentication required');
@@ -74,6 +86,7 @@ export class RealtimeServer {
 
       const cleanup = () => {
         clearTimeout(timeout);
+        this.pendingAuthentications.delete(ws);
         ws.off('message', authenticateMessage);
       };
       const authenticateMessage = (raw) => {
@@ -142,6 +155,25 @@ export class RealtimeServer {
   }
 
   /**
+   * Browsers send Origin on a cross-origin WebSocket attempt, but scripts
+   * cannot freely forge it. Permit same-origin browser clients and non-browser
+   * clients (no Origin) that still authenticate with a token.
+   */
+  _originAllowed(req) {
+    const origin = req?.headers?.origin;
+    if (!origin) return true;
+    try {
+      const parsed = new URL(origin);
+      const host = String(req.headers?.host ?? '').toLowerCase();
+      return ['http:', 'https:'].includes(parsed.protocol)
+        && host.length > 0
+        && parsed.host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Authenticated identity is kept on the connection for authorization on
    * every broadcast. Accept credentials only in a non-URL header or in the
    * first WebSocket frame; URL/query-string bearer tokens are intentionally
@@ -163,6 +195,7 @@ export class RealtimeServer {
 
   _closeRevokedDeviceSocket(ws, code = 4401, reason = 'unauthorized') {
     this.clients.delete(ws);
+    this.pendingAuthentications.delete(ws);
     try {
       if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
         ws.close(code, reason);
@@ -229,6 +262,9 @@ export class RealtimeServer {
     if (this._heartbeat) clearInterval(this._heartbeat);
     this._unlistenEventBus?.();
     for (const ws of this.clients) ws.terminate();
+    for (const ws of this.pendingAuthentications) ws.terminate();
+    this.clients.clear();
+    this.pendingAuthentications.clear();
     this.wss?.close();
   }
 }
