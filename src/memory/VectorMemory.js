@@ -55,8 +55,14 @@ export class VectorMemory {
     fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
   }
 
-  async add(content, metadata = {}) {
+  async add(content, metadata = {}, { shouldCommit } = {}) {
     const vector = await this.embedFn(content);
+
+    // Embeddings are asynchronous. Re-check the authoritative source after
+    // the API call so a concurrent forget/correction cannot leave an orphaned
+    // or stale vector entry behind.
+    if (typeof shouldCommit === 'function' && !shouldCommit()) return null;
+
     const data = this._load();
     const entry = {
       id: crypto.randomUUID(),
