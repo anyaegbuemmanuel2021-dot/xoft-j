@@ -205,6 +205,60 @@ describe('restart survival across task queue, idempotency, and background automa
   });
 });
 
+
+describe('Social Studio HTTP integration and durable kill switch', { concurrency: false }, () => {
+  test('owner can manage handles, device tokens cannot access Social Studio, and a kill survives restart', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-e2e-social-'));
+    const ADMIN = 'social-e2e-admin-key';
+    const server1 = await bootServer({ AUTH_API_KEYS: ADMIN, STORAGE_MODE: 'sqlite' }, 36005, dataDir);
+    let handleId;
+    try {
+      const created = await server1.call('POST', '/api/social/handles', {
+        platform: 'instagram',
+        handle: 'softly1810',
+        profileUrl: 'https://www.instagram.com/softly1810/',
+        niche: 'digital services',
+        samplePosts: ['Three practical tips for small businesses'],
+      });
+      assert.equal(created.status, 201);
+      assert.equal(created.body.killSwitch, true, 'new accounts must be stopped by default');
+      handleId = created.body.id;
+
+      const device = await server1.call('POST', '/api/devices', { name: 'social-isolation-device', platform: 'desktop' });
+      assert.equal(device.status, 200);
+      const trust = await server1.call('POST', `/api/devices/${device.body.id}/trust`);
+      assert.equal(trust.status, 200);
+      const denied = await fetch(`${server1.base}/api/social/handles`, { headers: { 'X-API-Key': trust.body.deviceToken } });
+      assert.equal(denied.status, 403, 'device tokens must not read owner-level social account data');
+
+      const armed = await server1.call('POST', `/api/social/handles/${handleId}/arm`, {});
+      assert.equal(armed.status, 200);
+      assert.equal(armed.body.workflowEnabled, true);
+      const killed = await server1.call('POST', `/api/social/handles/${handleId}/kill`, { reason: 'integration test stop' });
+      assert.equal(killed.status, 200);
+      assert.equal(killed.body.killSwitch, true);
+      assert.equal(killed.body.workflowEnabled, false);
+    } finally {
+      server1.stop();
+    }
+
+    await sleep(500);
+    const server2 = await bootServer({ AUTH_API_KEYS: ADMIN, STORAGE_MODE: 'sqlite' }, 36006, dataDir);
+    try {
+      const list = await server2.call('GET', '/api/social/handles');
+      assert.equal(list.status, 200);
+      const persisted = list.body.find((item) => item.id === handleId);
+      assert.ok(persisted, 'handle should survive server restart');
+      assert.equal(persisted.killSwitch, true, 'the emergency stop must survive server restart');
+      assert.equal(persisted.workflowEnabled, false);
+      assert.equal(persisted.killReason, 'integration test stop');
+    } finally {
+      server2.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('emergency stop', { concurrency: false }, () => {
   test('activating and deactivating emergency stop is real and observable, not just a status flag nobody reads', async () => {
     const server = await bootServer({}, 36004);
