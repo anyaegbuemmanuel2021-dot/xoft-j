@@ -363,35 +363,81 @@ const expensiveLimit = rateLimit({
   message: { error: 'Rate limit exceeded for this resource-intensive endpoint — try again in a few minutes.' },
 });
 
-// --- API authentication ---
-// Off by default so a fresh `npm run start:pc` on localhost keeps working
-// with zero setup — but that ONLY belongs on localhost/LAN. Set AUTH_API_KEYS
-// (comma-separated) before putting this behind a public URL/reverse proxy;
-// every /api/* route (including device pairing/trust/commands) then requires
-// `Authorization: Bearer <key>` or an `X-API-Key` header matching one of them.
-// This is intentionally a flat shared-secret model, not per-user accounts —
-// matches the project's current single-user design; multi-user auth is a
-// separate, larger piece of work, not something to fake here.
-if (config.auth.apiKeys.length > 0 || (config.nodeEnv === 'production' && config.production.requireAuth)) {
-  if (config.auth.apiKeys.length === 0) throw new Error('Production startup blocked: AUTH_API_KEYS must contain at least one secret.');
-  app.use('/api', (req, res, next) => {
-    const header = req.get('authorization');
-    const bearer = header?.startsWith('Bearer ') ? header.slice(7) : null;
-    const provided = bearer ?? req.get('x-api-key');
-    if (provided && config.auth.apiKeys.includes(provided)) return next();
-    // Per-device token (spec section 10): proves "I am device X", not "I am
-    // the admin" — so it only gets past this gate, never treated as
-    // equivalent to the shared key. The per-route check below still
-    // verifies the token's device matches the :id the request is acting on.
-    // Accepts the same two header forms as the admin key above (`provided`,
-    // not just `bearer`) — device agents (pc-agent's CoreClient) send
-    // X-API-Key, not Authorization: Bearer, so restricting this to bearer
-    // only would silently break every real device-token client.
-    const deviceId = provided ? deviceTokenService.verify(provided) : null;
-    if (deviceId) { req.deviceAuth = deviceId; return next(); }
-    res.status(401).json({ error: 'Missing or invalid API key. Set Authorization: Bearer <key> or X-API-Key.' });
-  });
-} else {
+// --- API authentication and device-token least privilege ---
+function deviceTokenMayAccess(method, pathname, deviceId) {
+  const route = String(pathname || '/').replace(/\/+$/, '') || '/';
+  const verb = String(method || 'GET').toUpperCase();
+
+  // Global read and user-facing request surfaces that are scoped below.
+  if (verb === 'GET' && ['/status', '/emergency-stop', '/memory', '/chats'].includes(route)) return true;
+  if (verb === 'POST' && route === '/chat') return true;
+  if (['GET', 'PUT'].includes(verb) && /^\/chats\/[^/]+$/.test(route)) return true;
+
+  // Shared memory is readable; mutation handlers permit only device-owned rows.
+  if (route === '/memory' && ['GET', 'POST'].includes(verb)) return true;
+  if (/^\/memory\/[^/]+$/.test(route) && ['PATCH', 'DELETE'].includes(verb)) return true;
+  if (/^\/memory\/[^/]+\/correct$/.test(route) && verb === 'POST') return true;
+
+  // A device token may act only on the identity it represents.
+  const deviceRoute = route.match(/^\/devices\/([^/]+)(?:\/(.*))?$/);
+  if (!deviceRoute) return false;
+  let requestedDeviceId;
+  try { requestedDeviceId = decodeURIComponent(deviceRoute[1]); } catch { return false; }
+  if (requestedDeviceId !== deviceId) return false;
+
+  const action = deviceRoute[2] ?? '';
+  if (!action && verb === 'GET') return true;
+  if (action === 'heartbeat' && verb === 'POST') return true;
+  if (action === 'capabilities' && verb === 'POST') return true;
+  if (action === 'state' && verb === 'POST') return true;
+  if (action === 'commands' && verb === 'GET') return true;
+  if (action === 'commands/pending' && verb === 'GET') return true;
+  if (/^commands\/[^/]+\/result$/.test(action) && verb === 'POST') return true;
+  if (action === 'permissions' && verb === 'GET') return true;
+  return false;
+}
+
+if (config.nodeEnv === 'production' && config.production.requireAuth && config.auth.apiKeys.length === 0) {
+  throw new Error('Production startup blocked: AUTH_API_KEYS must contain at least one secret.');
+}
+
+// Always identify device tokens, even in development. With no admin key and no
+// credential, development remains open for local testing; valid device tokens
+// are still restricted to their own device and explicitly permitted routes.
+app.use('/api', (req, res, next) => {
+  const authorization = req.get('authorization');
+  const bearer = authorization?.startsWith('Bearer ') ? authorization.slice(7) : null;
+  const provided = bearer ?? req.get('x-api-key');
+
+  if (provided && config.auth.apiKeys.includes(provided)) return next();
+
+  const deviceId = provided ? deviceTokenService.verify(provided) : null;
+  if (deviceId) {
+    let pathname;
+    try {
+      pathname = new URL(req.originalUrl, 'http://localhost').pathname
+        .replace(/^\/api(?=\/|$)/, '')
+        .replace(/\/+$/, '') || '/';
+    } catch {
+      return res.status(400).json({ error: 'Invalid request path.' });
+    }
+    if (!deviceTokenMayAccess(req.method, pathname, deviceId)) {
+      return res.status(403).json({
+        error: 'This device token is restricted to its own device and explicitly permitted user-scoped routes.',
+      });
+    }
+    req.deviceAuth = deviceId;
+    return next();
+  }
+
+  const openDevelopment = config.auth.apiKeys.length === 0
+    && !(config.nodeEnv === 'production' && config.production.requireAuth);
+  if (openDevelopment && !provided) return next();
+
+  return res.status(401).json({ error: 'Missing or invalid API key. Set Authorization: Bearer <key> or X-API-Key.' });
+});
+
+if (config.auth.apiKeys.length === 0) {
   console.warn(
     'WARNING: AUTH_API_KEYS is not set — the API is open to anyone who can reach this port. ' +
     'Fine for localhost/LAN dev; set AUTH_API_KEYS before exposing this beyond your own machine.'
@@ -411,10 +457,19 @@ app.post('/api/chat', async (req, res) => {
   if (!sessionId || !message) {
     return res.status(400).json({ error: 'sessionId and message are required' });
   }
+  if (String(sessionId).length > 120) {
+    return res.status(400).json({ error: 'sessionId must be 120 characters or fewer' });
+  }
   try {
-    // Optional body.userId lets several people share one login/device and still be addressed correctly.
-    const who = typeof userId === 'string' && userId.trim() ? userId.trim().slice(0, 80) : (req.deviceAuth ?? 'web-user');
-    const result = await channelGateway.handle({ channel: 'web', userId: who, sessionId, message });
+    // Device credentials are the authoritative user identity; never allow a
+    // device to select another user's profile or short-term conversation
+    // buffer by spoofing userId/sessionId in the request body.
+    const suppliedUserId = typeof userId === 'string' && userId.trim() ? userId.trim().slice(0, 80) : 'web-user';
+    const who = req.deviceAuth ? String(req.deviceAuth) : suppliedUserId;
+    const scopedSessionId = req.deviceAuth ? `device:${req.deviceAuth}:${String(sessionId)}` : String(sessionId);
+    const result = await memory.withScope(req.deviceAuth ?? null, () =>
+      channelGateway.handle({ channel: 'web', userId: who, sessionId: scopedSessionId, message })
+    );
     res.json(result);
   } catch (err) {
     // No AI provider / all providers failed => a clean structured 503/502 ({success:false,error:'NO_AI_PROVIDER_AVAILABLE',...}); the
@@ -526,11 +581,16 @@ app.post('/api/missions/:id/cancel', (req, res) => { try { res.json(missionManag
 function memoryEntryAccessible(req, entry) {
   return !req.deviceAuth || !entry.relatedDeviceId || entry.relatedDeviceId === req.deviceAuth;
 }
+function memoryEntryMutable(req, entry) {
+  return !req.deviceAuth || Boolean(entry?.relatedDeviceId) && entry.relatedDeviceId === req.deviceAuth;
+}
 
 // GET /api/memory?category=&textIncludes=&tag=&relatedDeviceId=&markAccessed=true -> structured memory entries
 app.get('/api/memory', (req, res) => {
   const { category, textIncludes, tag, relatedDeviceId, markAccessed } = req.query;
-  const results = memory.recallStructured({ category, textIncludes, tag, relatedDeviceId, markAccessed: markAccessed === 'true' });
+  const results = memory.withScope(req.deviceAuth ?? null, () =>
+    memory.recallStructured({ category, textIncludes, tag, relatedDeviceId, markAccessed: markAccessed === 'true' })
+  );
   res.json(results.filter((e) => memoryEntryAccessible(req, e)));
 });
 
@@ -545,13 +605,14 @@ app.post('/api/memory', async (req, res) => {
   if (req.deviceAuth && relatedDeviceId && relatedDeviceId !== req.deviceAuth) {
     return res.status(403).json({ error: 'A device token may only create memory scoped to itself.' });
   }
+  const effectiveRelatedDeviceId = req.deviceAuth ? (relatedDeviceId ?? req.deviceAuth) : (relatedDeviceId ?? null);
   const result = await memory.remember(category, content, metadata ?? {}, {
     source: 'USER_STATED',
     confidence: confidence ?? 1,
     tags: tags ?? [],
     importance: importance ?? null,
     relatedTaskId: relatedTaskId ?? null,
-    relatedDeviceId: relatedDeviceId ?? null,
+    relatedDeviceId: effectiveRelatedDeviceId,
     expiresAt: expiresAt ?? null,
   });
   res.status(201).json(result);
@@ -561,8 +622,11 @@ app.post('/api/memory', async (req, res) => {
 app.patch('/api/memory/:id', (req, res) => {
   const entry = memory.long.getById(req.params.id);
   if (!entry) return res.status(404).json({ error: 'no such memory entry' });
-  if (!memoryEntryAccessible(req, entry)) return res.status(403).json({ error: "This device token cannot access another device's memory." });
-  res.json(memory.update(req.params.id, req.body ?? {}));
+  if (!memoryEntryMutable(req, entry)) return res.status(403).json({ error: 'A device token may only edit memory scoped to that device; shared memory requires the admin key.' });
+  try {
+    const updated = memory.withScope(req.deviceAuth ?? null, () => memory.update(req.params.id, req.body ?? {}));
+    res.json(updated);
+  } catch (err) { res.status(403).json({ error: err.message }); }
 });
 
 // POST /api/memory/:id/correct { content, reason?, confidence? } -> first-class
@@ -571,16 +635,17 @@ app.patch('/api/memory/:id', (req, res) => {
 app.post('/api/memory/:id/correct', (req, res) => {
   const entry = memory.long.getById(req.params.id);
   if (!entry) return res.status(404).json({ error: 'no such memory entry' });
-  if (!memoryEntryAccessible(req, entry)) return res.status(403).json({ error: "This device token cannot access another device's memory." });
+  if (!memoryEntryMutable(req, entry)) return res.status(403).json({ error: 'A device token may only correct memory scoped to that device; shared memory requires the admin key.' });
   const { content, reason, confidence, metadata } = req.body ?? {};
   if (!content) return res.status(400).json({ error: 'content is required' });
-  res.json(memory.correct(req.params.id, content, { reason, confidence, metadata }));
+  try { res.json(memory.correct(req.params.id, content, { reason, confidence, metadata })); }
+  catch (err) { res.status(403).json({ error: err.message }); }
 });
 
 // DELETE /api/memory/:id -> forget one entry
 app.delete('/api/memory/:id', async (req, res) => {
   const entry = memory.long.getById(req.params.id);
-  if (entry && !memoryEntryAccessible(req, entry)) return res.status(403).json({ error: "This device token cannot access another device's memory." });
+  if (entry && !memoryEntryMutable(req, entry)) return res.status(403).json({ error: 'A device token may only delete memory scoped to that device; shared memory requires the admin key.' });
   const removed = await memory.forgetById(req.params.id);
   res.json({ removed });
 });
@@ -800,8 +865,8 @@ app.get('/api/experiences', (req, res) => {
 });
 
 // GET /api/realtime/status -> is the WebSocket bridge up, and how many
-// clients are attached right now. Connect to ws(s)://<host>/ws?key=<apiKey>
-// for the actual event stream (same key /api/* accepts).
+// clients are attached right now. Connect to ws(s)://<host>/ws and send
+// {"type":"authenticate","token":"<apiKey>"} as the first frame. Do not put credentials in URLs.
 app.get('/api/realtime/status', (_req, res) => {
   res.json({ available: Boolean(realtimeServer?.wss), clients: realtimeServer?.clientCount() ?? 0 });
 });
@@ -986,7 +1051,7 @@ app.delete('/api/devices/:id/permissions/:permission', requireAdmin, (req, res) 
 });
 
 // --- Devices ---
-app.post('/api/devices', (req, res) => {
+app.post('/api/devices', requireAdmin, (req, res) => {
   const { name, platform } = req.body ?? {};
   if (!name) return res.status(400).json({ error: 'name is required' });
   const device = deviceRegistry.register(name, platform);
@@ -1140,14 +1205,14 @@ app.get('/api/devices/:id/commands', requireOwnDevice, (req, res) => {
 // --- Emergency stop ---
 app.get('/api/emergency-stop', (_req, res) => res.json({ ...emergencyStop.status(), killSwitch: killSwitch.status() }));
 
-app.post('/api/emergency-stop/activate', (req, res) => {
+app.post('/api/emergency-stop/activate', requireAdmin, (req, res) => {
   emergencyStop.activate(req.body?.reason);
   res.json(emergencyStop.status());
 });
 
 // Deactivating also clears the kill-switch sentinel file, if present — otherwise the next
 // poll tick would immediately re-trip emergency stop right back on.
-app.post('/api/emergency-stop/deactivate', (_req, res) => {
+app.post('/api/emergency-stop/deactivate', requireAdmin, (_req, res) => {
   emergencyStop.deactivate();
   killSwitch.clearSentinel();
   res.json(emergencyStop.status());

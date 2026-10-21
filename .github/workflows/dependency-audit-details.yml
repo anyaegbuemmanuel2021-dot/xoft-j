@@ -1,0 +1,54 @@
+name: Dependency audit details
+
+on:
+  push:
+    branches:
+      - main
+      - fix/memory-fallback-excellent
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Report exact dependency advisories
+        shell: bash
+        run: |
+          set +e
+          npm audit --json > /tmp/audit.json
+          audit_exit=$?
+          set -e
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const audit = JSON.parse(fs.readFileSync('/tmp/audit.json', 'utf8'));
+          console.log('VULNERABILITY COUNTS:', JSON.stringify(audit.metadata?.vulnerabilities ?? {}));
+          for (const [name, v] of Object.entries(audit.vulnerabilities ?? {})) {
+            console.log(JSON.stringify({
+              package: name,
+              severity: v.severity,
+              direct: v.isDirect,
+              installedRange: v.range,
+              fixAvailable: v.fixAvailable,
+              via: (v.via ?? []).map(x => typeof x === 'string' ? x : ({
+                name: x.name, title: x.title, url: x.url,
+                range: x.range, severity: x.severity, cwe: x.cwe,
+                cvss: x.cvss
+              })),
+              effects: v.effects,
+              nodes: v.nodes
+            }, null, 2));
+          }
+          NODE
+          exit "$audit_exit"

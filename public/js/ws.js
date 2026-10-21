@@ -10,21 +10,23 @@ let socket = null;
 let backoffMs = 1000;
 const MAX_BACKOFF_MS = 30000;
 let manuallyClosed = false;
+let authenticated = false;
 
 function wsUrl() {
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const key = localStorage.getItem('xoft_api_key');
-  return `${proto}//${location.host}/ws${key ? '?key=' + encodeURIComponent(key) : ''}`;
+  // Never put bearer credentials in the URL: proxies/access logs can retain them.
+  return `${proto}//${location.host}/ws`;
 }
 
 export function isConnected() {
-  return Boolean(socket && socket.readyState === WebSocket.OPEN);
+  return Boolean(authenticated && socket && socket.readyState === WebSocket.OPEN);
 }
 
 export function connect() {
   manuallyClosed = false;
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
 
+  authenticated = false;
   try {
     socket = new WebSocket(wsUrl());
   } catch {
@@ -33,18 +35,31 @@ export function connect() {
   }
 
   socket.addEventListener('open', () => {
-    backoffMs = 1000;
-    wsEvents.dispatchEvent(new Event('open'));
+    const token = localStorage.getItem('xoft_api_key');
+    if (token) {
+      try {
+        socket.send(JSON.stringify({ type: 'authenticate', token }));
+      } catch {
+        socket.close();
+      }
+    }
   });
 
   socket.addEventListener('message', (msg) => {
     let event;
     try { event = JSON.parse(msg.data); } catch { return; }
-    if (event.type === 'connected') return;
+    if (event.type === 'connected') {
+      authenticated = true;
+      backoffMs = 1000;
+      wsEvents.dispatchEvent(new Event('open'));
+      return;
+    }
+    if (!authenticated) return;
     wsEvents.dispatchEvent(new CustomEvent('event', { detail: event }));
   });
 
   socket.addEventListener('close', () => {
+    authenticated = false;
     wsEvents.dispatchEvent(new Event('close'));
     if (!manuallyClosed) scheduleReconnect();
   });

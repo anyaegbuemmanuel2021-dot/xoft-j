@@ -55,8 +55,14 @@ export class VectorMemory {
     fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2));
   }
 
-  async add(content, metadata = {}) {
+  async add(content, metadata = {}, { shouldCommit } = {}) {
     const vector = await this.embedFn(content);
+
+    // Embeddings are asynchronous. Re-check the authoritative source after
+    // the API call so a concurrent forget/correction cannot leave an orphaned
+    // or stale vector entry behind.
+    if (typeof shouldCommit === 'function' && !shouldCommit()) return null;
+
     const data = this._load();
     const entry = {
       id: crypto.randomUUID(),
@@ -94,7 +100,25 @@ export class VectorMemory {
     const data = this._load();
     const before = data.entries.length;
     data.entries = data.entries.filter((e) => e.id !== id);
-    this._save(data);
+    if (data.entries.length !== before) this._save(data);
     return data.entries.length < before;
+  }
+
+  /**
+   * Remove vectors by stored metadata without calling the embedding provider.
+   * This is essential for reliable "forget" behavior: deletion must work
+   * even after an embedding quota is exhausted, and stale vectors must not
+   * reappear when the service restarts.
+   */
+  removeByMetadata(key, value) {
+    if (typeof key !== 'string' || key.length === 0) {
+      throw new TypeError('VectorMemory.removeByMetadata: key is required');
+    }
+    const data = this._load();
+    const before = data.entries.length;
+    data.entries = data.entries.filter((entry) => entry.metadata?.[key] !== value);
+    const removed = before - data.entries.length;
+    if (removed > 0) this._save(data);
+    return removed;
   }
 }

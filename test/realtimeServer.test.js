@@ -14,7 +14,7 @@ async function bootServer(env, port) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-ws-test-'));
   const child = spawn(process.execPath, [path.join(ROOT, 'src', 'index.js')], {
     cwd: ROOT,
-    env: { ...process.env, PORT: String(port), MEMORY_DATA_DIR: dataDir, ...env },
+    env: { ...process.env, PORT: String(port), MEMORY_DATA_DIR: dataDir, STORAGE_MODE: 'sqlite', SQLITE_PATH: path.join(dataDir, 'test.sqlite'), ...env },
     stdio: 'pipe',
   });
   let stderr = '';
@@ -26,13 +26,35 @@ async function bootServer(env, port) {
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`http://127.0.0.1:${port}/api/status`, { headers });
-      if (res.ok) return { child, stop: () => child.kill('SIGKILL') };
+      if (res.ok) return { child, base: `http://127.0.0.1:${port}`, dataDir, stop: () => child.kill('SIGKILL') };
     } catch { /* not up yet */ }
     await new Promise((r) => setTimeout(r, 100));
   }
   child.kill('SIGKILL');
   throw new Error(`Server on port ${port} never became ready. stderr:\n${stderr}`);
 }
+
+function waitForMessageMatching(ws, predicate, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    const onMessage = (raw) => {
+      let message;
+      try { message = JSON.parse(raw.toString()); } catch { return; }
+      if (!predicate(message)) return;
+      cleanup();
+      resolve(message);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.off('message', onMessage);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`timed out waiting for matching WebSocket message after ${timeoutMs}ms`));
+    }, timeoutMs);
+    ws.on('message', onMessage);
+  });
+}
+
 
 function waitFor(ws, event, timeoutMs = 3000) {
   return new Promise((resolve, reject) => {
@@ -62,7 +84,7 @@ describe('RealtimeServer (WebSocket bridge)', () => {
     try {
       const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
       const closeEvent = await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('timed out waiting for close')), 3000);
+        const t = setTimeout(() => reject(new Error('timed out waiting for close')), 5000);
         ws.on('close', (code) => { clearTimeout(t); resolve(code); });
         ws.on('open', () => {}); // ignore — we only care about the close
       });
@@ -72,12 +94,15 @@ describe('RealtimeServer (WebSocket bridge)', () => {
     }
   });
 
-  test('with AUTH_API_KEYS set, a connection with the correct ?key= is accepted', async () => {
+  test('a correct first-frame token authenticates without placing secrets in the WebSocket URL', async () => {
     const port = 34803;
     const { stop } = await bootServer({ AUTH_API_KEYS: 'secret-key-456' }, port);
     try {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?key=secret-key-456`);
-      const msg = await waitFor(ws, 'message');
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      await waitFor(ws, 'open');
+      const connected = waitFor(ws, 'message');
+      ws.send(JSON.stringify({ type: 'authenticate', token: 'secret-key-456' }));
+      const msg = await connected;
       assert.equal(JSON.parse(msg.toString()).type, 'connected');
       ws.close();
     } finally {
@@ -85,16 +110,31 @@ describe('RealtimeServer (WebSocket bridge)', () => {
     }
   });
 
-  test('with AUTH_API_KEYS set, a connection with the wrong key is rejected', async () => {
-    const port = 34804;
-    const { stop } = await bootServer({ AUTH_API_KEYS: 'secret-key-789' }, port);
+  test('a correct-looking bearer token in the URL is ignored and the unauthenticated socket is closed', async () => {
+    const port = 34810;
+    const { stop } = await bootServer({ AUTH_API_KEYS: 'secret-key-url-test' }, port);
     try {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?key=wrong-key`);
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws?key=secret-key-url-test`);
       const closeEvent = await new Promise((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error('timed out waiting for close')), 3000);
+        const t = setTimeout(() => reject(new Error('timed out waiting for close')), 5000);
         ws.on('close', (code) => { clearTimeout(t); resolve(code); });
       });
       assert.equal(closeEvent, 4401);
+    } finally {
+      stop();
+    }
+  });
+
+  test('a wrong first-frame token is rejected immediately', async () => {
+    const port = 34804;
+    const { stop } = await bootServer({ AUTH_API_KEYS: 'secret-key-789' }, port);
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      await waitFor(ws, 'open');
+      const closePromise = waitFor(ws, 'close');
+      ws.send(JSON.stringify({ type: 'authenticate', token: 'wrong-key' }));
+      const code = await closePromise;
+      assert.equal(code, 4401);
     } finally {
       stop();
     }
@@ -154,4 +194,92 @@ describe('RealtimeServer (WebSocket bridge)', () => {
       stop();
     }
   });
+
+  test('device WebSockets receive only their own device events, never global or another device events', async () => {
+    const port = 34808;
+    const ADMIN = 'realtime-device-admin-key';
+    const { base, stop } = await bootServer({ AUTH_API_KEYS: ADMIN }, port);
+    const call = async (method, urlPath, { key = ADMIN, body } = {}) => {
+      const headers = { 'X-API-Key': key, ...(body ? { 'Content-Type': 'application/json' } : {}) };
+      const response = await fetch(`${base}${urlPath}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      return { status: response.status, body: await response.json() };
+    };
+    try {
+      const regA = await call('POST', '/api/devices', { body: { name: 'ws-device-a', platform: 'desktop' } });
+      const trustA = await call('POST', `/api/devices/${regA.body.id}/trust`);
+      const regB = await call('POST', '/api/devices', { body: { name: 'ws-device-b', platform: 'desktop' } });
+      assert.equal(regA.status, 200);
+      assert.equal(trustA.status, 200);
+      assert.equal(regB.status, 200);
+
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      await waitFor(socket, 'open');
+      const connected = waitFor(socket, 'message');
+      socket.send(JSON.stringify({ type: 'authenticate', token: trustA.body.deviceToken }));
+      await connected;
+      try {
+        // A device must not learn about another device's state.
+        const otherStateEvent = waitForMessageMatching(socket, (m) => m.type === 'device.state.updated' && m.payload?.deviceId === regB.body.id, 500);
+        await call('POST', `/api/devices/${regB.body.id}/state`, { body: { state: { battery: 12 } } });
+        await assert.rejects(otherStateEvent, /timed out waiting for matching/);
+
+        // It may receive its own device-scoped event.
+        const ownStateEvent = waitForMessageMatching(socket, (m) => m.type === 'device.state.updated' && m.payload?.deviceId === regA.body.id);
+        const ownUpdate = await call('POST', `/api/devices/${regA.body.id}/state`, { key: trustA.body.deviceToken, body: { state: { battery: 80 } } });
+        assert.equal(ownUpdate.status, 200);
+        const ownEvent = await ownStateEvent;
+        assert.equal(ownEvent.payload.deviceId, regA.body.id);
+
+        // Global operational state must not be broadcast to a device credential.
+        const globalStopEvent = waitForMessageMatching(socket, (m) => m.type === 'emergency_stop_activated', 500);
+        await call('POST', '/api/emergency-stop/activate', { body: { reason: 'device stream isolation test' } });
+        await assert.rejects(globalStopEvent, /timed out waiting for matching/);
+        await call('POST', '/api/emergency-stop/deactivate');
+      } finally {
+        socket.close();
+      }
+    } finally {
+      stop();
+    }
+  });
+
+  test('revoking a device immediately closes its existing WebSocket and invalidates its token', async () => {
+    const port = 34809;
+    const ADMIN = 'realtime-device-revoke-admin-key';
+    const { base, stop } = await bootServer({ AUTH_API_KEYS: ADMIN, STORAGE_MODE: 'sqlite', SQLITE_PATH: path.join(os.tmpdir(), `xoft-ws-${port}.sqlite`) }, port);
+    const call = async (method, urlPath, { key = ADMIN, body } = {}) => {
+      const headers = { 'X-API-Key': key, ...(body ? { 'Content-Type': 'application/json' } : {}) };
+      const response = await fetch(`${base}${urlPath}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+      return { status: response.status, body: await response.json() };
+    };
+    let socket;
+    try {
+      const reg = await call('POST', '/api/devices', { body: { name: 'ws-device-revoked', platform: 'desktop' } });
+      const trust = await call('POST', `/api/devices/${reg.body.id}/trust`);
+      assert.equal(trust.status, 200);
+      socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      await waitFor(socket, 'open');
+      const connected = waitFor(socket, 'message');
+      socket.send(JSON.stringify({ type: 'authenticate', token: trust.body.deviceToken }));
+      await connected;
+
+      const closed = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('device socket remained connected after token revocation')), 3000);
+        socket.once('close', (code) => {
+          clearTimeout(timer);
+          resolve(code);
+        });
+      });
+      const revoke = await call('POST', `/api/devices/${reg.body.id}/revoke`);
+      assert.equal(revoke.status, 200);
+      assert.equal(await closed, 4403);
+
+      const heartbeat = await call('POST', `/api/devices/${reg.body.id}/heartbeat`, { key: trust.body.deviceToken });
+      assert.equal(heartbeat.status, 401);
+    } finally {
+      socket?.close();
+      stop();
+    }
+  });
+
 });
