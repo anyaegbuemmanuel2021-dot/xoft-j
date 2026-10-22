@@ -26,7 +26,7 @@ Status key:
 | 11 | `get_current_time` / `calculate` tools | LIVE | — | `src/tools/builtins/utilityTools.js` |
 | 12 | Email agent — search/read/send (Gmail) | READY | `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | `src/agents/email/GmailService.js` |
 | 13 | Calendar agent — list/create/find-free-time | READY | same Google credential as #12 | `src/agents/calendar/CalendarService.js` |
-| 14 | Web research agent — search + page fetch | READY (fetch_page is LIVE) | `BRAVE_SEARCH_API_KEY` for search | `src/agents/research/SearchService.js` |
+| 14 | Web research agent — search + page fetch | READY | Free SearXNG when `SEARXNG_BASE_URL` is configured (Docker Compose wires a private SearXNG service); optional `BRAVE_SEARCH_API_KEY` fallback. Page reading is keyless, size-limited and blocks obvious private/loopback targets and unsafe redirects. | `src/agents/research/SearchService.js`, `src/tools/builtins/researchTools.js`, `deploy/searxng/settings.yml` |
 | 15 | Voice — text-to-speech | READY | `ELEVENLABS_API_KEY` | `src/voice/VoiceService.js` |
 | 16 | Voice — speech-to-text (Whisper) | READY | `OPENAI_API_KEY` | `src/voice/VoiceService.js` |
 | 16a | WhatsApp Cloud API inbound/outbound text + AI replies | READY | Meta WhatsApp Business Platform credentials + public HTTPS webhook | `src/integrations/WhatsAppService.js`, `/webhooks/whatsapp` |
