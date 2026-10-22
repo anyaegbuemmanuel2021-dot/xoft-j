@@ -15,7 +15,7 @@ function privateIpv4(host) {
     (a === 100 && b >= 64 && b <= 127) || a >= 224;
 }
 
-function assertPublicHttpUrl(value) {
+export function assertPublicHttpUrl(value) {
   let url;
   try { url = new URL(value); } catch { throw new Error('Browser: invalid URL.'); }
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Browser: only HTTP and HTTPS URLs are allowed.');
