@@ -87,6 +87,9 @@ export const config = {
   },
 
   search: {
+    // Set to a trusted SearXNG instance for keyless search (e.g. http://searxng:8080 in Docker Compose).
+    searxngBaseUrl: String(required('SEARXNG_BASE_URL', '')).trim().replace(/\\/$/, ''),
+    // Optional paid/free-tier fallback; never required when SearXNG is configured.
     braveApiKey: required('BRAVE_SEARCH_API_KEY'),
   },
 
