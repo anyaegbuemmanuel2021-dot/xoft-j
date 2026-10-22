@@ -8,14 +8,34 @@ services:
       HOST: 0.0.0.0
       STORAGE_MODE: sqlite
       SQLITE_PATH: /app/data/xoft.sqlite
+      # Private Docker network: no public search API key needed.
+      SEARXNG_BASE_URL: http://searxng:8080
     ports:
       - "${PORT:-3000}:3000"
     volumes:
       - xoft-data:/app/data
+    depends_on:
+      searxng:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
+  searxng:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-please-change-this-secret-before-production}
+    volumes:
+      - ./deploy/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 volumes:
   xoft-data:
