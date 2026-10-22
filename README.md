@@ -49,7 +49,8 @@ You need **only one AI provider** to start. Everything else is optional. Put val
 | Anthropic Claude | `ANTHROPIC_API_KEY` | https://console.anthropic.com → API keys |
 | xAI Grok | `XAI_API_KEY` | https://console.x.ai |
 | Ollama (free, offline, no key) | `OLLAMA_ENABLED=true`, `OLLAMA_MODEL=llama3.1` | https://ollama.com, then `ollama pull llama3.1` |
-| Web search | `BRAVE_SEARCH_API_KEY` | https://brave.com/search/api |
+| Free web search (preferred) | `SEARXNG_BASE_URL` | Docker Compose runs private SearXNG automatically; for other hosting, deploy SearXNG and set its URL. See `docs/WEB_RESEARCH.md`. |
+| Optional Brave search fallback | `BRAVE_SEARCH_API_KEY` | https://brave.com/search/api |
 | Voice replies | `ELEVENLABS_API_KEY` | https://elevenlabs.io |
 | Gmail / Calendar | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | https://console.cloud.google.com → Credentials → OAuth client |
 | WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN` (you invent it) | https://developers.facebook.com → create app → WhatsApp |
@@ -135,15 +136,15 @@ Both ride on one Google OAuth credential.
    `list_calendar_events`, `find_available_time`, `create_calendar_event`
    flip from `REQUIRES_API` to `IMPLEMENTED` — check `GET /api/tools`.
 
-### 4b. Web research (Brave Search)
+### 4b. Web research (free SearXNG by default)
 
-1. Sign up at [Brave Search API](https://brave.com/search/api/) (has a free tier).
-2. Copy your API key.
-3. Add to `.env`:
-   ```
-   BRAVE_SEARCH_API_KEY=...
-   ```
-`fetch_page` (read a specific URL) needs no key at all and already works.
+The Docker Compose deployment starts a private SearXNG service alongside XOFT, so web search does not require a Brave API key. Compose configures `SEARXNG_BASE_URL=http://searxng:8080` for XOFT automatically.
+
+For hosting that does not run `docker-compose.yml`, deploy SearXNG as a separate service and set `SEARXNG_BASE_URL` in the XOFT environment. `BRAVE_SEARCH_API_KEY` remains an optional fallback, not a requirement.
+
+`fetch_page` reads public HTML/plain-text pages without an API key. It enforces URL/redirect checks, size limits and timeouts; it does not execute JavaScript or bypass site access controls.
+
+See [`docs/WEB_RESEARCH.md`](docs/WEB_RESEARCH.md) for setup and security details.
 
 ### 4c. Voice (speak + transcribe)
 
