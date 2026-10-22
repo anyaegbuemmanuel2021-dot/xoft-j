@@ -83,7 +83,7 @@ export function buildResearchTools() {
       inputSchema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
       riskLevel: RiskLevel.SAFE,
       status: 'IMPLEMENTED', // plain fetch, no API key needed
-      execute: async ({ url }) => ({ text: await search.fetchPage(url) }),
+      execute: async ({ url }) => search.fetchPage(url),
     }),
   ];
 }
