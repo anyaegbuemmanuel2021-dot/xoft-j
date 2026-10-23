@@ -2,7 +2,8 @@ import { api } from '../api.js';
 import { esc, toast } from '../dom.js';
 import { QUICK_COMMANDS } from './logic.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
-import { transcribeAudioBlob } from '../voice/whisper-fallback.js';
+import { transcribe as transcribeAudio } from '../voice/stt.js';
+import { createServerListener, unlockAudio } from '../voice/listen.js';
 
 const SESSION_KEY = 'xoft_chat_session';
 const CHAT_HISTORY_KEY = 'xoft_chat_history_v1';
@@ -69,42 +70,8 @@ function sessionId() {
   return id;
 }
 async function transcribe(blob, onStatus = () => {}) {
-  if (!blob || !blob.size) throw new Error('No audio was recorded. Hold the phone closer and try again.');
-
-  // Free/private path first: run Whisper in this browser so microphone audio does not
-  // require an OpenAI key, paid quota, or a reachable server-side transcription API.
-  let localError;
-  try {
-    onStatus('Loading local Whisper · first use downloads the speech model…');
-    const text = await transcribeAudioBlob(blob);
-    if (text) return text;
-    throw new Error('Local Whisper returned an empty transcript.');
-  } catch (error) {
-    localError = error;
-    console.warn('[XOFT] Local Whisper transcription failed; trying configured server STT:', error);
-  }
-
-  // Optional server-side fallback. This requires OPENAI_API_KEY and available API quota.
-  onStatus('Local Whisper unavailable · trying configured server transcription…');
-  const key = localStorage.getItem('xoft_api_key');
-  const type = blob.type || 'audio/webm';
-  try {
-    const res = await fetch('/api/voice/transcribe', {
-      method: 'POST',
-      headers: { 'Content-Type': type, ...(key ? { 'X-API-Key': key } : {}) },
-      body: blob,
-    });
-    if (!res.ok) {
-      let detail = '';
-      try { detail = (await res.text()).slice(0, 240); } catch { /* ignore */ }
-      throw new Error(`${res.status}${detail ? ': ' + detail : ''}`);
-    }
-    const text = String((await res.json()).text ?? '').trim();
-    if (!text) throw new Error('Server transcription returned an empty transcript.');
-    return text;
-  } catch (serverError) {
-    throw new Error(`Local Whisper failed (${localError?.message || 'unknown error'}); server STT failed (${serverError?.message || 'unknown error'}).`);
-  }
+  // One shared path: server Whisper (OpenAI, Gemini fallback) first, on-device Whisper second.
+  return transcribeAudio(blob, onStatus);
 }
 
 export function mountCommandInput(el, store, controller) {
@@ -114,6 +81,10 @@ export function mountCommandInput(el, store, controller) {
   let recorder = null;
   let stream = null;
   let recognition = null;
+  let serverListener = null;
+  // AUTO LISTEN uses Whisper (server: OpenAI, Gemini fallback, then on-device Whisper) by default.
+  // Browser Web Speech is used only when this browser cannot record audio.
+  let serverMode = canRecord || !Recognition;
   let autoListening = false;
   let wakeArmed = false;
   let isSpeaking = false;
@@ -134,7 +105,7 @@ export function mountCommandInput(el, store, controller) {
         <div class="cc-actions">
           <button type="button" data-act="command" aria-haspopup="menu" aria-expanded="false" title="Quick commands">MORE</button>
           <button type="button" data-act="voice" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">VOICE</button>
-          <button type="button" data-act="auto-listen" ${Recognition ? '' : 'disabled title="Automatic listening is not supported by this browser; use VOICE"'} aria-pressed="false">AUTO LISTEN</button>
+          <button type="button" data-act="auto-listen" ${(canRecord || Recognition) ? '' : 'disabled title="Automatic listening needs microphone access in a supported browser (HTTPS)"'} aria-pressed="false">WHISPER AUTO LISTEN</button>
           <button type="button" data-act="speakout" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'SPEAK: ON' : 'SPEAK: OFF'}</button>
           <button type="button" data-act="stop-speaking" ${canSpeakOut() ? '' : 'disabled'} title="Stop spoken output">STOP</button>
           <button type="submit" class="cc-primary" data-act="send">SEND</button>
@@ -233,12 +204,68 @@ export function mountCommandInput(el, store, controller) {
 
   function stopRecognition() {
     clearTimeout(recognitionRestartTimer);
+    if (serverListener) { serverListener.stop(); serverListener = null; }
     if (recognition) {
       try { recognition.onend = null; recognition.stop(); } catch { /* ignore */ }
       recognition = null;
     }
   }
+  // Wake-word handling shared by browser Web Speech and server STT. Returns true when a command was submitted.
+  function handleHeard(heard) {
+    heard = String(heard ?? '').trim();
+    if (!heard) return false;
+    const match = WAKE_PATTERN.exec(heard);
+    if (match) {
+      const command = heard.slice(match.index + match[0].length).replace(/^[\s,.:;-]+/, '').trim();
+      if (!command) {
+        wakeArmed = true;
+        setVoiceStatus('I’m listening · say your command now.', 'listening');
+        return false;
+      }
+      wakeArmed = false;
+      stopRecognition();
+      void submit(command, { fromVoice: true });
+      return true;
+    }
+    if (wakeArmed) {
+      wakeArmed = false;
+      stopRecognition();
+      void submit(heard, { fromVoice: true });
+      return true;
+    }
+    setVoiceStatus(`Heard “${heard.slice(0, 60)}” · say “XOFT” first.`, 'listening');
+    return false;
+  }
+
+  function startServerListening() {
+    if (!autoListening || destroyed || isSpeaking || serverListener) return;
+    serverListener = createServerListener({
+      onSegment: async (blob) => {
+        setVoiceStatus('Transcribing…', 'processing');
+        let text = '';
+        try {
+          text = await transcribeAudio(blob);
+        } catch (error) {
+          setVoiceStatus(`Speech recognition failed: ${String(error?.message || 'unknown error').slice(0, 160)}`, 'error');
+          return;
+        }
+        if (!handleHeard(text) && autoListening) setVoiceStatus('AUTO LISTEN active · say “XOFT”, then your command.', 'listening');
+      },
+      onLevel: (level) => window.dispatchEvent(new CustomEvent('xoft:voice-level', { detail: { level } })),
+      onError: (error) => {
+        autoListening = false;
+        autoBtn.setAttribute('aria-pressed', 'false');
+        autoBtn.textContent = 'WHISPER AUTO LISTEN';
+        setVoiceStatus(`Microphone unavailable: ${error?.message || 'permission denied'}. Allow mic access, then tap AUTO LISTEN.`, 'error');
+        stopRecognition();
+      },
+    });
+    setVoiceStatus('AUTO LISTEN active (Whisper) · say “XOFT”, then your command.', 'listening');
+    void serverListener.start();
+  }
+
   function startRecognition() {
+    if (serverMode) { startServerListening(); return; }
     if (!Recognition || !autoListening || destroyed || isSpeaking || recognition) return;
     try {
       const instance = new Recognition();
@@ -251,27 +278,7 @@ export function mountCommandInput(el, store, controller) {
       instance.onresult = (event) => {
         for (let i = event.resultIndex; i < event.results.length; i += 1) {
           if (!event.results[i].isFinal) continue;
-          const heard = String(event.results[i][0]?.transcript ?? '').trim();
-          if (!heard) continue;
-          const match = WAKE_PATTERN.exec(heard);
-          if (match) {
-            const command = heard.slice(match.index + match[0].length).replace(/^[\s,.:;-]+/, '').trim();
-            if (!command) {
-              wakeArmed = true;
-              setVoiceStatus('I’m listening · say your command now.', 'listening');
-              continue;
-            }
-            wakeArmed = false;
-            stopRecognition();
-            void submit(command, { fromVoice: true });
-            return;
-          }
-          if (wakeArmed) {
-            wakeArmed = false;
-            stopRecognition();
-            void submit(heard, { fromVoice: true });
-            return;
-          }
+          if (handleHeard(event.results[i][0]?.transcript)) return;
         }
       };
       instance.onerror = (event) => {
@@ -279,10 +286,16 @@ export function mountCommandInput(el, store, controller) {
           recognitionLanguage = 'en-US';
           setVoiceStatus('Switching speech recognition language for browser compatibility…', 'processing');
           try { instance.stop(); } catch { /* onend restarts with the fallback locale */ }
-        } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        } else if (event.error === 'network' || event.error === 'service-not-allowed') {
+          // The browser's cloud speech service is unreachable or blocked: keep listening through XOFT server STT.
+          serverMode = true;
+          recognition = null;
+          setVoiceStatus('Browser speech service unavailable · switching to XOFT server listening…', 'processing');
+          startRecognition();
+        } else if (event.error === 'not-allowed') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'AUTO LISTEN';
+          autoBtn.textContent = 'WHISPER AUTO LISTEN';
           setVoiceStatus('Microphone or browser speech permission denied. Allow mic access, then use VOICE for local Whisper transcription.', 'error');
         } else if (event.error === 'network') {
           // Web Speech often depends on a vendor cloud service. Don't restart it forever
@@ -290,12 +303,12 @@ export function mountCommandInput(el, store, controller) {
           autoListening = false;
           wakeArmed = false;
           autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'AUTO LISTEN';
+          autoBtn.textContent = 'WHISPER AUTO LISTEN';
           setVoiceStatus('AUTO LISTEN needs the browser speech service, which is unreachable right now. AUTO LISTEN is off; tap VOICE to record and transcribe with local Whisper instead.', 'error');
         } else if (event.error === 'audio-capture') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'AUTO LISTEN';
+          autoBtn.textContent = 'WHISPER AUTO LISTEN';
           setVoiceStatus('No microphone was detected. Check Android microphone permission and close other apps using the mic.', 'error');
         } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           setVoiceStatus(`Listening issue: ${event.error}. Tap AUTO LISTEN to retry.`, 'error');
@@ -354,12 +367,13 @@ export function mountCommandInput(el, store, controller) {
   }
 
   async function toggleVoice() {
+    unlockAudio();
     if (recorder) { recorder.stop(); return; }
     if (!canRecord) { toast('Microphone recording is not available in this browser.', 'warn'); return; }
     try {
       stopRecognition();
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'].find((type) => MediaRecorder.isTypeSupported?.(type));
+      const preferredType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'].find((type) => MediaRecorder.isTypeSupported?.(type));
       const options = preferredType ? { mimeType: preferredType } : undefined;
       const chunks = [];
       recorder = new MediaRecorder(stream, options);
@@ -401,10 +415,11 @@ export function mountCommandInput(el, store, controller) {
   }
 
   function toggleAutoListen() {
-    if (!Recognition) {
-      toast('Automatic listening needs browser speech recognition. Use VOICE for push-to-talk.', 'warn');
+    if (!Recognition && !canRecord) {
+      toast('Automatic listening needs microphone access in a supported browser (HTTPS).', 'warn');
       return;
     }
+    unlockAudio();
     autoListening = !autoListening;
     wakeArmed = false;
     if (autoListening) {
@@ -416,7 +431,7 @@ export function mountCommandInput(el, store, controller) {
     } else {
       stopRecognition();
       autoBtn.setAttribute('aria-pressed', 'false');
-      autoBtn.textContent = 'AUTO LISTEN';
+      autoBtn.textContent = 'WHISPER AUTO LISTEN';
       setVoiceStatus('Automatic listening is off.', 'idle');
     }
   }
