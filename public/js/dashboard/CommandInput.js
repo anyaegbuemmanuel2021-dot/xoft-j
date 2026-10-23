@@ -141,8 +141,8 @@ export function mountCommandInput(el, store, controller) {
         </div>
       </div>
       <ul class="cc-menu" role="menu" aria-label="Quick commands" hidden></ul>
-    <div class="cc-exchanges" aria-live="polite" aria-relevant="additions text" data-exchanges></div>
-    </form>`;
+    </form>
+    <div class="cc-exchanges" aria-live="polite" aria-relevant="additions text" data-exchanges></div>`;
 
   const input = el.querySelector('#cc-input');
   const menu = el.querySelector('.cc-menu');
