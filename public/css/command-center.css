@@ -581,3 +581,8 @@ body[data-route="command"] .cc-home-core .cc-cmd textarea { max-height: 24dvh; }
   body[data-route="command"] .cc-home-core .cc-exchanges { min-height: 0; }
   body[data-route="command"] .cc-home-core .cc-cmd textarea { min-height: 42px; max-height: 18dvh; }
 }
+
+/* The command input module itself owns the message list and composer. */
+body[data-route="command"] .cc-home-core [data-mount="cmd"] {
+  display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0;
+}
