@@ -544,3 +544,40 @@ body[data-route="command"] #content { min-width: 0; }
 @media (max-width: 699px) {
   .cc-home-core .cc-exchanges { max-height: min(44dvh, 400px); }
 }
+
+
+/* ChatGPT-style command centre: conversation scrolls above a composer anchored at the bottom. */
+body[data-route="command"] #content { height: 100%; min-height: 0; }
+body[data-route="command"] .cc-home { height: 100%; min-height: 0; overflow: hidden; }
+body[data-route="command"] .cc-main-home { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+body[data-route="command"] .cc-home-core {
+  height: 100%; max-height: 100%; min-height: 0;
+  display: flex; flex-direction: column; align-content: stretch; gap: 8px;
+}
+body[data-route="command"] .cc-home-core .cc-p-core { flex: 0 0 auto; }
+body[data-route="command"] .cc-home-core .cc-model-strip { flex: 0 0 auto; }
+body[data-route="command"] .cc-home-core .cc-p-cmd {
+  display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: 8px;
+}
+body[data-route="command"] .cc-home-core .cc-exchanges {
+  order: 0; flex: 1 1 auto; min-height: 80px; max-height: none;
+  overflow-y: auto; overscroll-behavior: contain; padding: 2px 2px 8px;
+  align-content: start; scrollbar-width: thin;
+}
+body[data-route="command"] .cc-home-core .cc-cmd { order: 1; flex: 0 0 auto; }
+body[data-route="command"] .cc-home-core .cc-exchange { max-height: none; }
+body[data-route="command"] .cc-home-core .cc-cmd textarea { max-height: 24dvh; }
+@media (max-height: 700px) {
+  body[data-route="command"] .cc-home-core .cc-p-core { display: none; }
+  body[data-route="command"] .cc-home-core .cc-model-strip { padding: 6px 8px; }
+}
+@media (max-width: 699px) {
+  body[data-route="command"] .cc-home-core { gap: 6px; }
+  body[data-route="command"] .cc-home-core .cc-p-core { flex: 0 0 auto; }
+  body[data-route="command"] .cc-home-core .cc-core { width: min(48vw, 170px, 20dvh); }
+  body[data-route="command"] .cc-home-core .cc-core-meta { display: none; }
+  body[data-route="command"] .cc-home-core .cc-model-strip { max-height: 104px; overflow: auto; }
+  body[data-route="command"] .cc-home-core .cc-p-cmd { flex: 1 1 0; }
+  body[data-route="command"] .cc-home-core .cc-exchanges { min-height: 0; }
+  body[data-route="command"] .cc-home-core .cc-cmd textarea { min-height: 42px; max-height: 18dvh; }
+}
