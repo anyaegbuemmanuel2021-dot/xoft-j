@@ -1,4 +1,6 @@
-// Free-only XOFT speech output: use the device/browser voice engine; never call a paid voice API.
+// XOFT speech output: ElevenLabs (via POST /api/voice/speak) by default, browser/device speechSynthesis as the fallback.
+// The browser voice is used when ElevenLabs is not configured, fails, times out, or playback is blocked (e.g. mobile autoplay policy).
+import { apiHeaders, getVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
 const ENABLED_KEY = 'xoft_speak_out_enabled';
 let currentAudio = null;
 let currentAudioUrl = null;
@@ -22,9 +24,14 @@ export function setSpeakOutEnabled(enabled) {
   return Boolean(enabled);
 }
 
-export function canSpeakOut() {
+function canBrowserSpeak() {
   return typeof window !== 'undefined'
     && ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function');
+}
+
+export function canSpeakOut() {
+  // The server voice needs only an <audio> element; the browser voice needs speechSynthesis.
+  return typeof window !== 'undefined' && (canBrowserSpeak() || typeof Audio === 'function');
 }
 
 function releaseAudio() {
@@ -135,6 +142,54 @@ function browserSpeak(text, runId) {
   });
 }
 
+async function elevenLabsSpeak(text, runId) {
+  if (typeof Audio !== 'function') return false;
+  const status = await getVoiceStatus();
+  if (status?.tts?.configured === false) return false;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  let blob;
+  try {
+    const res = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: apiHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ text }),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      if (res.status === 503) invalidateVoiceStatus();
+      return false;
+    }
+    blob = await res.blob();
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (runId !== speechRun || !blob?.size) return false;
+
+  return new Promise((resolve) => {
+    releaseAudio();
+    currentAudioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(currentAudioUrl);
+    currentAudio = audio;
+    let settled = false;
+    const done = (ok) => {
+      if (settled) return;
+      settled = true;
+      if (currentAudio === audio) releaseAudio();
+      if (runId === speechRun && ok) setSpeechState('idle');
+      resolve(ok);
+    };
+    audio.onended = () => done(true);
+    audio.onerror = () => done(false);
+    audio.onplaying = () => { if (runId === speechRun) setSpeechState('speaking'); };
+    // play() rejects when the platform blocks autoplay; the caller then falls back to the browser voice.
+    audio.play().catch(() => done(false));
+  });
+}
+
 export async function speakOut(text) {
   const message = String(text ?? '').trim();
   if (!message || !isSpeakOutEnabled() || !canSpeakOut()) return false;
@@ -146,11 +201,18 @@ export async function speakOut(text) {
   stopSpeaking();
   const runId = speechRun;
   setSpeechState('loading');
-  // Free-first: use the device/browser voice by default, without making a network request.
+
+  // 1) Default: ElevenLabs through the XOFT server.
+  const served = await elevenLabsSpeak(spoken, runId);
+  if (served || runId !== speechRun) return served;
+
+  // 2) Fallback: the device/browser voice (no network request).
+  if (!canBrowserSpeak()) {
+    setSpeechState('error', 'Server voice is unavailable and this browser has no text-to-speech.');
+    return false;
+  }
   const browserPlayed = await browserSpeak(spoken, runId);
   if (browserPlayed || runId !== speechRun) return browserPlayed;
-  // Free-only mode: never send speech text to a paid speech API. Keep audio local to the browser/device.
-  if (runId !== speechRun) return false;
-  setSpeechState('error', 'Free browser/device speech is unavailable. Enable text-to-speech in your browser or device settings.');
+  setSpeechState('error', 'Speech output failed. Check ELEVENLABS_API_KEY or enable text-to-speech in your browser or device settings.');
   return false;
 }
