@@ -377,6 +377,15 @@ const expensiveLimit = rateLimit({
   message: { error: 'Rate limit exceeded for this resource-intensive endpoint — try again in a few minutes.' },
 });
 
+// Paid audio endpoints (Whisper/Gemini STT, ElevenLabs TTS) spend real credit per call.
+const voiceLimit = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number(process.env.VOICE_RATE_LIMIT_PER_MIN) || 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'VOICE_RATE_LIMIT_EXCEEDED', message: 'Too many voice requests. Wait a minute, then retry.' },
+});
+
 // --- API authentication and device-token least privilege ---
 function deviceTokenMayAccess(method, pathname, deviceId) {
   const route = String(pathname || '/').replace(/\/+$/, '') || '/';
@@ -984,23 +993,33 @@ app.get('/api/activity', (req, res) => {
 });
 
 // --- Voice ---
-// POST /api/voice/speak  { "text": "..." } -> audio/mpeg bytes
-app.post('/api/voice/speak', async (req, res) => {
+// GET  /api/voice/status      -> which STT providers / TTS are configured (lets the client pick a path without a failed call)
+// POST /api/voice/speak       { "text": "..." } -> audio/mpeg bytes (ElevenLabs)
+// POST /api/voice/transcribe  (raw audio body) -> { text, provider } (OpenAI Whisper first, Gemini fallback)
+app.get('/api/voice/status', (_req, res) => {
+  res.json(voiceService.status());
+});
+
+app.post('/api/voice/speak', voiceLimit, async (req, res) => {
   const { text } = req.body ?? {};
-  if (!text) return res.status(400).json({ error: 'text is required' });
+  if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'text is required' });
+  if (!voiceService.isTTSConfigured()) return res.status(503).json({ error: 'TTS_NOT_CONFIGURED', message: 'ELEVENLABS_API_KEY is not set.' });
   try {
     const audio = await voiceService.textToSpeech(text);
     res.set('Content-Type', 'audio/mpeg');
+    res.set('Cache-Control', 'no-store');
     res.send(audio);
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
 });
 
-// POST /api/voice/transcribe  (raw audio body, Content-Type: audio/webm etc.) -> { text }
-app.post('/api/voice/transcribe', async (req, res) => {
+app.post('/api/voice/transcribe', voiceLimit, async (req, res) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     return res.status(400).json({ error: 'send raw audio bytes with an audio/* Content-Type' });
+  }
+  if (!voiceService.isSTTConfigured()) {
+    return res.status(503).json({ error: 'STT_NOT_CONFIGURED', message: 'Set OPENAI_API_KEY (Whisper) and/or GEMINI_API_KEY.' });
   }
   try {
     const mime = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
@@ -1008,19 +1027,18 @@ app.post('/api/voice/transcribe', async (req, res) => {
       : mime === 'audio/ogg' || mime === 'application/ogg' ? 'ogg'
       : mime === 'audio/mpeg' || mime === 'audio/mp3' ? 'mp3'
       : mime === 'audio/wav' || mime === 'audio/x-wav' ? 'wav'
-      : mime === 'audio/webm' ? 'webm'
       : 'webm';
-    const text = await voiceService.speechToText(req.body, `recording.${extension}`);
-    res.json({ text });
+    const { text, provider } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime });
+    res.json({ text, provider });
   } catch (err) {
-    res.status(502).json({ error: err.message });
+    res.status(502).json({ error: err.message, attempts: err.attempts ?? [] });
   }
 });
 
 // POST /api/voice/vad  (raw 16-bit PCM mono body) -> real energy-based voice-activity detection.
 // See src/voice/WakeWordService.js for exactly what this can and can't do — continuous listening
 // is still a client responsibility; this scores chunks the client already captured and sent.
-app.post('/api/voice/vad', (req, res) => {
+app.post('/api/voice/vad', voiceLimit, (req, res) => {
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
     return res.status(400).json({ error: 'send raw 16-bit PCM mono audio bytes with an audio/* Content-Type' });
   }
