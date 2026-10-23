@@ -141,8 +141,8 @@ export function mountCommandInput(el, store, controller) {
         </div>
       </div>
       <ul class="cc-menu" role="menu" aria-label="Quick commands" hidden></ul>
-    </form>
-    <div class="cc-exchanges" aria-live="polite" aria-relevant="additions text" data-exchanges></div>`;
+    <div class="cc-exchanges" aria-live="polite" aria-relevant="additions text" data-exchanges></div>
+    </form>`;
 
   const input = el.querySelector('#cc-input');
   const menu = el.querySelector('.cc-menu');
@@ -291,7 +291,7 @@ export function mountCommandInput(el, store, controller) {
           wakeArmed = false;
           autoBtn.setAttribute('aria-pressed', 'false');
           autoBtn.textContent = 'AUTO LISTEN';
-          setVoiceStatus('Browser live speech service is unreachable. Use VOICE for local Whisper, then say your command.', 'error');
+          setVoiceStatus('AUTO LISTEN needs the browser speech service, which is unreachable right now. AUTO LISTEN is off; tap VOICE to record and transcribe with local Whisper instead.', 'error');
         } else if (event.error === 'audio-capture') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
