@@ -199,6 +199,7 @@ if (!window.__xoftVoiceStatusBound) {
     el.setAttribute('aria-label', 'XOFT voice status: ' + label);
   };
   window.addEventListener('xoft:voice-state', (e) => paint(e.detail?.state || 'idle', e.detail?.label || 'VOICE STANDBY'));
+  window.addEventListener('xoft:voice-level', (e) => { const el = document.querySelector('#xoft-voice-status'); if (el && el.dataset.state === 'listening') el.style.setProperty('--voice-level', String(Math.max(0, Math.min(1, Number(e.detail?.level) || 0)))); });
   window.addEventListener('xoft:speech-state', (e) => {
     if (e.detail?.state === 'speaking') paint('speaking', 'XOFT IS SPEAKING');
     else if (e.detail?.state === 'loading') paint('thinking', 'PREPARING VOICE');
@@ -338,6 +339,8 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
           let squares = 0;
           for (let i = 0; i < samples.length; i += 1) squares += samples[i] * samples[i];
           const rms = Math.sqrt(squares / samples.length);
+          // Feed live microphone energy to the XOFT status orb so the waveform reacts to the user's actual voice.
+          window.dispatchEvent(new CustomEvent('xoft:voice-level', { detail: { level: Math.min(1, rms / 0.18) } }));
           const now = Date.now();
           if (rms > 0.018) {
             detectedSpeech = true;
