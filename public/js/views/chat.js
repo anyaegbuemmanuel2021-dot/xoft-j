@@ -172,36 +172,9 @@ function renderLog(container) {
 }
 
 
-// Free-first STT: browser recognition first; local Whisper fallback if unsupported.
-import { transcribeAudioBlob as transcribeLocally } from '../voice/whisper-fallback.js';
-
-// Prefer server-side transcription (configured provider/API key); use on-device Whisper only if unavailable.
-// This bypasses browser SpeechRecognition services entirely and sends only a recorded utterance, never live mic audio.
-async function transcribeAudioBlob(blob) {
-  let serverError;
-  try {
-    const headers = { 'Content-Type': blob.type || 'audio/webm' };
-    try { const key = localStorage.getItem('xoft_api_key'); if (key) headers['X-API-Key'] = key; } catch {}
-    const response = await fetch('/api/voice/transcribe', { method: 'POST', headers, body: blob, cache: 'no-store' });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => '');
-      serverError = new Error(`Server speech recognition returned ${response.status}${detail ? `: ${detail.slice(0, 240)}` : ''}`);
-    } else {
-      const data = await response.json();
-      const text = String(data?.text || '').trim();
-      if (text) return text;
-      serverError = new Error('Server speech recognition returned an empty transcript.');
-    }
-  } catch (error) { serverError = error; }
-
-  try {
-    return await transcribeLocally(blob);
-  } catch (localError) {
-    const serverMessage = serverError?.message || 'Server speech recognition unavailable';
-    const localMessage = localError?.message || 'On-device Whisper unavailable';
-    throw new Error(`${serverMessage}. On-device fallback also failed: ${localMessage}`);
-  }
-}
+// STT: server Whisper (OpenAI, Gemini fallback) first; on-device Whisper only if the server path fails.
+import { transcribe as transcribeAudioBlob } from '../voice/stt.js';
+import { createLevelMeter, createSpeechGate, preferredRecorderOptions, unlockAudio } from '../voice/listen.js';
 let activeRecognition = null;
 let whisperRecorder = null;
 let whisperStream = null;
@@ -252,9 +225,11 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
   }
 
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const chunks = [];
-    const recorder = new MediaRecorder(stream);
+    const recorder = new MediaRecorder(stream, preferredRecorderOptions());
+    let meter = null;
+    let levelTimer = null;
     let audioContext = null;
     let rafId = null;
     let detectedSpeech = false;
@@ -269,6 +244,9 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
     const cleanupAudio = async () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
       rafId = null;
+      clearInterval(levelTimer);
+      meter?.close();
+      meter = null;
       stream.getTracks().forEach(track => track.stop());
       if (audioContext && audioContext.state !== 'closed') {
         await audioContext.close().catch(() => {});
@@ -310,7 +288,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       setVoiceStatus('thinking', 'TRANSCRIBING YOUR VOICE');
       setMicButton(container, '⏳ Transcribing your voice…', true);
       if (!conversationSegment) {
-        toast('Transcribing your recording securely through XOFT; if the server provider is unavailable, XOFT will try on-device Whisper.', 'info');
+        toast('Transcribing with Whisper. If the server provider is unavailable, XOFT falls back to on-device Whisper.', 'info');
       } else {
         setConversationButton(container, true, '⏳ Transcribing your voice…');
       }
@@ -329,7 +307,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
           toast('Whisper did not detect speech. Try recording again.', 'warn');
         }
       } catch (error) {
-        console.error('[XOFT] Local Whisper failed:', error);
+        console.error('[XOFT] Speech recognition failed:', error);
         toast(`Speech recognition failed: ${String(error?.message || 'unknown error').slice(0, 220)}`, 'warn');
         if (conversationSegment && voiceConversationActive) stopVoiceConversation(container, true);
       } finally {
@@ -350,41 +328,26 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       setVoiceStatus('listening', 'LISTENING · MICROPHONE ACTIVE');
       setConversationButton(container, true, '🟢 Listening for your voice…');
       setMicButton(container, '🟢 Listening for your voice…', true);
-      // Free local fallback endpointing: stop 1.2 seconds after speech ends,
-      // after 8 seconds of silence, or after 15 seconds total.
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextClass) {
-        audioContext = new AudioContextClass();
-        await audioContext.resume().catch(() => {});
-        const source = audioContext.createMediaStreamSource(stream);
-        const analyser = audioContext.createAnalyser();
-        analyser.fftSize = 1024;
-        source.connect(analyser);
-        const samples = new Float32Array(analyser.fftSize);
-        const checkLevel = () => {
-          if (!voiceConversationActive || recorder.state === 'inactive') return;
-          analyser.getFloatTimeDomainData(samples);
-          let squares = 0;
-          for (let i = 0; i < samples.length; i += 1) squares += samples[i] * samples[i];
-          const rms = Math.sqrt(squares / samples.length);
-          // Feed live microphone energy to the XOFT status orb so the waveform reacts to the user's actual voice.
-          window.dispatchEvent(new CustomEvent('xoft:voice-level', { detail: { level: Math.min(1, rms / 0.18) } }));
-          const now = Date.now();
-          if (rms > 0.018) {
-            detectedSpeech = true;
-            lastVoiceAt = now;
-          }
-          const elapsed = now - startedAt;
-          if ((detectedSpeech && now - lastVoiceAt > 1200) || (!detectedSpeech && elapsed > 8000) || elapsed > 15000) {
-            if (recorder.state !== 'inactive') recorder.stop();
-            return;
-          }
-          rafId = requestAnimationFrame(checkLevel);
-        };
-        checkLevel();
-      } else {
-        setTimeout(() => { if (recorder.state !== 'inactive') recorder.stop(); }, 10000);
-      }
+      // Endpointing: stop 1.2 s after speech ends, after 8 s with no speech, or after 15 s total.
+      // Uses the shared unlocked AudioContext and an adaptive noise-floor threshold (see voice/listen.js).
+      unlockAudio();
+      meter = createLevelMeter(stream);
+      const gate = createSpeechGate();
+      levelTimer = setInterval(() => {
+        if (!voiceConversationActive || recorder.state === 'inactive') { clearInterval(levelTimer); return; }
+        const now = Date.now();
+        const elapsed = now - startedAt;
+        const rms = meter.read();
+        if (rms === null) {
+          // Analyser not running (suspended audio context): cannot detect silence, so send a time-capped clip instead of dropping it.
+          detectedSpeech = true;
+          if (elapsed > 6000) recorder.stop();
+          return;
+        }
+        window.dispatchEvent(new CustomEvent('xoft:voice-level', { detail: { level: Math.min(1, rms / 0.18) } }));
+        if (gate.update(rms)) { detectedSpeech = true; lastVoiceAt = now; }
+        if ((detectedSpeech && now - lastVoiceAt > 1200) || (!detectedSpeech && elapsed > 8000) || elapsed > 15000) recorder.stop();
+      }, 50);
     } else {
       setMicButton(container, '🔴 Recording for Whisper… tap to stop', true);
       toast('Recording started. Tap the microphone button again to stop and transcribe.', 'info');
@@ -398,6 +361,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
 }
 
 function toggleVoiceInput(container) {
+  unlockAudio();
   if (voiceConversationActive) stopVoiceConversation(container, true);
   if (whisperBusy) return;
   if (whisperRecorder && whisperRecorder.state !== 'inactive') {
@@ -602,6 +566,7 @@ function listenForConversationTurn(container) {
 }
 
 function toggleVoiceConversation(container) {
+  unlockAudio();
   if (voiceConversationActive) {
     stopVoiceConversation(container);
     return;
@@ -671,7 +636,7 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
           if (['timeout', 'unavailable', 'server_error'].includes(attempt.errorType)) return name + ' is temporarily unavailable.';
           return name + ' failed; check its configuration.';
         });
-        friendly = ['XOFT is running, but its configured AI providers could not answer.', ...providerAdvice, 'Voice features do not use paid audio APIs; XOFT still needs at least one working AI provider for replies.'].join(' ');
+        friendly = ['XOFT is running, but its configured AI providers could not answer.', ...providerAdvice, 'XOFT still needs at least one working AI provider for replies.'].join(' ');
       }
     } catch { /* not a structured AI error */ }
     responseToSpeak = friendly ?? ('Error: ' + err.message);
@@ -682,10 +647,10 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
 
   renderLog(container);
   if (responseToSpeak && isSpeakOutEnabled()) {
-    const spoke = await speakOut(responseToSpeak, { freeOnly: true });
+    const spoke = await speakOut(responseToSpeak);
     if (voiceTurn && voiceConversationActive && !spoke && canSpeakOut()) {
       // Speech output may be disabled by device/browser policy; do not block the listening loop.
-      console.info('[XOFT] Free browser speech was unavailable; continuing voice conversation.');
+      console.info('[XOFT] Speech output was unavailable; continuing voice conversation.');
     }
   }
   if (voiceTurn && voiceConversationActive) {
