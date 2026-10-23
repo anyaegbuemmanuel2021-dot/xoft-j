@@ -173,7 +173,35 @@ function renderLog(container) {
 
 
 // Free-first STT: browser recognition first; local Whisper fallback if unsupported.
-import { transcribeAudioBlob } from '../voice/whisper-fallback.js';
+import { transcribeAudioBlob as transcribeLocally } from '../voice/whisper-fallback.js';
+
+// Prefer server-side transcription (configured provider/API key); use on-device Whisper only if unavailable.
+// This bypasses browser SpeechRecognition services entirely and sends only a recorded utterance, never live mic audio.
+async function transcribeAudioBlob(blob) {
+  let serverError;
+  try {
+    const headers = { 'Content-Type': blob.type || 'audio/webm' };
+    try { const key = localStorage.getItem('xoft_api_key'); if (key) headers['X-API-Key'] = key; } catch {}
+    const response = await fetch('/api/voice/transcribe', { method: 'POST', headers, body: blob, cache: 'no-store' });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      serverError = new Error(`Server speech recognition returned ${response.status}${detail ? `: ${detail.slice(0, 240)}` : ''}`);
+    } else {
+      const data = await response.json();
+      const text = String(data?.text || '').trim();
+      if (text) return text;
+      serverError = new Error('Server speech recognition returned an empty transcript.');
+    }
+  } catch (error) { serverError = error; }
+
+  try {
+    return await transcribeLocally(blob);
+  } catch (localError) {
+    const serverMessage = serverError?.message || 'Server speech recognition unavailable';
+    const localMessage = localError?.message || 'On-device Whisper unavailable';
+    throw new Error(`${serverMessage}. On-device fallback also failed: ${localMessage}`);
+  }
+}
 let activeRecognition = null;
 let whisperRecorder = null;
 let whisperStream = null;
@@ -280,9 +308,9 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
 
       whisperBusy = true;
       setVoiceStatus('thinking', 'TRANSCRIBING YOUR VOICE');
-      setMicButton(container, conversationSegment ? '⏳ Transcribing your voice…' : '⏳ Loading local Whisper…', true);
+      setMicButton(container, '⏳ Transcribing your voice…', true);
       if (!conversationSegment) {
-        toast('Transcribing locally with Whisper. First use downloads a small speech model and may take a few minutes.', 'info');
+        toast('Transcribing your recording securely through XOFT; if the server provider is unavailable, XOFT will try on-device Whisper.', 'info');
       } else {
         setConversationButton(container, true, '⏳ Transcribing your voice…');
       }
@@ -302,7 +330,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
         }
       } catch (error) {
         console.error('[XOFT] Local Whisper failed:', error);
-        toast('Free local Whisper could not run. Check your connection for its first model download, browser memory, and microphone permission.', 'warn');
+        toast(`Speech recognition failed: ${String(error?.message || 'unknown error').slice(0, 220)}`, 'warn');
         if (conversationSegment && voiceConversationActive) stopVoiceConversation(container, true);
       } finally {
         whisperBusy = false;
