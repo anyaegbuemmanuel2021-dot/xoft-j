@@ -96,6 +96,14 @@ export const config = {
   voice: {
     elevenLabsApiKey: required('ELEVENLABS_API_KEY'),
     elevenLabsVoiceId: required('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM'),
+    elevenLabsModel: String(required('ELEVENLABS_MODEL', 'eleven_flash_v2_5')).trim(),
+    // STT: Whisper (OpenAI) is the default; Gemini is the server-side fallback. Comma-separated, first = preferred.
+    sttProviderOrder: String(required('STT_PROVIDER_ORDER', 'openai,gemini'))
+      .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean),
+    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'whisper-1')).trim(),
+    sttGeminiModel: String(required('STT_GEMINI_MODEL', '')).trim(), // empty = use the configured Gemini chat model
+    sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 30000,
+    ttsTimeoutMs: Number(process.env.TTS_TIMEOUT_MS) || 20000,
   },
 
   media: {
