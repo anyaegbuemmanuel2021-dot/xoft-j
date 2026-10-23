@@ -24,10 +24,11 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 
-test('Whisper fallback runs in the browser rather than calling a paid transcription API', () => {
+test('Voice transcription prefers the XOFT server and falls back to free on-device Whisper', () => {
   const chat = read('public/js/views/chat.js');
   const whisper = read('public/js/voice/whisper-fallback.js');
-  assert.match(chat, /transcribeAudioBlob\(blob\)/);
+  assert.match(chat, /fetch\('\/api\/voice\/transcribe'/);
+  assert.match(chat, /return await transcribeLocally\(blob\)/);
   assert.match(whisper, /onnx-community\/whisper-tiny\.en/);
   assert.doesNotMatch(whisper, /api\.openai\.com|api\.elevenlabs\.io/);
 });
