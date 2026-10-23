@@ -160,7 +160,7 @@ See [`docs/WEB_RESEARCH.md`](docs/WEB_RESEARCH.md) for setup and security detail
     -H 'Content-Type: application/json' \
     -d '{"text":"Hello, I am XOFT."}' --output hello.mp3
   ```
-- **Speech-to-text**: rides on `OPENAI_API_KEY` (Whisper) — no separate key.
+- **Speech-to-text**: OpenAI Whisper (`whisper-1`) is the default and rides on `OPENAI_API_KEY`; Gemini (`GEMINI_API_KEY`) is the server fallback; the browser then falls back to on-device Whisper. Order: `STT_PROVIDER_ORDER` (default `openai,gemini`). `GET /api/voice/status` shows what is configured.
   ```bash
   curl -X POST localhost:3000/api/voice/transcribe \
     -H 'Content-Type: audio/webm' \
