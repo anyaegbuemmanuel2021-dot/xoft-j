@@ -24,7 +24,8 @@ Availability, free tiers, pricing and supported countries change and differ by c
 | Capability | `.env` variables | Get it here |
 |---|---|---|
 | Web search | `BRAVE_SEARCH_API_KEY` | https://brave.com/search/api |
-| Voice replies (text-to-speech) | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | https://elevenlabs.io |
+| Voice replies (text-to-speech, default; browser voice is the fallback) | `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` | https://elevenlabs.io |
+| Speech-to-text (Whisper default via the OpenAI key; Gemini fallback via `GEMINI_API_KEY`) | `OPENAI_API_KEY`, `GEMINI_API_KEY`, optional `STT_PROVIDER_ORDER` | reuses the keys above |
 | Google Workspace (Gmail/Calendar/Drive) | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | https://console.cloud.google.com (APIs & Services → Credentials → OAuth client; you must complete the OAuth consent flow to obtain the refresh token) |
 | WhatsApp (Meta Cloud API) | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN` (you invent it), `WHATSAPP_APP_SECRET` | https://developers.facebook.com (create an app → add WhatsApp). Docs: https://developers.facebook.com/docs/whatsapp |
 | Phone calls / SMS (Twilio) | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `TWILIO_PUBLIC_BASE_URL` (= your https domain) | https://www.twilio.com/console |
