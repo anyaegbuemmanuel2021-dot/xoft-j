@@ -224,7 +224,7 @@ export function mountCommandInput(el, store, controller) {
     // Keep completed exchanges on this device across refreshes and page navigation.
     try {
       const saved = exchanges.filter((x) => x && x.status !== 'sending').slice(-100);
-      localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(saved));
+      localStorage.setItem('xoft_chat_history_v1', JSON.stringify(saved));
       localStorage.setItem('xoft_command_center_history_' + sessionId(), JSON.stringify(saved));
 
       // Keep Command Centre and the Chat page on the same conversation timeline.
