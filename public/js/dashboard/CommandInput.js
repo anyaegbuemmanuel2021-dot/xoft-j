@@ -243,8 +243,6 @@ export function mountCommandInput(el, store, controller) {
         }
         return [user];
       }).filter((m) => m.content.trim()).slice(-300);
-      localStorage.setItem('xoft_chat_history_' + id, JSON.stringify(messages));
-
       if (messages.length) saveMessages(id, messages);
       if (recentPanel && !recentPanel.hidden) paintRecent();
       if (serverHistoryReady) {
