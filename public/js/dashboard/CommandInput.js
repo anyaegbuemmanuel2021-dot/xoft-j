@@ -19,7 +19,7 @@ function friendlyProviderError(rawMessage) {
 
   if (body?.error !== 'AI_PROVIDERS_FAILED' && body?.error !== 'NO_AI_PROVIDER_AVAILABLE' && body?.error !== 'INVALID_PROVIDER_CONFIG') {
     if (/failed to fetch|networkerror|network request failed/i.test(raw)) {
-      return 'XOFT could not reach its server. Enable internet access, check the Railway deployment is running, and retry. If the server is awake but still unreachable, check its deployment logs.';
+      return 'XOFT could not reach its server. Enable internet access, check the Render deployment is running, and retry. If the server is awake but still unreachable, check its deployment logs.';
     }
     return `XOFT could not complete this request: ${raw || 'unknown error'}. Check Runtime Settings and Diagnostics for the exact cause.`;
   }
@@ -37,7 +37,7 @@ function friendlyProviderError(rawMessage) {
   for (const attempt of attempts) {
     const name = readable(attempt.provider);
     if (attempt.errorType === 'rate_limit') advice.push(`${name}: quota/rate limit reached — add credits or wait for the provider's quota window to reset.`);
-    else if (attempt.errorType === 'auth') advice.push(`${name}: credentials rejected — correct its API key in Railway Variables, then redeploy.`);
+    else if (attempt.errorType === 'auth') advice.push(`${name}: credentials rejected — correct its API key in Render Environment, then redeploy.`);
     else if (attempt.errorType === 'invalid_request') advice.push(`${name}: model/request rejected — choose a model supported by that API key.`);
     else if (attempt.errorType === 'timeout') advice.push(`${name}: timed out — check provider status/network or try a faster model.`);
     else if (attempt.errorType === 'unavailable' || attempt.errorType === 'server_error') advice.push(`${name}: provider unavailable — it will be tried again on a later request.`);
@@ -45,12 +45,12 @@ function friendlyProviderError(rawMessage) {
   }
 
   if (body.error === 'INVALID_PROVIDER_CONFIG') {
-    return 'XOFT’s AI routing settings are invalid. Correct AI_PRIMARY_PROVIDER and AI_FALLBACK_PROVIDERS in Railway Variables, or remove the invalid override, then redeploy.';
+    return 'XOFT’s AI routing settings are invalid. Correct AI_PRIMARY_PROVIDER and AI_FALLBACK_PROVIDERS in Render Environment, or remove the invalid override, then redeploy.';
   }
   if (body.error === 'NO_AI_PROVIDER_AVAILABLE') {
     return [
       'XOFT could not find a configured AI provider for this request.',
-      'Enable at least one working provider in Railway Variables: OPENAI_API_KEY (OpenAI) or ANTHROPIC_API_KEY (Claude).',
+      'Enable at least one working provider in Render Environment: OPENAI_API_KEY (OpenAI) or ANTHROPIC_API_KEY (Claude).',
       'Optional additional fallbacks: GEMINI_API_KEY, XAI_API_KEY, or EXPERIENTIAL_API_KEY / gateway credentials. Set AI_FALLBACK_ENABLED=true.',
       'For local fallback, OLLAMA_ENABLED=true only works if an Ollama service is actually reachable from the XOFT server.',
       names.length ? `Providers considered: ${names.map(readable).join(', ')}.` : '',
@@ -60,7 +60,7 @@ function friendlyProviderError(rawMessage) {
     'XOFT tried its configured AI providers, but none completed this request.',
     ...new Set(advice),
     names.length ? `Attempted: ${names.map(readable).join(', ')}.` : '',
-    'To restore service, configure at least two independent providers for automatic fallback (for example OPENAI_API_KEY and ANTHROPIC_API_KEY), ensure their model names are valid, and check API credits/quotas in Railway Variables and provider dashboards.',
+    'To restore service, configure at least two independent providers for automatic fallback (for example OPENAI_API_KEY and ANTHROPIC_API_KEY), ensure their model names are valid, and check API credits/quotas in Render Environment and provider dashboards.',
     'XOFT cannot bypass missing credentials, exhausted quotas, provider outages, or permissions; the fallback chain can only use providers and tools that are actually enabled.',
   ].filter(Boolean).join(' ');
 }
@@ -223,7 +223,7 @@ export function mountCommandInput(el, store, controller) {
     sendBtn.disabled = pending;
     // Keep completed exchanges on this device across refreshes and page navigation.
     try {
-      const saved = exchanges.filter((x) => x && x.status !== 'sending').slice(-100);
+      const saved = exchanges.filter((x) => x && x.status !== 'sending').slice(-MAX_EXCHANGES);
       localStorage.setItem('xoft_chat_history_v1', JSON.stringify(saved));
       localStorage.setItem('xoft_command_center_history_' + sessionId(), JSON.stringify(saved));
 
