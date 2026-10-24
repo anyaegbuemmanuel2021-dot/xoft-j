@@ -5,9 +5,11 @@ import { config } from '../config/index.js';
  * (web or mobile client) only sends/receives audio bytes over HTTP.
  *
  * STT: Whisper through the OpenAI API is the default; Gemini is the fallback. The order
- *      is configurable with STT_PROVIDER_ORDER (default "openai,gemini"). Each provider is
- *      tried in order and the first non-empty transcript wins.
- * TTS: ElevenLabs. The browser client falls back to the device voice if this fails.
+ *      is configurable with STT_PROVIDER_ORDER (default "openai,gemini"). The first provider starts
+ *      immediately; if it fails/returns nothing the next starts at once, and if it is merely SLOW
+ *      (STT_HEDGE_MS, default 1000) the next starts in parallel. The first non-empty transcript wins
+ *      and the slower request is aborted, so a hung provider never costs the full timeout.
+ * TTS: ElevenLabs (flash model, small MP3). The browser client falls back to the device voice if this fails.
  *
  * Not here (needs a client with mic/speaker access): wake-word detection, VAD capture,
  * streaming playback, and the always-listening loop.
@@ -28,6 +30,11 @@ const GEMINI_AUDIO_MIME = {
 
 function timeoutSignal(ms) {
   return AbortSignal.timeout(ms);
+}
+
+/** Timeout that can also be cancelled by the caller (used to drop the losing STT request). */
+function withTimeout(ms, signal) {
+  return signal ? AbortSignal.any([AbortSignal.timeout(ms), signal]) : AbortSignal.timeout(ms);
 }
 
 export class VoiceService {
@@ -57,23 +64,20 @@ export class VoiceService {
 
   status() {
     return {
-      stt: { default: 'openai-whisper', providers: this.sttProviders(), configured: this.isSTTConfigured() },
-      tts: { provider: 'elevenlabs', configured: this.isTTSConfigured(), fallback: 'browser' },
+      stt: { default: 'openai-whisper', providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
+      tts: { provider: 'elevenlabs', configured: this.isTTSConfigured(), fallback: 'browser', streaming: true },
     };
   }
 
-  /**
-   * @param {string} text
-   * @returns {Promise<Buffer>} MP3 audio bytes
-   */
-  async textToSpeech(text) {
+  async _ttsRequest(text) {
     if (!this.isTTSConfigured()) {
       throw new Error('VoiceService: ELEVENLABS_API_KEY is not set.');
     }
     const spoken = String(text ?? '').trim().slice(0, MAX_TTS_CHARS);
     if (!spoken) throw new Error('VoiceService: text is empty.');
+    const format = config.voice.elevenLabsOutputFormat || 'mp3_22050_32';
     const res = await this.fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(config.voice.elevenLabsVoiceId)}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(config.voice.elevenLabsVoiceId)}/stream?output_format=${encodeURIComponent(format)}`,
       {
         method: 'POST',
         headers: {
@@ -93,19 +97,41 @@ export class VoiceService {
       const errText = await res.text().catch(() => '');
       throw new Error(`VoiceService: ElevenLabs API error ${res.status} - ${errText.slice(0, 300)}`);
     }
+    return res;
+  }
+
+  /**
+   * Streaming TTS: resolves as soon as ElevenLabs starts answering, so the caller can pipe the first audio
+   * bytes to the client instead of waiting for the whole clip.
+   * @param {string} text
+   * @returns {Promise<{ body: ReadableStream<Uint8Array>|null, contentType: string }>}
+   */
+  async textToSpeechStream(text) {
+    const res = await this._ttsRequest(text);
+    return { body: res.body ?? null, contentType: 'audio/mpeg', response: res };
+  }
+
+  /**
+   * @param {string} text
+   * @returns {Promise<Buffer>} MP3 audio bytes
+   */
+  async textToSpeech(text) {
+    const res = await this._ttsRequest(text);
     return Buffer.from(await res.arrayBuffer());
   }
 
-  async _openaiWhisper(audioBuffer, filename) {
+  async _openaiWhisper(audioBuffer, filename, signal) {
     const form = new FormData();
     form.append('file', new Blob([audioBuffer]), filename);
     form.append('model', config.voice.sttOpenAiModel);
     form.append('response_format', 'json');
+    form.append('temperature', '0');
+    if (config.voice.sttLanguage) form.append('language', config.voice.sttLanguage);
     const res = await this.fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.providers.openai.apiKey}` },
       body: form,
-      signal: timeoutSignal(config.voice.sttTimeoutMs),
+      signal: withTimeout(config.voice.sttTimeoutMs, signal),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
@@ -115,7 +141,7 @@ export class VoiceService {
     return String(data?.text ?? '').trim();
   }
 
-  async _geminiTranscribe(audioBuffer, mime) {
+  async _geminiTranscribe(audioBuffer, mime, signal) {
     const model = config.voice.sttGeminiModel || config.providers.gemini.model;
     const res = await this.fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -132,7 +158,7 @@ export class VoiceService {
           }],
           generationConfig: { temperature: 0 },
         }),
-        signal: timeoutSignal(config.voice.sttTimeoutMs),
+        signal: withTimeout(config.voice.sttTimeoutMs, signal),
       }
     );
     if (!res.ok) {
@@ -145,35 +171,75 @@ export class VoiceService {
   }
 
   /**
-   * Transcribe with provider fallback.
+   * Transcribe with provider fallback and latency hedging.
    * @param {Buffer} audioBuffer
    * @param {{filename?: string, mime?: string}} [opts]
-   * @returns {Promise<{text: string, provider: string, attempts: Array<{provider: string, ok: boolean, error?: string}>}>}
+   * @returns {Promise<{text: string, provider: string, ms: number, attempts: Array<{provider: string, ok: boolean, error?: string, ms?: number}>}>}
    */
   async transcribe(audioBuffer, { filename = 'audio.webm', mime = 'audio/webm' } = {}) {
     const providers = this.sttProviders();
     if (!providers.length) {
       throw new Error('VoiceService: no speech-to-text provider configured. Set OPENAI_API_KEY (Whisper) and/or GEMINI_API_KEY.');
     }
+    const startedAt = Date.now();
+    const hedgeMs = config.voice.sttHedgeMs;
     const attempts = [];
-    for (const provider of providers) {
-      try {
-        const text = provider === 'openai'
-          ? await this._openaiWhisper(audioBuffer, filename)
-          : await this._geminiTranscribe(audioBuffer, mime);
-        if (text) {
-          attempts.push({ provider, ok: true });
-          return { text, provider, attempts };
-        }
-        attempts.push({ provider, ok: false, error: 'empty transcript' });
-      } catch (err) {
-        attempts.push({ provider, ok: false, error: err.message });
-      }
-    }
-    const summary = attempts.map((a) => `${a.provider}: ${a.error}`).join('; ');
-    const error = new Error(`VoiceService: speech-to-text failed (${summary}).`);
-    error.attempts = attempts;
-    throw error;
+    const controllers = new Map();
+
+    return new Promise((resolve, reject) => {
+      let nextIndex = 0;
+      let pending = 0;
+      let settled = false;
+      let hedgeTimer = null;
+
+      const sortedAttempts = () => [...attempts].sort((a, b) => providers.indexOf(a.provider) - providers.indexOf(b.provider));
+      const clearHedge = () => { if (hedgeTimer) { clearTimeout(hedgeTimer); hedgeTimer = null; } };
+      const armHedge = () => {
+        clearHedge();
+        if (settled || nextIndex >= providers.length || !(hedgeMs > 0)) return;
+        hedgeTimer = setTimeout(() => { hedgeTimer = null; startNext(); }, hedgeMs);
+      };
+
+      const startNext = () => {
+        if (settled || nextIndex >= providers.length) return;
+        const provider = providers[nextIndex++];
+        const controller = new AbortController();
+        controllers.set(provider, controller);
+        const t0 = Date.now();
+        pending += 1;
+        const run = provider === 'openai'
+          ? this._openaiWhisper(audioBuffer, filename, controller.signal)
+          : this._geminiTranscribe(audioBuffer, mime, controller.signal);
+        run.then((text) => ({ text, error: null }), (error) => ({ text: '', error })).then(({ text, error }) => {
+          pending -= 1;
+          if (settled) return; // lost the race; its request was aborted
+          const ms = Date.now() - t0;
+          if (text) {
+            settled = true;
+            clearHedge();
+            attempts.push({ provider, ok: true, ms });
+            for (const [name, c] of controllers) if (name !== provider) c.abort();
+            resolve({ text, provider, ms: Date.now() - startedAt, attempts: sortedAttempts() });
+            return;
+          }
+          attempts.push({ provider, ok: false, error: error ? error.message : 'empty transcript', ms });
+          if (nextIndex < providers.length) startNext(); // failed or empty: do not wait for the hedge timer
+          armHedge();
+          if (pending === 0 && nextIndex >= providers.length) {
+            settled = true;
+            clearHedge();
+            const list = sortedAttempts();
+            const summary = list.map((a) => `${a.provider}: ${a.error}`).join('; ');
+            const err = new Error(`VoiceService: speech-to-text failed (${summary}).`);
+            err.attempts = list;
+            reject(err);
+          }
+        });
+      };
+
+      startNext();
+      armHedge();
+    });
   }
 
   /** Back-compat: returns only the transcript string. */
