@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -1005,11 +1006,17 @@ app.post('/api/voice/speak', voiceLimit, async (req, res) => {
   if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'text is required' });
   if (!voiceService.isTTSConfigured()) return res.status(503).json({ error: 'TTS_NOT_CONFIGURED', message: 'ELEVENLABS_API_KEY is not set.' });
   try {
-    const audio = await voiceService.textToSpeech(text);
-    res.set('Content-Type', 'audio/mpeg');
+    // Stream audio as the provider produces it instead of waiting for the full clip in memory.
+    const { body, contentType } = await voiceService.textToSpeechStream(text);
+    res.set('Content-Type', contentType || 'audio/mpeg');
     res.set('Cache-Control', 'no-store');
-    res.send(audio);
+    if (!body) return res.send(Buffer.alloc(0));
+    const source = Readable.fromWeb(body);
+    source.on('error', () => res.destroy());
+    res.on('close', () => source.destroy());
+    source.pipe(res);
   } catch (err) {
+    if (res.headersSent) return res.destroy();
     res.status(502).json({ error: err.message });
   }
 });
@@ -1028,8 +1035,8 @@ app.post('/api/voice/transcribe', voiceLimit, async (req, res) => {
       : mime === 'audio/mpeg' || mime === 'audio/mp3' ? 'mp3'
       : mime === 'audio/wav' || mime === 'audio/x-wav' ? 'wav'
       : 'webm';
-    const { text, provider } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime });
-    res.json({ text, provider });
+    const { text, provider, ms } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime });
+    res.json({ text, provider, ms });
   } catch (err) {
     res.status(502).json({ error: err.message, attempts: err.attempts ?? [] });
   }
