@@ -4,9 +4,9 @@ import { QUICK_COMMANDS } from './logic.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
 import { transcribe as transcribeAudio } from '../voice/stt.js';
 import { createServerListener, unlockAudio } from '../voice/listen.js';
+import { currentSessionId, deleteSession, exchangesToMessages, filterRecent, mergeRemoteSessions, messagesToExchanges, pickNewestMessages, readMessages, recentSessions, saveMessages, startNewSession, switchSession, togglePin } from '../chatSessions.js';
 
-const SESSION_KEY = 'xoft_chat_session';
-const CHAT_HISTORY_KEY = 'xoft_chat_history_v1';
+const MAX_EXCHANGES = 300;
 const WAKE_PATTERN = /\bxoft\b/i;
 
 function friendlyProviderError(rawMessage) {
@@ -64,11 +64,7 @@ function friendlyProviderError(rawMessage) {
     'XOFT cannot bypass missing credentials, exhausted quotas, provider outages, or permissions; the fallback chain can only use providers and tools that are actually enabled.',
   ].filter(Boolean).join(' ');
 }
-function sessionId() {
-  let id = localStorage.getItem(SESSION_KEY);
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); }
-  return id;
-}
+function sessionId() { return currentSessionId(); }
 async function transcribe(blob, onStatus = () => {}) {
   // One shared path: server Whisper (OpenAI, Gemini fallback) first, on-device Whisper second.
   return transcribeAudio(blob, onStatus);
@@ -103,6 +99,7 @@ export function mountCommandInput(el, store, controller) {
       <div class="cc-cmd-bar">
         <span id="cc-hint" class="cc-muted cc-hint">Enter to send · Shift+Enter for newline</span>
         <div class="cc-actions">
+          <button type="button" data-act="recent" aria-expanded="false" title="Find your saved chats">RECENT</button>
           <button type="button" data-act="command" aria-haspopup="menu" aria-expanded="false" title="Quick commands">MORE</button>
           <button type="button" data-act="voice" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">VOICE</button>
           <button type="button" data-act="auto-listen" ${(canRecord || Recognition) ? '' : 'disabled title="Automatic listening needs microphone access in a supported browser (HTTPS)"'} aria-pressed="false">WHISPER AUTO LISTEN</button>
@@ -113,6 +110,12 @@ export function mountCommandInput(el, store, controller) {
       </div>
       <ul class="cc-menu" role="menu" aria-label="Quick commands" hidden></ul>
     </form>
+    <section class="cc-recent" data-recent hidden aria-label="Recent chats">
+      <div class="cc-recent-head"><strong>RECENT CHATS</strong><button type="button" data-act="new-chat" class="cc-primary">+ NEW CHAT</button></div>
+      <input type="search" data-recent-search placeholder="Search your chats…" aria-label="Search recent chats" autocomplete="off">
+      <div class="cc-recent-list" data-recent-list></div>
+      <p class="cc-muted cc-recent-note">Chats are saved on this device and synced to XOFT when available. ☆ pins a chat; ✕ deletes it. Opening a chat does not call AI.</p>
+    </section>
     <div class="cc-exchanges" aria-live="polite" aria-relevant="additions text" data-exchanges></div>`;
 
   const input = el.querySelector('#cc-input');
@@ -122,6 +125,10 @@ export function mountCommandInput(el, store, controller) {
   const voiceBtn = el.querySelector('[data-act="voice"]');
   const autoBtn = el.querySelector('[data-act="auto-listen"]');
   const statusEl = el.querySelector('[data-voice-status]');
+  const recentBtn = el.querySelector('[data-act="recent"]');
+  const recentPanel = el.querySelector('[data-recent]');
+  const recentList = el.querySelector('[data-recent-list]');
+  const recentSearch = el.querySelector('[data-recent-search]');
   menu.innerHTML = QUICK_COMMANDS.map((c) => `<li role="none"><button type="button" role="menuitem" data-cmd="${esc(c)}">${esc(c)}</button></li>`).join('');
 
   function setVoiceStatus(text, state = 'idle') {
@@ -138,6 +145,78 @@ export function mountCommandInput(el, store, controller) {
       // Keep the command centre in place; scroll the chat history pane itself.
       exchangesEl.scrollTo({ top: exchangesEl.scrollHeight, behavior: 'smooth' });
     });
+  }
+  function paintRecent() {
+    if (!recentList || !recentSearch) return;
+    const active = sessionId();
+    const items = filterRecent(recentSearch.value);
+    recentList.innerHTML = items.map((item) => {
+      const d = new Date(item.updatedAt);
+      const when = Number.isNaN(d.getTime()) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<div class="cc-recent-row${item.id === active ? ' is-active' : ''}${item.pinned ? ' is-pinned' : ''}">
+        <button type="button" class="cc-recent-item" data-session="${esc(item.id)}"><strong>${esc(item.title || 'Saved chat')}</strong><small>${esc(when)}</small></button>
+        <button type="button" class="cc-recent-act" data-pin="${esc(item.id)}" aria-pressed="${item.pinned ? 'true' : 'false'}" aria-label="${item.pinned ? 'Unpin chat' : 'Pin chat to the top'}" title="${item.pinned ? 'Unpin' : 'Pin to top'}">${item.pinned ? '★' : '☆'}</button>
+        <button type="button" class="cc-recent-act cc-recent-del" data-delete="${esc(item.id)}" aria-label="Delete chat" title="Delete chat">✕</button>
+      </div>`;
+    }).join('') || '<div class="cc-muted cc-recent-empty">No saved chats yet. Send a message and it will appear here.</div>';
+  }
+  function toggleRecent(force) {
+    const open = typeof force === 'boolean' ? force : recentPanel.hidden;
+    recentPanel.hidden = !open;
+    recentBtn?.setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    paintRecent();
+    recentSearch?.focus();
+    void api.get('/api/chats')
+      .then((result) => { mergeRemoteSessions(result?.sessions); if (!recentPanel.hidden) paintRecent(); })
+      .catch(() => { /* offline: local recent chats remain available */ });
+  }
+  function hydrateFromStorage() {
+    const messages = readMessages(sessionId());
+    if (messages.length) store.set('chat', { pending: false, exchanges: messagesToExchanges(messages).slice(-MAX_EXCHANGES) });
+    else {
+      try {
+        const legacy = JSON.parse(localStorage.getItem('xoft_command_center_history_' + sessionId()) || '[]');
+        if (Array.isArray(legacy) && legacy.length) store.set('chat', { pending: false, exchanges: legacy.filter((x) => x && typeof x.user === 'string').slice(-MAX_EXCHANGES) });
+      } catch { /* ignore malformed legacy history */ }
+    }
+  }
+  function removeRecentChat(id) {
+    const item = recentSessions().find((entry) => entry.id === id);
+    if (id === sessionId() && store.get('chat').pending) { toast('XOFT is still answering. Delete this chat in a moment.', 'info'); return; }
+    if (!window.confirm(`Delete "${item?.title || 'this chat'}"?`)) return;
+    deleteSession(id);
+    void api.del('/api/chats/' + encodeURIComponent(id)).catch(() => { /* local deletion still stands */ });
+    if (id === sessionId()) {
+      startNewSession();
+      serverHistoryReady = true;
+      store.set('chat', { pending: false, exchanges: [] });
+      paintExchanges();
+    }
+    paintRecent();
+    toast('Chat deleted.', 'info');
+  }
+  function openRecentChat(id) {
+    if (!id || id === sessionId()) { toggleRecent(false); return; }
+    if (store.get('chat').pending) { toast('XOFT is still answering. Switch chats in a moment.', 'info'); return; }
+    switchSession(id);
+    hydrateFromStorage();
+    toggleRecent(false);
+    void api.get('/api/chats/' + encodeURIComponent(id)).then((saved) => {
+      if (sessionId() !== id || store.get('chat').pending) return;
+      const local = readMessages(id);
+      const best = pickNewestMessages(local, Array.isArray(saved?.messages) ? saved.messages : [], saved?.updatedAt);
+      if (best !== local) { saveMessages(id, best); store.set('chat', { pending: false, exchanges: messagesToExchanges(best).slice(-MAX_EXCHANGES) }); }
+    }).catch(() => { /* local copy is enough when offline */ });
+  }
+  function startRecentChat() {
+    if (store.get('chat').pending) { toast('XOFT is still answering. Start a new chat in a moment.', 'info'); return; }
+    startNewSession();
+    serverHistoryReady = true;
+    store.set('chat', { pending: false, exchanges: [] });
+    toggleRecent(false);
+    paintRecent();
+    input.focus();
   }
   function paintExchanges() {
     const { exchanges, pending } = store.get('chat');
@@ -166,22 +245,8 @@ export function mountCommandInput(el, store, controller) {
       }).filter((m) => m.content.trim()).slice(-300);
       localStorage.setItem('xoft_chat_history_' + id, JSON.stringify(messages));
 
-      const recentKey = 'xoft_recent_chat_sessions_v1';
-      let recent = [];
-      try {
-        const parsed = JSON.parse(localStorage.getItem(recentKey) || '[]');
-        if (Array.isArray(parsed)) recent = parsed;
-      } catch { /* recover from malformed recent-chat metadata */ }
-      const firstUser = messages.find((m) => m.role === 'user');
-      recent = recent.filter((item) => item && item.id !== id);
-      if (messages.length) {
-        recent.unshift({
-          id,
-          title: String(firstUser?.content || 'New chat').slice(0, 44),
-          updatedAt: new Date().toISOString(),
-        });
-      }
-      localStorage.setItem(recentKey, JSON.stringify(recent.slice(0, 40)));
+      if (messages.length) saveMessages(id, messages);
+      if (recentPanel && !recentPanel.hidden) paintRecent();
       if (serverHistoryReady) {
         clearTimeout(historySaveTimer);
         historySaveTimer = setTimeout(() => {
@@ -444,7 +509,8 @@ export function mountCommandInput(el, store, controller) {
     const say = event.target.closest('[data-say]');
     if (say) { void submit(say.dataset.say); return; }
     const act = event.target.closest('[data-act]')?.dataset.act;
-    if (act === 'command') { setMenu(!menuOpen); if (menuOpen) menu.querySelector('button')?.focus(); }
+    if (act === 'recent') toggleRecent();
+    if (act === 'new-chat') startRecentChat();
     if (act === 'voice') await toggleVoice();
     if (act === 'auto-listen') toggleAutoListen();
     if (act === 'speakout') {
@@ -457,7 +523,14 @@ export function mountCommandInput(el, store, controller) {
       toast(enabled ? 'Speak Out enabled — XOFT replies will be read aloud.' : 'Speak Out disabled.', 'info');
     }
     if (act === 'stop-speaking') { stopSpeaking(); setVoiceStatus('Speech stopped.', 'idle'); }
+    const session = event.target.closest('[data-session]');
+    if (session) { openRecentChat(session.dataset.session); return; }
+    const pin = event.target.closest('[data-pin]');
+    if (pin) { togglePin(pin.dataset.pin); paintRecent(); return; }
+    const del = event.target.closest('[data-delete]');
+    if (del) { removeRecentChat(del.dataset.delete); return; }
   });
+  recentSearch?.addEventListener('input', paintRecent);
   el.addEventListener('keydown', (event) => { if (event.key === 'Escape' && menuOpen) { setMenu(false); el.querySelector('[data-act="command"]').focus(); } });
 
   const onSpeechState = (event) => {
@@ -477,15 +550,7 @@ export function mountCommandInput(el, store, controller) {
   window.addEventListener('xoft:speech-state', onSpeechState);
 
   // Restore the latest saved conversation before the first render.
-  try {
-    const sessionHistory = localStorage.getItem('xoft_command_center_history_' + sessionId());
-    // Do not fall back to the old global history key: after starting a new chat
-    // that would copy the previous conversation into the new session.
-    const saved = JSON.parse(sessionHistory ?? '[]');
-    if (Array.isArray(saved) && saved.length) {
-      store.set('chat', { pending: false, exchanges: saved.filter((x) => x && typeof x.user === 'string').slice(-100) });
-    }
-  } catch { /* ignore malformed local history */ }
+  hydrateFromStorage();
   paintExchanges();
   const unsub = store.subscribe('chat', paintExchanges);
   // Restore server history when local storage is empty. This request is background-only
@@ -514,6 +579,7 @@ export function mountCommandInput(el, store, controller) {
     autoListening = false;
     stopRecognition();
     window.removeEventListener('xoft:speech-state', onSpeechState);
+    clearTimeout(historySaveTimer);
     try { recorder?.stop(); } catch { /* ignore */ }
     stream?.getTracks().forEach((track) => track.stop());
     unsub();
