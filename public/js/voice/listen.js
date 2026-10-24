@@ -24,7 +24,9 @@ export function unlockAudio() {
 export function preferredRecorderOptions() {
   const type = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
     .find((t) => window.MediaRecorder?.isTypeSupported?.(t));
-  return type ? { mimeType: type } : undefined;
+  // 32 kbps Opus is plenty for speech and makes each upload roughly 4x smaller than the browser default,
+  // which is the main cost of transcription on a slow connection.
+  return type ? { mimeType: type, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 };
 }
 
 /** Opens the mic with the constraints that give the cleanest speech. */
@@ -63,10 +65,12 @@ export function createLevelMeter(stream) {
 }
 
 /** Adaptive speech gate: learns the room noise floor for ~0.5 s, then requires 3x that (minimum 0.008). */
-export function createSpeechGate() {
+export function createSpeechGate({ preset = 0 } = {}) {
   const floorSamples = [];
-  let threshold = 0.012;
-  let calibrated = false;
+  // `preset`: reuse a noise threshold learned earlier. Needed when a recording starts because the user is ALREADY
+  // speaking (barge-in): calibrating on the first 500 ms would mistake their voice for background noise.
+  let threshold = preset > 0 ? preset : 0.012;
+  let calibrated = preset > 0;
   const startedAt = Date.now();
   return {
     update(rms) {
@@ -82,7 +86,21 @@ export function createSpeechGate() {
       return rms > threshold;
     },
     get threshold() { return threshold; },
+    get calibrated() { return calibrated; },
   };
+}
+
+/**
+ * True when a transcript is (almost) just XOFT's own last reply picked up by the microphone.
+ * Echo cancellation is not perfect on every phone/laptop; without this check XOFT could answer itself.
+ */
+export function looksLikeEcho(transcript, spoken) {
+  const words = (text) => String(text ?? '').toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').split(/\s+/).filter(Boolean);
+  const heard = words(transcript);
+  const said = new Set(words(spoken));
+  if (heard.length < 3 || said.size === 0) return false;
+  const overlap = heard.filter((word) => said.has(word)).length;
+  return overlap / heard.length >= 0.8;
 }
 
 /**
