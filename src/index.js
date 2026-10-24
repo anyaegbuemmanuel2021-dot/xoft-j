@@ -530,6 +530,19 @@ app.get('/api/chats/:sessionId', (req, res) => {
   const saved = durableStore?.get(chatHistoryKey(owner, id));
   res.json({ sessionId: id, messages: Array.isArray(saved?.messages) ? saved.messages : [], updatedAt: saved?.updatedAt ?? null });
 });
+app.delete('/api/chats/:sessionId', (req, res) => {
+  const id = String(req.params.sessionId || '').slice(0, 120);
+  if (!id) return res.status(400).json({ error: 'sessionId is required' });
+  const owner = chatOwner(req);
+  if (durableStore) {
+    // The store has no delete: overwrite with a marked empty copy and remove it from the index.
+    durableStore.set(chatHistoryKey(owner, id), { sessionId: id, messages: [], updatedAt: new Date().toISOString(), deleted: true });
+    const indexKey = 'chat-history-index:' + encodeURIComponent(owner);
+    const existing = durableStore.get(indexKey);
+    durableStore.set(indexKey, (Array.isArray(existing) ? existing : []).filter((item) => item && item.sessionId !== id));
+  }
+  res.json({ ok: true, sessionId: id, durable: Boolean(durableStore) });
+});
 app.put('/api/chats/:sessionId', (req, res) => {
   const id = String(req.params.sessionId || '').slice(0, 120);
   const messages = req.body?.messages;
