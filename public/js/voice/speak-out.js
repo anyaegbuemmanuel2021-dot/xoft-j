@@ -34,7 +34,13 @@ export function canSpeakOut() {
   return typeof window !== 'undefined' && (canBrowserSpeak() || typeof Audio === 'function');
 }
 
+// Resolves the in-flight playback promise when audio is stopped from outside (user interrupts XOFT).
+// Without this the promise never settled, so anything awaiting speech (the voice-conversation loop) hung forever.
+let currentPlaybackDone = null;
+
 function releaseAudio() {
+  const interrupted = currentPlaybackDone;
+  currentPlaybackDone = null;
   if (currentAudio) {
     currentAudio.onended = null;
     currentAudio.onerror = null;
@@ -47,6 +53,7 @@ function releaseAudio() {
     URL.revokeObjectURL(currentAudioUrl);
     currentAudioUrl = null;
   }
+  interrupted?.(false);
 }
 
 export function stopSpeaking() {
@@ -142,13 +149,47 @@ function browserSpeak(text, runId) {
   });
 }
 
-async function elevenLabsSpeak(text, runId) {
-  if (typeof Audio !== 'function') return false;
-  const status = await getVoiceStatus();
-  if (status?.tts?.configured === false) return false;
+// --- Low-latency ElevenLabs playback ------------------------------------------------------------
+// Speaking a whole reply as ONE clip means waiting for every word to be synthesised before hearing anything.
+// Instead the reply is split into sentence-sized chunks: chunk 1 is short so audio starts fast, and the next
+// chunks are synthesised while the current one plays (at most 2 requests in flight, which is within
+// ElevenLabs' concurrency limit on free plans).
+const FIRST_CHUNK_MAX = 130;
+const CHUNK_MAX = 320;
+const MAX_CHUNKS = 8;
+
+/** Splits text into speakable chunks at sentence boundaries. Exported for tests. */
+export function splitForSpeech(text) {
+  const clean = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
+  const sentences = (clean.match(/[^.!?\u2026]+(?:[.!?\u2026]+["')\]]*|$)\s*/g) ?? [clean]).map((x) => x.trim()).filter(Boolean);
+  const chunks = [];
+  let current = '';
+  for (const sentence of sentences) {
+    const limit = chunks.length === 0 ? FIRST_CHUNK_MAX : CHUNK_MAX;
+    if (current && (current + ' ' + sentence).length > limit) {
+      chunks.push(current);
+      current = sentence;
+    } else current = current ? current + ' ' + sentence : sentence;
+  }
+  if (current) chunks.push(current);
+
+  // A very long first sentence would delay the first sound: break it at a comma/semicolon if there is one.
+  if (chunks[0] && chunks[0].length > 200) {
+    const head = chunks[0].slice(0, 190);
+    const cut = Math.max(head.lastIndexOf(','), head.lastIndexOf(';'), head.lastIndexOf(':'));
+    if (cut >= 50) chunks.splice(0, 1, chunks[0].slice(0, cut + 1).trim(), chunks[0].slice(cut + 1).trim());
+  }
+  // Any other oversized chunk is split on word boundaries.
+  const sized = chunks.flatMap((chunk, index) => (index > 0 && chunk.length > CHUNK_MAX ? speechChunks(chunk, CHUNK_MAX) : [chunk])).filter(Boolean);
+  // Bound the number of requests per reply.
+  if (sized.length > MAX_CHUNKS) sized.splice(MAX_CHUNKS - 1, sized.length, sized.slice(MAX_CHUNKS - 1).join(' '));
+  return sized;
+}
+
+async function fetchSpeechBlob(text) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
-  let blob;
+  const timer = setTimeout(() => controller.abort(), 15000);
   try {
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
@@ -159,16 +200,19 @@ async function elevenLabsSpeak(text, runId) {
     });
     if (!res.ok) {
       if (res.status === 503) invalidateVoiceStatus();
-      return false;
+      return null;
     }
-    blob = await res.blob();
+    const blob = await res.blob();
+    return blob?.size ? blob : null;
   } catch {
-    return false;
+    return null;
   } finally {
     clearTimeout(timer);
   }
-  if (runId !== speechRun || !blob?.size) return false;
+}
 
+// Plays one clip. `final` controls whether the idle state is announced when it ends (not between chunks).
+function playSpeechBlob(blob, runId, final) {
   return new Promise((resolve) => {
     releaseAudio();
     currentAudioUrl = URL.createObjectURL(blob);
@@ -178,16 +222,50 @@ async function elevenLabsSpeak(text, runId) {
     const done = (ok) => {
       if (settled) return;
       settled = true;
+      if (currentPlaybackDone === done) currentPlaybackDone = null;
       if (currentAudio === audio) releaseAudio();
-      if (runId === speechRun && ok) setSpeechState('idle');
+      if (runId === speechRun && ok && final) setSpeechState('idle');
       resolve(ok);
     };
+    currentPlaybackDone = done;
     audio.onended = () => done(true);
     audio.onerror = () => done(false);
     audio.onplaying = () => { if (runId === speechRun) setSpeechState('speaking'); };
     // play() rejects when the platform blocks autoplay; the caller then falls back to the browser voice.
     audio.play().catch(() => done(false));
   });
+}
+
+async function elevenLabsSpeak(text, runId) {
+  if (typeof Audio !== 'function') return false;
+  const status = await getVoiceStatus();
+  if (status?.tts?.configured === false) return false;
+  const chunks = splitForSpeech(text);
+  if (!chunks.length) return false;
+
+  const pending = new Map();
+  const ensure = (index) => {
+    if (index < chunks.length && !pending.has(index)) pending.set(index, fetchSpeechBlob(chunks[index]));
+    return pending.get(index);
+  };
+  ensure(0);
+  ensure(1);
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const blob = await ensure(index);
+    if (runId !== speechRun) return false;
+    ensure(index + 2); // keep the pipeline two chunks ahead of playback
+    const rest = () => chunks.slice(index).join(' ');
+    if (!blob) {
+      // Nothing played yet: let the caller use the browser voice for the whole reply.
+      // Already speaking: finish the remainder with the device voice rather than going silent.
+      return index === 0 ? false : browserSpeak(rest(), runId);
+    }
+    const ok = await playSpeechBlob(blob, runId, index === chunks.length - 1);
+    if (runId !== speechRun) return false;
+    if (!ok) return index === 0 ? false : browserSpeak(rest(), runId);
+  }
+  return true;
 }
 
 export async function speakOut(text) {
