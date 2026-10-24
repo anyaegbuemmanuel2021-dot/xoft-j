@@ -29,5 +29,8 @@
   "productName": "XOFT",
   "bin": {
     "xoft": "scripts/xoft.mjs"
+  },
+  "overrides": {
+    "body-parser": "1.20.9"
   }
 }
