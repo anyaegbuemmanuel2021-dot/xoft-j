@@ -37,7 +37,7 @@ test('STT rejects empty audio before making any provider request', async () => {
   } finally { restore(); }
 });
 
-test('STT defaults to gpt-transcribe with Nigerian multilingual context and automatic language detection', async () => {
+test('STT defaults to a supported OpenAI transcription model with Nigerian multilingual context and automatic language detection', async () => {
   const restore = withKeys();
   try {
     const calls = [];
@@ -48,7 +48,7 @@ test('STT defaults to gpt-transcribe with Nigerian multilingual context and auto
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /api\.openai\.com\/v1\/audio\/transcriptions/);
     const form = calls[0].init.body;
-    assert.equal(form.get('model'), 'gpt-transcribe');
+    assert.equal(form.get('model'), 'gpt-4o-mini-transcribe');
     assert.match(form.get('prompt'), /Nigerian English/);
     assert.match(form.get('prompt'), /Igbo/);
     assert.match(form.get('prompt'), /code-switching/);
