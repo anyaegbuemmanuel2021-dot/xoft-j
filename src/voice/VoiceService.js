@@ -64,7 +64,7 @@ export class VoiceService {
 
   status() {
     return {
-      stt: { default: 'openai-whisper', providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
+      stt: { default: 'openai-gpt-transcribe', model: config.voice.sttOpenAiModel, providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
       tts: { provider: 'elevenlabs', configured: this.isTTSConfigured(), fallback: 'browser', streaming: true },
     };
   }
@@ -120,12 +120,16 @@ export class VoiceService {
     return Buffer.from(await res.arrayBuffer());
   }
 
-  async _openaiWhisper(audioBuffer, filename, signal) {
+  async _openaiTranscribe(audioBuffer, filename, signal) {
     const form = new FormData();
     form.append('file', new Blob([audioBuffer]), filename);
-    form.append('model', config.voice.sttOpenAiModel);
+    const model = config.voice.sttOpenAiModel;
+    form.append('model', model);
     form.append('response_format', 'json');
-    form.append('temperature', '0');
+    if (config.voice.sttContextPrompt) form.append('prompt', config.voice.sttContextPrompt);
+    // Whisper accepts temperature; newer transcription models may reject it.
+    if (model === 'whisper-1') form.append('temperature', '0');
+    // Do not force English: an empty STT_LANGUAGE lets the model detect mixed-language speech.
     if (config.voice.sttLanguage) form.append('language', config.voice.sttLanguage);
     const res = await this.fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -152,7 +156,7 @@ export class VoiceService {
           contents: [{
             role: 'user',
             parts: [
-              { text: 'Transcribe this audio verbatim. Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.' },
+              { text: `${config.voice.sttContextPrompt} Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.` },
               { inline_data: { mime_type: GEMINI_AUDIO_MIME[mime] ?? 'audio/webm', data: Buffer.from(audioBuffer).toString('base64') } },
             ],
           }],
@@ -208,7 +212,7 @@ export class VoiceService {
         const t0 = Date.now();
         pending += 1;
         const run = provider === 'openai'
-          ? this._openaiWhisper(audioBuffer, filename, controller.signal)
+          ? this._openaiTranscribe(audioBuffer, filename, controller.signal)
           : this._geminiTranscribe(audioBuffer, mime, controller.signal);
         run.then((text) => ({ text, error: null }), (error) => ({ text: '', error })).then(({ text, error }) => {
           pending -= 1;

@@ -103,7 +103,13 @@ export const config = {
       .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean),
     sttHedgeMs: Math.max(0, Number(process.env.STT_HEDGE_MS ?? 1000)),
     sttLanguage: String(required('STT_LANGUAGE', '')).trim(),
-    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'whisper-1')).trim(),
+    // gpt-transcribe is the higher-accuracy default; set STT_OPENAI_MODEL=whisper-1 for legacy behavior.
+    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-transcribe')).trim(),
+    // Context is a spelling hint only. Language detection stays automatic unless STT_LANGUAGE is explicitly set.
+    sttContextPrompt: String(required(
+      'STT_CONTEXT_PROMPT',
+      'Transcribe verbatim. Preserve Nigerian English and any Igbo or other Nigerian-language words in mixed speech. Do not translate, normalize, or replace unfamiliar words. Possible context terms include XOFT, Softly Digitals, GitHub, and Render; use these only as spelling hints when actually spoken, and never insert them if they were not said.'
+    )).trim(),
     sttGeminiModel: String(required('STT_GEMINI_MODEL', '')).trim(), // empty = use the configured Gemini chat model
     sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 30000,
     ttsTimeoutMs: Number(process.env.TTS_TIMEOUT_MS) || 20000,

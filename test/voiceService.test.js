@@ -24,7 +24,7 @@ function withKeys({ openai = 'sk-test', gemini = 'g-test', eleven = 'el-test', o
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-test('STT defaults to OpenAI Whisper first', async () => {
+test('STT defaults to gpt-transcribe with Nigerian multilingual context and automatic language detection', async () => {
   const restore = withKeys();
   try {
     const calls = [];
@@ -33,19 +33,27 @@ test('STT defaults to OpenAI Whisper first', async () => {
     assert.equal(out.text, 'hello xoft');
     assert.equal(out.provider, 'openai');
     assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /api\.openai\.com\/v1\/audio\/transcriptions/);
-    assert.equal(calls[0].init.body.get('model'), 'whisper-1');
+    assert.match(calls[0].url, /api\\.openai\\.com\\/v1\\/audio\\/transcriptions/);
+    const form = calls[0].init.body;
+    assert.equal(form.get('model'), 'gpt-transcribe');
+    assert.match(form.get('prompt'), /Nigerian English/);
+    assert.match(form.get('prompt'), /Igbo/);
+    assert.match(form.get('prompt'), /XOFT/);
+    assert.equal(form.has('language'), false, 'language should remain auto-detected by default');
+    assert.equal(form.has('temperature'), false, 'do not send Whisper-only temperature to the modern model');
   } finally { restore(); }
 });
 
-test('STT falls back to Gemini when OpenAI fails', async () => {
+test('STT falls back to Gemini when OpenAI fails and sends multilingual context', async () => {
   const restore = withKeys();
   try {
     const urls = [];
+    let geminiRequest;
     const svc = new VoiceService({
-      fetchImpl: async (url) => {
+      fetchImpl: async (url, init) => {
         urls.push(String(url));
         if (String(url).includes('openai.com')) return new Response('quota', { status: 429 });
+        geminiRequest = JSON.parse(init.body);
         return json({ candidates: [{ content: { parts: [{ text: 'from gemini' }] } }] });
       },
     });
@@ -54,6 +62,8 @@ test('STT falls back to Gemini when OpenAI fails', async () => {
     assert.equal(out.text, 'from gemini');
     assert.deepEqual(out.attempts.map((a) => [a.provider, a.ok]), [['openai', false], ['gemini', true]]);
     assert.match(urls[1], /generativelanguage\.googleapis\.com/);
+    assert.match(geminiRequest.contents[0].parts[0].text, /Igbo/);
+    assert.match(geminiRequest.contents[0].parts[0].text, /XOFT/);
   } finally { restore(); }
 });
 
