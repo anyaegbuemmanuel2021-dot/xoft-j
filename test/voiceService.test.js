@@ -24,6 +24,19 @@ function withKeys({ openai = 'sk-test', gemini = 'g-test', eleven = 'el-test', o
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
+test('STT rejects empty audio before making any provider request', async () => {
+  const restore = withKeys();
+  try {
+    let calls = 0;
+    const svc = new VoiceService({ fetchImpl: async () => { calls += 1; return json({ text: 'invented words' }); } });
+    await assert.rejects(
+      () => svc.transcribe(Buffer.alloc(0)),
+      /no audio was recorded; refusing to invent a transcript/
+    );
+    assert.equal(calls, 0, 'empty audio must not call OpenAI or Gemini');
+  } finally { restore(); }
+});
+
 test('STT defaults to gpt-transcribe with Nigerian multilingual context and automatic language detection', async () => {
   const restore = withKeys();
   try {
