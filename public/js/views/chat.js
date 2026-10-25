@@ -69,7 +69,7 @@ export function render(container) {
     <div id="xoft-voice-status" class="xoft-voice-status" data-state="idle" role="status" aria-live="polite" aria-label="XOFT voice status: standby"><span class="xoft-voice-orb" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="xoft-voice-status-copy"><strong class="xoft-voice-status-label">VOICE STANDBY</strong><small>Live microphone and speech status</small></span><span class="xoft-voice-live-dot" aria-hidden="true"></span></div>
     <div id="chat-view">
       <section id="xoft-live-video" class="xoft-live-video" hidden aria-label="XOFT live video conversation">
-        <div class="xoft-live-video-frame"><video id="xoft-live-camera" autoplay playsinline muted></video><div class="xoft-live-video-overlay"><span class="xoft-live-badge"><i></i> LIVE CONVERSATION</span><strong>Speak naturally. XOFT is listening.</strong><small>Your words are saved to Chats, not shown over the video.</small></div></div>
+        <div class="xoft-live-video-frame"><video id="xoft-live-camera" autoplay playsinline muted></video><div class="xoft-live-video-overlay"><span class="xoft-live-badge"><i></i> LIVE CONVERSATION</span><strong id="xoft-live-video-state">Speak naturally. XOFT is listening.</strong><small>Your words are saved to Chats, not shown over the video.</small></div></div>
         <div class="xoft-live-video-controls"><span id="xoft-live-video-caption">Camera ready · waiting for microphone</span><button id="chat-live-video-stop" type="button" class="primary">End Live Conversation</button></div>
       </section>
       <div id="chat-log"></div>
@@ -206,6 +206,8 @@ function setVoiceStatus(state, label) {
         idle: 'Live conversation paused',
       };
       caption.textContent = statusText[state] || 'Live conversation active';
+      const overlayState = document.querySelector('#xoft-live-video-state');
+      if (overlayState) overlayState.textContent = statusText[state] || 'Live conversation active';
     }
   }
 }
