@@ -113,7 +113,7 @@ export const config = {
     // Context is a spelling hint only. Language detection stays automatic unless STT_LANGUAGE is explicitly set.
     sttContextPrompt: String(required(
       'STT_CONTEXT_PROMPT',
-      'Transcribe verbatim. Preserve Nigerian English and any Igbo or other Nigerian-language words in mixed speech. Do not translate, normalize, or replace unfamiliar words. Possible context terms include XOFT, Softly Digitals, GitHub, and Render; use these only as spelling hints when actually spoken, and never insert them if they were not said.'
+      'Transcribe the audio verbatim, including natural pauses and code-switching. Accurately preserve Nigerian English and Igbo or other Nigerian-language words mixed with English; do not translate them into English, paraphrase, normalize the speaker’s accent, or replace unfamiliar words with more common words. Possible spelling/context hints include XOFT, Softly Digitals, GitHub, Render, biko, kedu, daalu, nnoo, gini, ezigbo, and “gee m aka”. These are examples only: include a term only when it is actually spoken, never inject example words from this prompt. Keep the speaker’s original language and wording, and add punctuation only where it helps readability.'
     )).trim(),
     sttGeminiModel: String(required('STT_GEMINI_MODEL', '')).trim(), // empty = use the configured Gemini chat model
     sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 30000,
