@@ -358,7 +358,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       setVoiceStatus('listening', 'LISTENING · MICROPHONE ACTIVE');
       setConversationButton(container, true, '🟢 Listening for your voice…');
       setMicButton(container, '🟢 Listening for your voice…', true);
-      // Low-latency endpointing: stop after 650 ms of silence, after 8 s with no speech, or after 15 s total.
+      // Endpointing: stop after 650 ms of silence, after 8 s with no speech, or after 15 s total.
       // Uses the shared unlocked AudioContext and an adaptive noise-floor threshold (see voice/listen.js).
       unlockAudio();
       meter = createLevelMeter(stream);
