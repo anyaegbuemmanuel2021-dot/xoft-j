@@ -67,7 +67,7 @@ test('STT falls back to Gemini when OpenAI fails and sends multilingual context'
   } finally { restore(); }
 });
 
-test('STT starts Gemini after the hedge delay when OpenAI is slow, and cancels the losing request', async () => {
+test('STT hard-fails over to Gemini after the hedge delay even if OpenAI could return later', async () => {
   const restore = withKeys();
   const previousHedgeMs = config.voice.sttHedgeMs;
   config.voice.sttHedgeMs = 25;
@@ -81,10 +81,17 @@ test('STT starts Gemini after the hedge delay when OpenAI is slow, and cancels t
         if (target.includes('openai.com')) {
           openaiSignal = init.signal;
           return new Promise((resolve, reject) => {
-            init.signal.addEventListener('abort', () => reject(new Error('OpenAI request aborted after Gemini won')), { once: true });
+            const timer = setTimeout(() => resolve(json({ text: 'late OpenAI transcript' })), 60);
+            init.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(new Error('OpenAI request aborted at failover cutoff'));
+            }, { once: true });
           });
         }
-        return Promise.resolve(json({ candidates: [{ content: { parts: [{ text: 'Gemini transcript' }] } }] }));
+        return new Promise((resolve) => setTimeout(
+          () => resolve(json({ candidates: [{ content: { parts: [{ text: 'Gemini transcript' }] } }] })),
+          70
+        ));
       },
     });
 
@@ -93,10 +100,10 @@ test('STT starts Gemini after the hedge delay when OpenAI is slow, and cancels t
     const elapsed = Date.now() - started;
     assert.equal(out.provider, 'gemini');
     assert.equal(out.text, 'Gemini transcript');
-    assert.ok(elapsed >= 15, `Gemini should wait for the hedge window; elapsed ${elapsed}ms`);
+    assert.ok(elapsed >= 75, `Gemini should take over after the configured cutoff; elapsed ${elapsed}ms`);
     assert.ok(called.some((url) => url.includes('openai.com')));
     assert.ok(called.some((url) => url.includes('generativelanguage.googleapis.com')));
-    assert.equal(openaiSignal.aborted, true, 'cancel the slow OpenAI request once Gemini wins');
+    assert.equal(openaiSignal.aborted, true, 'abort OpenAI at the cutoff instead of allowing a late result to win');
   } finally {
     config.voice.sttHedgeMs = previousHedgeMs;
     restore();
