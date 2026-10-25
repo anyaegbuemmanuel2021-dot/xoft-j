@@ -133,6 +133,18 @@ function registerServiceWorker() {
   }
 }
 
+function applyLowPowerMode() {
+  const enabled = localStorage.getItem('xoft_lite_mode') === 'true';
+  document.body.classList.toggle('xoft-lite', enabled);
+  document.documentElement.classList.toggle('xoft-lite', enabled);
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key === 'xoft_lite_mode') applyLowPowerMode();
+});
+
+applyLowPowerMode();
+
 for (const g of NAV) for (const [route, , mod] of g.items) registerRoute(route, mod);
 
 buildSidebar();
