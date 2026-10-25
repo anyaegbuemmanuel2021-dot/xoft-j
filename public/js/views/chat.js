@@ -343,7 +343,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       setVoiceStatus('listening', 'LISTENING · MICROPHONE ACTIVE');
       setConversationButton(container, true, '🟢 Listening for your voice…');
       setMicButton(container, '🟢 Listening for your voice…', true);
-      // Endpointing: stop 1.2 s after speech ends, after 8 s with no speech, or after 15 s total.
+      // Low-latency endpointing: stop after 650 ms of silence, after 8 s with no speech, or after 15 s total.
       // Uses the shared unlocked AudioContext and an adaptive noise-floor threshold (see voice/listen.js).
       unlockAudio();
       meter = createLevelMeter(stream);
@@ -361,7 +361,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
         }
         window.dispatchEvent(new CustomEvent('xoft:voice-level', { detail: { level: Math.min(1, rms / 0.18) } }));
         if (gate.update(rms)) { detectedSpeech = true; lastVoiceAt = now; }
-        if ((detectedSpeech && now - lastVoiceAt > 1200) || (!detectedSpeech && elapsed > 8000) || elapsed > 15000) recorder.stop();
+        if ((detectedSpeech && now - lastVoiceAt > 650) || (!detectedSpeech && elapsed > 8000) || elapsed > 15000) recorder.stop();
       }, 50);
     } else {
       setMicButton(container, '🔴 Recording for Whisper… tap to stop', true);
