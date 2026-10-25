@@ -87,3 +87,19 @@ test('Hands-free recording uses an unlocked shared AudioContext and never silent
   assert.doesNotMatch(chat, /rms > 0\.018/);
   assert.match(listen, /rms === null|read\(\) is null|=== null/);
 });
+
+
+test('Live video mode keeps transcript text off the video while saving turns to chat history and speaking replies', () => {
+  const chat = read('public/js/views/chat.js');
+  const css = read('public/css/app.css');
+  assert.match(chat, /id="chat-live-video"/);
+  assert.match(chat, /id="xoft-live-camera" autoplay playsinline muted/);
+  assert.match(chat, /getUserMedia\(\{ video: \{ facingMode: 'user' \}, audio: false \}\)/);
+  assert.match(chat, /if \(log\) log\.hidden = true/);
+  assert.match(chat, /if \(inputRow\) inputRow\.hidden = true/);
+  assert.match(chat, /history\.push\(\{ role: 'user', content: text/);
+  assert.match(chat, /history\.push\(\{ role: 'assistant', content: responseToSpeak/);
+  assert.match(chat, /await speakOut\(responseToSpeak\)/);
+  assert.match(chat, /End Live Conversation/);
+  assert.match(css, /\.chat-layout\.xoft-video-active #chat-log\[hidden\]/);
+});

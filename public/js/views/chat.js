@@ -58,6 +58,7 @@ function formatChatText(value) {
 }
 
 export function render(container) {
+  stopLiveVideo(container, true);
   if (voiceConversationActive) stopVoiceConversation(container, true);
   container.innerHTML = `
     <div class="chat-layout"><aside class="chat-history-panel"><div class="chat-history-heading"><strong>Recent chats</strong><button id="chat-new" type="button" class="primary">+ New chat</button></div><input id="recent-chat-search" type="search" placeholder="Search recent chats…" aria-label="Search recent chats"><div id="recent-chat-list"></div><p class="chat-history-note">Saved locally. Opening a chat does not call AI or use tokens.</p></aside><section class="chat-main-panel">
@@ -67,12 +68,17 @@ export function render(container) {
     </div>
     <div id="xoft-voice-status" class="xoft-voice-status" data-state="idle" role="status" aria-live="polite" aria-label="XOFT voice status: standby"><span class="xoft-voice-orb" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="xoft-voice-status-copy"><strong class="xoft-voice-status-label">VOICE STANDBY</strong><small>Live microphone and speech status</small></span><span class="xoft-voice-live-dot" aria-hidden="true"></span></div>
     <div id="chat-view">
+      <section id="xoft-live-video" class="xoft-live-video" hidden aria-label="XOFT live video conversation">
+        <div class="xoft-live-video-frame"><video id="xoft-live-camera" autoplay playsinline muted></video><div class="xoft-live-video-overlay"><span class="xoft-live-badge"><i></i> LIVE CONVERSATION</span><strong>Speak naturally. XOFT is listening.</strong><small>Your words are saved to Chats, not shown over the video.</small></div></div>
+        <div class="xoft-live-video-controls"><span id="xoft-live-video-caption">Camera ready · waiting for microphone</span><button id="chat-live-video-stop" type="button" class="primary">End Live Conversation</button></div>
+      </section>
       <div id="chat-log"></div>
       <div id="chat-input-row">
         <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Ask XOFT to do something…' : 'Describe a problem to reason through…'}"></textarea>
         <button id="chat-send" class="primary">Send</button>
         <button id="chat-mic" type="button" title="Transcribe speech into the message box" aria-label="Voice input">🎙️ Voice Input</button>
         <button id="chat-voice-conversation" type="button" aria-pressed="false" title="Start a hands-free voice conversation">🗣️ Start Voice Conversation</button>
+        <button id="chat-live-video" type="button" title="Start a camera-based live voice conversation">🎥 Live Video</button>
         <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
         <button id="chat-speak-stop" type="button" ${canSpeakOut() ? '' : 'disabled'}>Stop Speaking</button>
       </div>
@@ -145,6 +151,8 @@ export function render(container) {
   onDelegate(container, 'click', '#chat-send', () => send(container));
   onDelegate(container, 'click', '#chat-mic', () => toggleVoiceInput(container));
   onDelegate(container, 'click', '#chat-voice-conversation', () => toggleVoiceConversation(container));
+  onDelegate(container, 'click', '#chat-live-video', () => startLiveVideo(container));
+  onDelegate(container, 'click', '#chat-live-video-stop', () => stopLiveVideo(container));
   onDelegate(container, 'click', '#chat-speak-toggle', (button) => {
     const enabled = !isSpeakOutEnabled();
     setSpeakOutEnabled(enabled);
@@ -183,6 +191,7 @@ let whisperBusy = false;
 let voiceConversationActive = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
+let liveVideoStream = null;
 
 function setVoiceStatus(state, label) {
   window.dispatchEvent(new CustomEvent('xoft:voice-state', { detail: { state, label } }));
@@ -438,6 +447,62 @@ function toggleVoiceInput(container) {
     setMicButton(container, '🎙️ Voice Input');
     toast('Browser recognition could not start. Trying free local Whisper…', 'warn');
     startWhisperRecording(container);
+  }
+}
+
+function stopLiveVideo(container, silent = false) {
+  const panel = container.querySelector('#xoft-live-video');
+  const video = container.querySelector('#xoft-live-camera');
+  if (liveVideoStream) {
+    liveVideoStream.getTracks().forEach((track) => track.stop());
+    liveVideoStream = null;
+  }
+  if (video) video.srcObject = null;
+  if (panel) panel.hidden = true;
+  container.querySelector('.chat-layout')?.classList.remove('xoft-video-active');
+  const log = container.querySelector('#chat-log');
+  const inputRow = container.querySelector('#chat-input-row');
+  if (log) log.hidden = false;
+  if (inputRow) inputRow.hidden = false;
+  if (voiceConversationActive) stopVoiceConversation(container, true);
+  if (!silent && panel) toast('Live video conversation ended. Your conversation is available in Chats.', 'info');
+}
+
+async function startLiveVideo(container) {
+  if (liveVideoStream) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast('Live video needs camera access in a supported HTTPS browser.', 'warn');
+    return;
+  }
+  const button = container.querySelector('#chat-live-video');
+  if (button) { button.disabled = true; button.textContent = 'Opening camera…'; }
+  try {
+    // Keep camera capture separate from microphone capture so the existing STT pipeline
+    // can apply its OpenAI → Gemini → local Whisper fallback without recording video.
+    liveVideoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+    const panel = container.querySelector('#xoft-live-video');
+    const video = container.querySelector('#xoft-live-camera');
+    if (!panel || !video) throw new Error('Live video panel is unavailable.');
+    video.srcObject = liveVideoStream;
+    panel.hidden = false;
+    container.querySelector('.chat-layout')?.classList.add('xoft-video-active');
+    const log = container.querySelector('#chat-log');
+    const inputRow = container.querySelector('#chat-input-row');
+    if (log) log.hidden = true;
+    if (inputRow) inputRow.hidden = true;
+    const caption = container.querySelector('#xoft-live-video-caption');
+    if (caption) caption.textContent = 'Camera on · enabling hands-free conversation';
+    // toggleVoiceConversation enables speak-out and starts the established server-first STT loop.
+    toggleVoiceConversation(container);
+    if (caption) caption.textContent = 'Listening · your words are saved in Chats, not displayed over video';
+  } catch (error) {
+    console.error('[XOFT] Could not start live video conversation:', error);
+    stopLiveVideo(container, true);
+    toast(error?.name === 'NotAllowedError'
+      ? 'Camera permission was denied. Allow camera access and try again.'
+      : 'Could not start live video. Check camera permission and try again.', 'warn');
+  } finally {
+    if (button) { button.disabled = false; button.textContent = '🎥 Live Video'; }
   }
 }
 
