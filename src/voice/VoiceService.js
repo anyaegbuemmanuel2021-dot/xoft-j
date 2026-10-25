@@ -4,7 +4,7 @@ import { config } from '../config/index.js';
  * VoiceService - server-side STT and TTS. Both are plain API calls, so the caller
  * (web or mobile client) only sends/receives audio bytes over HTTP.
  *
- * STT: Whisper through the OpenAI API is the default; Gemini is the fallback. The order
+ * STT: GPT transcription through the OpenAI API is the default; Gemini is the fallback. The order
  *      is configurable with STT_PROVIDER_ORDER (default "openai,gemini"). The first provider starts
  *      immediately; if it fails/returns nothing the next starts at once, and if it is merely SLOW
  *      (STT_HEDGE_MS, default 1000) the next starts in parallel. The first non-empty transcript wins
@@ -64,7 +64,7 @@ export class VoiceService {
 
   status() {
     return {
-      stt: { default: 'openai-whisper', providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
+      stt: { default: config.voice.sttOpenAiModel, providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
       tts: { provider: 'elevenlabs', configured: this.isTTSConfigured(), fallback: 'browser', streaming: true },
     };
   }
@@ -125,7 +125,15 @@ export class VoiceService {
     form.append('file', new Blob([audioBuffer]), filename);
     form.append('model', config.voice.sttOpenAiModel);
     form.append('response_format', 'json');
-    form.append('temperature', '0');
+    // A transcription prompt provides vocabulary/accent context without forcing a
+    // single language, which is important for Nigerian English and code-switching.
+    if (config.voice.sttOpenAiPrompt) form.append('prompt', config.voice.sttOpenAiPrompt);
+    if (config.voice.sttKeywords.length) {
+      form.append('prompt', [
+        config.voice.sttOpenAiPrompt,
+        `Names and vocabulary that may be spoken: ${config.voice.sttKeywords.join(', ')}.`,
+      ].filter(Boolean).join(' '));
+    }
     if (config.voice.sttLanguage) form.append('language', config.voice.sttLanguage);
     const res = await this.fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -135,7 +143,7 @@ export class VoiceService {
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`OpenAI Whisper error ${res.status} - ${errText.slice(0, 300)}`);
+      throw new Error(`OpenAI transcription error ${res.status} - ${errText.slice(0, 300)}`);
     }
     const data = await res.json();
     return String(data?.text ?? '').trim();
