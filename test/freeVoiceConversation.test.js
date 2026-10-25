@@ -106,6 +106,11 @@ test('Live video mode keeps transcript text off the video while saving turns to 
   assert.match(chat, /history\.push\(\{ role: 'user', content: text/);
   assert.match(chat, /history\.push\(\{ role: 'assistant', content: responseToSpeak/);
   assert.match(chat, /await speakOut\(responseToSpeak\)/);
+  assert.match(chat, /Live video shows only listening\/thinking\/speaking state/);
+  assert.match(chat, /Listening · speak naturally/);
+  assert.match(chat, /XOFT is thinking · preparing a reply/);
+  assert.match(chat, /XOFT is speaking · your turn next/);
+  assert.match(chat, /detectedSpeech && now - lastVoiceAt > 650/);
   assert.match(chat, /End Live Conversation/);
   assert.match(css, /\.chat-layout\.xoft-video-active #chat-log\[hidden\]/);
 });
