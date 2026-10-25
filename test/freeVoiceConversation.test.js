@@ -34,6 +34,10 @@ test('Every view transcribes through the shared STT module: server gpt-transcrib
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
   assert.match(stt, /voiceFetch\('\/api\/voice\/transcribe'/);
   assert.ok(stt.indexOf('transcribeOnServer(blob)') < stt.indexOf('transcribeLocally(blob)'), 'server STT must be attempted before on-device Whisper');
+  assert.match(chat, /transcribeAudioBlob\(blob, \(message\) =>/);
+  assert.match(chat, /TRANSCRIBING ON XOFT SERVER/);
+  assert.match(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
+  assert.match(chat, /OpenAI → Gemini fallback/);
   assert.match(whisper, /onnx-community\/whisper-tiny\.en/);
   assert.doesNotMatch(whisper, /api\.openai\.com|api\.elevenlabs\.io/);
 });
