@@ -127,13 +127,13 @@ export class VoiceService {
     form.append('response_format', 'json');
     // A transcription prompt provides vocabulary/accent context without forcing a
     // single language, which is important for Nigerian English and code-switching.
-    if (config.voice.sttOpenAiPrompt) form.append('prompt', config.voice.sttOpenAiPrompt);
-    if (config.voice.sttKeywords.length) {
-      form.append('prompt', [
-        config.voice.sttOpenAiPrompt,
-        `Names and vocabulary that may be spoken: ${config.voice.sttKeywords.join(', ')}.`,
-      ].filter(Boolean).join(' '));
-    }
+    const promptParts = [
+      config.voice.sttOpenAiPrompt,
+      config.voice.sttKeywords.length
+        ? `Names and vocabulary that may be spoken: ${config.voice.sttKeywords.join(', ')}.`
+        : '',
+    ].filter(Boolean);
+    if (promptParts.length) form.append('prompt', promptParts.join(' '));
     if (config.voice.sttLanguage) form.append('language', config.voice.sttLanguage);
     const res = await this.fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
