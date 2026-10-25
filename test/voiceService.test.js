@@ -33,7 +33,7 @@ test('STT defaults to gpt-transcribe with Nigerian multilingual context and auto
     assert.equal(out.text, 'hello xoft');
     assert.equal(out.provider, 'openai');
     assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /api\\.openai\\.com\\/v1\\/audio\\/transcriptions/);
+    assert.match(calls[0].url, /api\.openai\.com\/v1\/audio\/transcriptions/);
     const form = calls[0].init.body;
     assert.equal(form.get('model'), 'gpt-transcribe');
     assert.match(form.get('prompt'), /Nigerian English/);
