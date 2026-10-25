@@ -48,12 +48,23 @@ const NAV = [
   { group: 'System', items: [['devices', 'Devices', devices, 'devices'], ['runtime', 'Device Runtime', runtime, 'runtime'], ['activity', 'Activity Log', activity, 'activity'], ['settings', 'Runtime Settings', settings, 'settings']] },
 ];
 
+
 function applyLowPowerMode() {
-  // Reduce decorative rendering on data-saver connections and for users who prefer reduced motion.
+  // Respect device data-saver/reduced-motion preferences and the user's explicit setting.
   const saveData = navigator.connection?.saveData === true;
   const reducedMotion = typeof window.matchMedia === 'function'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  document.body?.classList.toggle('xoft-lite', saveData || reducedMotion);
+  const userEnabled = localStorage.getItem('xoft_lite_mode') === 'true';
+  const enabled = saveData || reducedMotion || userEnabled;
+  document.body?.classList.toggle('xoft-lite', enabled);
+  document.documentElement?.classList.toggle('xoft-lite', enabled);
+}
+
+window.addEventListener('storage', (event) => {
+  if (event.key === 'xoft_lite_mode') applyLowPowerMode();
+});
+if (typeof window.matchMedia === 'function') {
+  window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener?.('change', applyLowPowerMode);
 }
 
 function buildSidebar() {
@@ -141,11 +152,6 @@ function registerServiceWorker() {
   }
 }
 
-function applyLowPowerMode() {
-  const enabled = localStorage.getItem('xoft_lite_mode') === 'true';
-  document.body.classList.toggle('xoft-lite', enabled);
-  document.documentElement.classList.toggle('xoft-lite', enabled);
-}
 
 window.addEventListener('storage', (event) => {
   if (event.key === 'xoft_lite_mode') applyLowPowerMode();
@@ -153,9 +159,8 @@ window.addEventListener('storage', (event) => {
 
 applyLowPowerMode();
 
-for (const g of NAV) for (const [route, , mod] of g.items) registerRoute(route, mod);
+for (const g of NAV for (const [route, , mod] of g.items) registerRoute(route, mod);
 
-applyLowPowerMode();
 buildSidebar();
 wireConnectivity();
 registerServiceWorker();
