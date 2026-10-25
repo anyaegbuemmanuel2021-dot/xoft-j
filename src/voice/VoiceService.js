@@ -180,6 +180,10 @@ export class VoiceService {
    * @returns {Promise<{text: string, provider: string, ms: number, attempts: Array<{provider: string, ok: boolean, error?: string, ms?: number}>}>}
    */
   async transcribe(audioBuffer, { filename = 'audio.webm', mime = 'audio/webm' } = {}) {
+    // Reject missing audio before making any billable provider request; never fabricate a transcript.
+    if (!audioBuffer || !audioBuffer.length) {
+      throw new Error('VoiceService: no audio was recorded; refusing to invent a transcript.');
+    }
     const providers = this.sttProviders();
     if (!providers.length) {
       throw new Error('VoiceService: no speech-to-text provider configured. Set OPENAI_API_KEY (Whisper) and/or GEMINI_API_KEY.');
