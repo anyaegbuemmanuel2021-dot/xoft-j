@@ -1,5 +1,5 @@
 // Single speech-to-text path used by every view.
-// Order: XOFT server (OpenAI Whisper, then Gemini - chosen by the server) -> on-device Whisper (free, private).
+// Order: XOFT server (gpt-transcribe by default, then Gemini - chosen by the server) -> on-device Whisper (free, private).
 import { voiceFetch, getVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
 import { transcribeAudioBlob as transcribeLocally } from './whisper-fallback.js';
 
@@ -33,7 +33,7 @@ export async function transcribe(blob, onStatus = () => {}) {
   const status = await getVoiceStatus();
   if (status?.stt?.configured !== false) {
     try {
-      onStatus('Transcribing with Whisper…');
+      onStatus('Transcribing on XOFT server…');
       return (await transcribeOnServer(blob)).text;
     } catch (error) {
       serverError = error;

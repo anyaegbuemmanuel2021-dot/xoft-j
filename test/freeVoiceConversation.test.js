@@ -24,7 +24,7 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 
-test('Every view transcribes through the shared STT module: server Whisper/Gemini first, on-device Whisper second', () => {
+test('Every view transcribes through the shared STT module: server gpt-transcribe/Gemini first, on-device Whisper second', () => {
   const chat = read('public/js/views/chat.js');
   const input = read('public/js/dashboard/CommandInput.js');
   const stt = read('public/js/voice/stt.js');
@@ -32,7 +32,7 @@ test('Every view transcribes through the shared STT module: server Whisper/Gemin
   assert.match(chat, /from '\.\.\/voice\/stt\.js'/);
   assert.match(input, /from '\.\.\/voice\/stt\.js'/);
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
-  assert.match(stt, /fetch\('\/api\/voice\/transcribe'/);
+  assert.match(stt, /voiceFetch\('\/api\/voice\/transcribe'/);
   assert.ok(stt.indexOf('transcribeOnServer(blob)') < stt.indexOf('transcribeLocally(blob)'), 'server STT must be attempted before on-device Whisper');
   assert.match(whisper, /onnx-community\/whisper-tiny\.en/);
   assert.doesNotMatch(whisper, /api\.openai\.com|api\.elevenlabs\.io/);

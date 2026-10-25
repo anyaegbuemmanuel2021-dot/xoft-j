@@ -84,9 +84,11 @@ test('hedging off (0) keeps strictly sequential fallback', async () => {
   } finally { restore(); }
 });
 
-test('Whisper request carries the optional language hint', async () => {
+test('Legacy Whisper request carries the optional language hint', async () => {
   const restore = withVoiceConfig();
   const prev = config.voice.sttLanguage;
+  const prevModel = config.voice.sttOpenAiModel;
+  config.voice.sttOpenAiModel = 'whisper-1';
   config.voice.sttLanguage = 'en';
   try {
     let form;
@@ -94,7 +96,8 @@ test('Whisper request carries the optional language hint', async () => {
     await svc.transcribe(Buffer.from('audio'));
     assert.equal(form.get('language'), 'en');
     assert.equal(form.get('model'), 'whisper-1');
-  } finally { config.voice.sttLanguage = prev; restore(); }
+    assert.equal(form.get('temperature'), '0');
+  } finally { config.voice.sttLanguage = prev; config.voice.sttOpenAiModel = prevModel; restore(); }
 });
 
 test('streaming TTS resolves with the response body and requests the small MP3 format', async () => {
