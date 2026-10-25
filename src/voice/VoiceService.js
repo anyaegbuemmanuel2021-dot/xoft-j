@@ -4,11 +4,10 @@ import { config } from '../config/index.js';
  * VoiceService - server-side STT and TTS. Both are plain API calls, so the caller
  * (web or mobile client) only sends/receives audio bytes over HTTP.
  *
- * STT: Whisper through the OpenAI API is the default; Gemini is the fallback. The order
- *      is configurable with STT_PROVIDER_ORDER (default "openai,gemini"). The first provider starts
- *      immediately; if it fails/returns nothing the next starts at once, and if it is merely SLOW
- *      (STT_HEDGE_MS, default 1000) the next starts in parallel. The first non-empty transcript wins
- *      and the slower request is aborted, so a hung provider never costs the full timeout.
+ * STT: OpenAI is primary and Gemini is the fallback (default order "openai,gemini").
+ *      If the primary fails or returns no text, fallback starts immediately. If it is still
+ *      running after STT_HEDGE_MS (default 1000), it is aborted and the next provider takes over.
+ *      This prevents a late OpenAI response from overriding Gemini after the one-second cutoff.
  * TTS: ElevenLabs (flash model, small MP3). The browser client falls back to the device voice if this fails.
  *
  * Not here (needs a client with mic/speaker access): wake-word detection, VAD capture,
@@ -139,7 +138,7 @@ export class VoiceService {
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
-      throw new Error(`OpenAI Whisper error ${res.status} - ${errText.slice(0, 300)}`);
+      throw new Error(`OpenAI transcription error ${res.status} - ${errText.slice(0, 300)}`);
     }
     const data = await res.json();
     return String(data?.text ?? '').trim();
@@ -201,7 +200,13 @@ export class VoiceService {
       const armHedge = () => {
         clearHedge();
         if (settled || nextIndex >= providers.length || !(hedgeMs > 0)) return;
-        hedgeTimer = setTimeout(() => { hedgeTimer = null; startNext(); }, hedgeMs);
+        hedgeTimer = setTimeout(() => {
+          hedgeTimer = null;
+          // Hard fail over at the configured cutoff: cancel the slow provider before starting the next.
+          const slowProvider = providers[nextIndex - 1];
+          controllers.get(slowProvider)?.abort(new Error(`STT provider exceeded ${hedgeMs}ms failover window`));
+          startNext();
+        }, hedgeMs);
       };
 
       const startNext = () => {
