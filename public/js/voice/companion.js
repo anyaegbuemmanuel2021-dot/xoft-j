@@ -2,6 +2,8 @@
 // STATUS: implemented, NOT verifiable in the build sandbox (needs a real microphone/browser). See docs/DEVICE_RUNTIME.md "Requires local testing".
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
+import { transcribe as transcribeAudioBlob } from './stt.js';
+import { preferredRecorderOptions } from './listen.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -9,8 +11,8 @@ const FRAME_MS = 30;
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition', note: 'Uses your browser\'s built-in recognizer, opened ONLY while local VAD hears speech. In Chrome/Edge this audio is processed by the browser vendor\'s cloud service — it is NOT fully local. Wake phrase matching itself is local.' },
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server speech-to-text', note: 'Each VAD-detected speech segment is uploaded to YOUR XOFT server (/api/voice/transcribe) and transcribed there (requires a speech-to-text provider configured on the server). Silence is never uploaded. Wake phrase matching is local, on the returned text.' },
+  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments go to XOFT server transcription: OpenAI primary, Gemini takes over on failure or after the one-second cutoff. On-device Whisper is the final fallback if the server is unavailable. Wake phrase matching stays local.' },
+  'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
   // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
   // none is bundled because they require model files that are not part of this repository.
 };
@@ -46,16 +48,16 @@ function stopRecognizer() { recognizerWanted = false; try { recognizer?.abort();
 // ---- backend: server STT (records only VAD-detected segments) ----
 function startSegmentRecording() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
-  chunks = []; recorder = new MediaRecorder(stream);
+  chunks = []; recorder = new MediaRecorder(stream, preferredRecorderOptions());
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   recorder.onstop = async () => {
     const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' }); recorder = null; chunks = [];
-    if (blob.size < 1500) return; // too small to be speech
+    if (blob.size < 300) return; // reject only genuinely empty/tiny clips; short wake phrases must survive
     try {
-      const res = await fetch('/api/voice/transcribe', { method: 'POST', headers: headers({ 'Content-Type': blob.type || 'audio/webm' }), body: blob });
-      if (!res.ok) { ui.log(`server STT failed (${res.status}) — is a speech-to-text provider configured?`); return; }
-      const { text } = await res.json(); if (text) pipeline.transcript(text, true);
-    } catch (err) { ui.log(`server STT unreachable: ${err.message}`); }
+      const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message));
+      if (transcript) pipeline.transcript(transcript, true);
+      else ui.log('No speech was recognized in this segment.');
+    } catch (err) { ui.log(`STT failed (server OpenAI → Gemini, then local Whisper): ${err.message}`); }
   };
   recorder.start();
 }
