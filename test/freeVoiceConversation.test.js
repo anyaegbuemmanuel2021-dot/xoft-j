@@ -89,6 +89,12 @@ test('Hands-free recording uses an unlocked shared AudioContext and never silent
 });
 
 
+test('Hands-free voice turns use a shorter silence endpoint for lower response latency', () => {
+  const chat = read('public/js/views/chat.js');
+  assert.match(chat, /Endpointing: stop after 650 ms of silence/);
+  assert.match(chat, /detectedSpeech && now - lastVoiceAt > 650/);
+});
+
 test('Live video mode keeps transcript text off the video while saving turns to chat history and speaking replies', () => {
   const chat = read('public/js/views/chat.js');
   const css = read('public/css/app.css');
