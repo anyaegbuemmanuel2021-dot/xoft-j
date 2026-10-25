@@ -393,7 +393,7 @@ export function mountCommandInput(el, store, controller) {
     text = String(text ?? '').trim();
     if (!text || store.get('chat').pending) return;
     const ex = { user: text, reply: '', status: 'sending', ts: Date.now() };
-    store.set('chat', { pending: true, exchanges: [...store.get('chat').exchanges, ex].slice(-30) });
+    store.set('chat', { pending: true, exchanges: [...store.get('chat').exchanges, ex].slice(-MAX_EXCHANGES) });
     input.value = '';
     if (fromVoice) setVoiceStatus('Command received · XOFT is thinking…', 'processing');
     let ok = true;
