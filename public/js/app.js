@@ -155,7 +155,7 @@ function registerServiceWorker() {
 
 applyLowPowerMode();
 
-for (const g of NAV for (const [route, , mod] of g.items) registerRoute(route, mod);
+for (const g of NAV) for (const [route, , mod] of g.items) registerRoute(route, mod);
 
 buildSidebar();
 wireConnectivity();
