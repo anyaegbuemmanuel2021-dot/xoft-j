@@ -38,7 +38,9 @@ test('Every view transcribes through the shared STT module: server gpt-transcrib
   assert.match(chat, /TRANSCRIBING ON XOFT SERVER/);
   assert.match(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
   assert.match(chat, /OpenAI → Gemini fallback/);
-  assert.match(whisper, /onnx-community\/whisper-tiny\.en/);
+  assert.match(whisper, /onnx-community\\/whisper-tiny['\"]/);
+  assert.doesNotMatch(whisper, /whisper-tiny\\.en/, 'local fallback must be multilingual for English/Igbo code-switching');
+  assert.match(whisper, /if \\(!blob \\|\\| !blob\\.size\\) throw new Error/);
   assert.doesNotMatch(whisper, /api\.openai\.com|api\.elevenlabs\.io/);
 });
 
@@ -129,4 +131,22 @@ test('Live video sends a bounded camera snapshot for visual context without disp
   assert.match(server, /visionInterpreter\.interpretScreenshot/);
   assert.match(server, /LIVE_VISION_UNAVAILABLE/);
   assert.match(server, /base64\.length > 1_500_000/);
+});
+
+
+test('Local STT fallback uses multilingual Whisper and refuses empty audio rather than inventing words', () => {
+  const whisper = read('public/js/voice/whisper-fallback.js');
+  assert.match(whisper, /onnx-community\\/whisper-tiny['"]/);
+  assert.doesNotMatch(whisper, /whisper-tiny\\.en/);
+  assert.match(whisper, /if \\(!blob \\|\\| !blob\\.size\\) throw new Error\\('No recorded audio was available\\.'\\)/);
+  assert.match(whisper, /if \\(!text\\) throw new Error\\('Whisper did not detect any speech\\.'\\)/);
+});
+
+test('Voice transcription prompt protects against noise hallucinations and preserves Nigerian English/Igbo code-switching', () => {
+  const config = read('src/config/index.js');
+  assert.match(config, /Nigerian English and Igbo/);
+  assert.match(config, /code-switching/);
+  assert.match(config, /never inject example words/);
+  assert.match(config, /silence or background noise/);
+  assert.match(config, /do not guess or infer words that are not clearly audible/);
 });
