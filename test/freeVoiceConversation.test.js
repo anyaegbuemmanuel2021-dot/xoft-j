@@ -139,7 +139,7 @@ test('Local STT fallback uses multilingual Whisper and refuses empty audio rathe
   assert.match(whisper, /onnx-community\/whisper-tiny['\"]?/);
   assert.doesNotMatch(whisper, /whisper-tiny\.en/);
   assert.match(whisper, /if \(!blob \|\| !blob\.size\) throw new Error\('No recorded audio was available\.'\)/);
-  assert.match(whisper, /if \(!blob \|\| !blob\.size\) throw new Error\('No recorded audio was available\.'\)/);
+  assert.match(whisper, /if \(!text\) throw new Error\('Whisper did not detect any speech\.'\)/);
 });
 
 test('Voice transcription prompt protects against noise hallucinations and preserves Nigerian English/Igbo code-switching', () => {
