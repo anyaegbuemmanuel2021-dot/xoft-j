@@ -101,7 +101,12 @@ export const config = {
     // STT: Whisper (OpenAI) is the default; Gemini is the server-side fallback. Comma-separated, first = preferred.
     sttProviderOrder: String(required('STT_PROVIDER_ORDER', 'openai,gemini'))
       .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean),
-    sttHedgeMs: Math.max(0, Number(process.env.STT_HEDGE_MS ?? 1000)),
+    // Hard failover cutoff: Gemini takes over if the preferred provider is still running after 1s.
+    sttHedgeMs: (() => {
+      const raw = process.env.STT_HEDGE_MS;
+      const parsed = raw == null || raw.trim() === '' ? 1000 : Number(raw);
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : 1000;
+    })(),
     sttLanguage: String(required('STT_LANGUAGE', '')).trim(),
     // gpt-transcribe is the higher-accuracy default; set STT_OPENAI_MODEL=whisper-1 for legacy behavior.
     sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-transcribe')).trim(),
