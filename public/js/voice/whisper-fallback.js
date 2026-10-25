@@ -17,6 +17,21 @@ async function getTranscriber() {
   return transcriberPromise;
 }
 
+function hasAudibleSignal(samples) {
+  if (!samples || !samples.length) return false;
+  let energy = 0;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const value = Number(samples[i]) || 0;
+    energy += value * value;
+    peak = Math.max(peak, Math.abs(value));
+  }
+  const rms = Math.sqrt(energy / samples.length);
+  // Avoid running Whisper on digital silence or near-silent captures, where it may hallucinate words.
+  // This is a conservative silence gate, not a general-purpose noise classifier.
+  return rms >= 0.003 && peak >= 0.01;
+}
+
 export async function transcribeAudioBlob(blob) {
   if (!blob || !blob.size) throw new Error('No recorded audio was available.');
 
@@ -43,9 +58,13 @@ export async function transcribeAudioBlob(blob) {
     source.connect(offline.destination);
     source.start(0);
     const audio = await offline.startRendering();
+    const samples = audio.getChannelData(0);
+    if (!hasAudibleSignal(samples)) {
+      throw new Error('No clear speech signal was detected; please speak closer to the microphone and try again.');
+    }
 
     const transcriber = await getTranscriber();
-    const result = await transcriber(audio.getChannelData(0), { sampling_rate: sampleRate });
+    const result = await transcriber(samples, { sampling_rate: sampleRate });
     const text = String(result?.text || '').trim();
     if (!text) throw new Error('Whisper did not detect any speech.');
     return text;
