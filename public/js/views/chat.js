@@ -295,7 +295,13 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
 
       let voiceText = '';
       try {
-        const transcript = await transcribeAudioBlob(blob);
+        const transcript = await transcribeAudioBlob(blob, (message) => {
+          if (/on-device Whisper/i.test(message)) {
+            setVoiceStatus('thinking', 'SERVER UNAVAILABLE · LOCAL WHISPER');
+          } else if (/Transcribing on XOFT server/i.test(message)) {
+            setVoiceStatus('thinking', 'TRANSCRIBING ON XOFT SERVER');
+          }
+        });
         const input = container.querySelector('#chat-input');
         if (conversationSegment && voiceConversationActive && transcript) {
           voiceText = transcript.trim();
@@ -477,7 +483,7 @@ function listenForConversationTurn(container) {
   // This avoids relying on vendor-specific browser recognition services.
   if (!voiceFallbackNoticeShown) {
     voiceFallbackNoticeShown = true;
-    toast('Using local Whisper for voice input. First use downloads the speech model; later turns use the cached model.', 'info');
+    toast('Voice conversation uses XOFT server transcription (OpenAI → Gemini fallback); local Whisper is the offline fallback.', 'info');
   }
   startWhisperRecording(container, { autoSegment: true });
   return;
