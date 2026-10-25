@@ -195,6 +195,19 @@ let liveVideoStream = null;
 
 function setVoiceStatus(state, label) {
   window.dispatchEvent(new CustomEvent('xoft:voice-state', { detail: { state, label } }));
+  // Live video shows only listening/thinking/speaking state; never show recognized words or interim captions.
+  if (liveVideoStream) {
+    const caption = document.querySelector('#xoft-live-video-caption');
+    if (caption) {
+      const statusText = {
+        listening: 'Listening · speak naturally',
+        thinking: 'XOFT is thinking · preparing a reply',
+        speaking: 'XOFT is speaking · your turn next',
+        idle: 'Live conversation paused',
+      };
+      caption.textContent = statusText[state] || 'Live conversation active';
+    }
+  }
 }
 
 // Bind once: navigation/rerendering must not stack event listeners.
