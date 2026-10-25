@@ -22,6 +22,12 @@ export async function render(container) {
         <div class="row"><span class="main">Pending requests</span><span>${queueLength()}</span></div>
         <button id="flush-queue">Retry now</button>
       `)}
+      ${card('Low-power mode', `
+        <div class="row"><span class="main">Reduce interface effects on this device</span>
+          <label><input id="xoft-lite-mode" type="checkbox" ${localStorage.getItem('xoft_lite_mode') === 'true' ? 'checked' : ''} /> Enable</label>
+        </div>
+        <p class="muted">Reduces decorative effects for slower phones. Chat, voice, and core features remain available.</p>
+      `)}
       ${card('Model health', rows(Object.entries(health), ([name, h]) => `
         <div class="row"><span class="main">${esc(name)}</span>${badge(h.healthy === false ? 'unhealthy' : 'healthy', h.healthy === false ? 'err' : 'ok')}</div>
       `, 'No data yet.'))}
@@ -39,6 +45,15 @@ export async function render(container) {
     const val = container.querySelector('#api-key-input').value.trim();
     if (val) localStorage.setItem('xoft_api_key', val); else localStorage.removeItem('xoft_api_key');
     toast('Saved', 'ok');
+  });
+
+  onDelegate(container, 'change', '#xoft-lite-mode', (event) => {
+    const enabled = event.target.checked;
+    localStorage.setItem('xoft_lite_mode', String(enabled));
+    document.body.classList.toggle('xoft-lite', enabled || navigator.connection?.saveData === true
+      || (typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+    document.documentElement.classList.toggle('xoft-lite', document.body.classList.contains('xoft-lite'));
+    toast(enabled ? 'Low-power mode enabled' : 'Low-power mode disabled', 'ok');
   });
 
   onDelegate(container, 'click', '#flush-queue', async () => {
