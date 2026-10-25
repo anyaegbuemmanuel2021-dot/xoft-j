@@ -24,7 +24,7 @@ function withKeys({ openai = 'sk-test', gemini = 'g-test', eleven = 'el-test', o
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-test('STT defaults to OpenAI Whisper first', async () => {
+test('STT defaults to context-aware GPT transcription for Nigerian English and code-switching', async () => {
   const restore = withKeys();
   try {
     const calls = [];
@@ -34,7 +34,11 @@ test('STT defaults to OpenAI Whisper first', async () => {
     assert.equal(out.provider, 'openai');
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /api\.openai\.com\/v1\/audio\/transcriptions/);
-    assert.equal(calls[0].init.body.get('model'), 'whisper-1');
+    assert.equal(calls[0].init.body.get('model'), 'gpt-transcribe');
+    assert.match(calls[0].init.body.get('prompt'), /Nigerian English/i);
+    assert.match(calls[0].init.body.get('prompt'), /Igbo/i);
+    assert.match(calls[0].init.body.get('prompt'), /verbatim/i);
+    assert.equal(calls[0].init.body.get('language'), null, 'automatic language detection must remain enabled for code-switching');
   } finally { restore(); }
 });
 
