@@ -42,6 +42,15 @@ test('Every view transcribes through the shared STT module: server gpt-transcrib
   assert.doesNotMatch(whisper, /api\.openai\.com|api\.elevenlabs\.io/);
 });
 
+test('Voice companion defaults to server STT and uses shared fallback instead of browser speech first', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.ok(companion.indexOf("'server-stt':") < companion.indexOf("'browser-speech':"), 'server STT must be the default backend');
+  assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
+  assert.match(companion, /preferredRecorderOptions/);
+  assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
+  assert.match(companion, /OpenAI → Gemini, then local Whisper/);
+});
+
 test('Speech output uses ElevenLabs by default and falls back to browser TTS', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
