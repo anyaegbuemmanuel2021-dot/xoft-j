@@ -48,6 +48,14 @@ const NAV = [
   { group: 'System', items: [['devices', 'Devices', devices, 'devices'], ['runtime', 'Device Runtime', runtime, 'runtime'], ['activity', 'Activity Log', activity, 'activity'], ['settings', 'Runtime Settings', settings, 'settings']] },
 ];
 
+function applyLowPowerMode() {
+  // Reduce decorative rendering on data-saver connections and for users who prefer reduced motion.
+  const saveData = navigator.connection?.saveData === true;
+  const reducedMotion = typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.body?.classList.toggle('xoft-lite', saveData || reducedMotion);
+}
+
 function buildSidebar() {
   const nav = document.getElementById('nav');
   nav.innerHTML = NAV.map((g) => `
@@ -147,6 +155,7 @@ applyLowPowerMode();
 
 for (const g of NAV) for (const [route, , mod] of g.items) registerRoute(route, mod);
 
+applyLowPowerMode();
 buildSidebar();
 wireConnectivity();
 registerServiceWorker();
