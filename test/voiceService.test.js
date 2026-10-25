@@ -33,7 +33,7 @@ test('STT defaults to gpt-transcribe with Nigerian multilingual context and auto
     assert.equal(out.text, 'hello xoft');
     assert.equal(out.provider, 'openai');
     assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /api\\.openai\\.com\\/v1\\/audio\\/transcriptions/);
+    assert.match(calls[0].url, /api\.openai\.com\/v1\/audio\/transcriptions/);
     const form = calls[0].init.body;
     assert.equal(form.get('model'), 'gpt-transcribe');
     assert.match(form.get('prompt'), /Nigerian English/);
@@ -61,7 +61,7 @@ test('STT falls back to Gemini when OpenAI fails and sends multilingual context'
     assert.equal(out.provider, 'gemini');
     assert.equal(out.text, 'from gemini');
     assert.deepEqual(out.attempts.map((a) => [a.provider, a.ok]), [['openai', false], ['gemini', true]]);
-    assert.match(urls[1], /generativelanguage\\.googleapis\\.com/);
+    assert.match(urls[1], /generativelanguage\.googleapis\.com/);
     assert.match(geminiRequest.contents[0].parts[0].text, /Igbo/);
     assert.match(geminiRequest.contents[0].parts[0].text, /XOFT/);
   } finally { restore(); }
@@ -164,7 +164,7 @@ test('TTS uses ElevenLabs, trims input, and surfaces API errors', async () => {
     const ok = new VoiceService({ fetchImpl: async (url, init) => { seen = { url: String(url), body: JSON.parse(init.body), headers: init.headers }; return new Response(Buffer.from('mp3'), { status: 200 }); } });
     const audio = await ok.textToSpeech('  hi there  ');
     assert.equal(audio.toString(), 'mp3');
-    assert.match(seen.url, /api\\.elevenlabs\\.io\\/v1\\/text-to-speech\\//);
+    assert.match(seen.url, /api\.elevenlabs\.io\/v1\/text-to-speech\//);
     assert.equal(seen.body.text, 'hi there');
     assert.equal(seen.headers['xi-api-key'], 'el-test');
     await assert.rejects(() => ok.textToSpeech('   '), /empty/);
