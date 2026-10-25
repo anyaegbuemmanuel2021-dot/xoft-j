@@ -663,6 +663,31 @@ function toggleVoiceConversation(container) {
   toast('Voice conversation is on. Speak naturally; XOFT will answer aloud and then listen again. Tap Stop Voice Conversation to finish.', 'success');
   listenForConversationTurn(container);
 }
+async function captureLiveVideoContext(container, question) {
+  const video = container.querySelector('#xoft-live-camera');
+  if (!liveVideoStream || !video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return '';
+  try {
+    const canvas = document.createElement('canvas');
+    const sourceWidth = video.videoWidth || 640;
+    const sourceHeight = video.videoHeight || 480;
+    const scale = Math.min(1, 640 / sourceWidth, 480 / sourceHeight);
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) return '';
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.62);
+    const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+    const result = await api.post('/api/vision/live-frame', { base64, mimeType: 'image/jpeg', question });
+    return String(result?.summary || '').trim().slice(0, 1200);
+  } catch (error) {
+    console.info('[XOFT] Live vision is unavailable for this turn; continuing voice-only:', error?.message || error);
+    const caption = container.querySelector('#xoft-live-video-caption');
+    if (caption) caption.textContent = 'Voice conversation active · visual understanding unavailable';
+    return '';
+  }
+}
+
 async function send(container, textOverride = null, { voiceTurn = false } = {}) {
   const input = container.querySelector('#chat-input');
   if (!input) return;
@@ -681,6 +706,10 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
   try {
     const endpoint = mode === 'chat' ? '/api/chat' : '/api/advise';
     const body = mode === 'chat' ? { message: text, sessionId: sessionId() } : { problem: text };
+    if (mode === 'chat' && liveVideoStream) {
+      const visualContext = await captureLiveVideoContext(container, text);
+      if (visualContext) body.message = text + '\n\n[Current camera-frame context, for this turn only: ' + visualContext + ']';
+    }
     const result = await api.post(endpoint, body);
     if (result.__queued) {
       responseToSpeak = '(offline — this message is queued and will send once back online)';

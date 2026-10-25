@@ -1014,6 +1014,30 @@ app.get('/api/voice/status', (_req, res) => {
   res.json(voiceService.status());
 });
 
+// POST /api/vision/live-frame { base64, mimeType, question } -> a grounded description of one live camera frame.
+app.post('/api/vision/live-frame', voiceLimit, async (req, res) => {
+  const { base64, mimeType = 'image/jpeg', question } = req.body ?? {};
+  if (typeof base64 !== 'string' || !base64 || base64.length > 1_500_000 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) {
+    return res.status(400).json({ error: 'A valid base64 camera frame under 1.5 MB is required.' });
+  }
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+    return res.status(400).json({ error: 'mimeType must be image/jpeg, image/png, or image/webp.' });
+  }
+  try {
+    const result = await visionInterpreter.interpretScreenshot({
+      base64,
+      mimeType,
+      question: typeof question === 'string' ? question.slice(0, 800) : undefined,
+    });
+    const summary = result.parsed?.summary || result.raw;
+    res.json({ summary: String(summary || '').slice(0, 2500), provider: result.provider });
+  } catch (error) {
+    // Camera interpretation is optional: the voice conversation can continue if no
+    // vision-capable provider is configured or the provider is temporarily unavailable.
+    res.status(503).json({ error: 'LIVE_VISION_UNAVAILABLE', message: String(error?.message || 'Vision provider unavailable').slice(0, 300) });
+  }
+});
+
 app.post('/api/voice/speak', voiceLimit, async (req, res) => {
   const { text } = req.body ?? {};
   if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'text is required' });

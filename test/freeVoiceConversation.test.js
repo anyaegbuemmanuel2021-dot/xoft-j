@@ -103,3 +103,17 @@ test('Live video mode keeps transcript text off the video while saving turns to 
   assert.match(chat, /End Live Conversation/);
   assert.match(css, /\.chat-layout\.xoft-video-active #chat-log\[hidden\]/);
 });
+
+
+test('Live video sends a bounded camera snapshot for visual context without displaying a transcript over video', () => {
+  const chat = read('public/js/views/chat.js');
+  const server = read('src/index.js');
+  assert.match(chat, /captureLiveVideoContext\(container, question\)/);
+  assert.match(chat, /canvas\.toDataURL\('image\/jpeg', 0\.62\)/);
+  assert.match(chat, /api\.post\('\/api\/vision\/live-frame'/);
+  assert.match(chat, /if \(mode === 'chat' && liveVideoStream\)/);
+  assert.match(server, /app\.post\('\/api\/vision\/live-frame', voiceLimit/);
+  assert.match(server, /visionInterpreter\.interpretScreenshot/);
+  assert.match(server, /LIVE_VISION_UNAVAILABLE/);
+  assert.match(server, /base64\.length > 1_500_000/);
+});
