@@ -38,6 +38,9 @@ test('STT defaults to gpt-transcribe with Nigerian multilingual context and auto
     assert.equal(form.get('model'), 'gpt-transcribe');
     assert.match(form.get('prompt'), /Nigerian English/);
     assert.match(form.get('prompt'), /Igbo/);
+    assert.match(form.get('prompt'), /code-switching/);
+    assert.match(form.get('prompt'), /biko/);
+    assert.match(form.get('prompt'), /never inject example words/);
     assert.match(form.get('prompt'), /XOFT/);
     assert.equal(form.has('language'), false, 'language should remain auto-detected by default');
     assert.equal(form.has('temperature'), false, 'do not send Whisper-only temperature to the modern model');
