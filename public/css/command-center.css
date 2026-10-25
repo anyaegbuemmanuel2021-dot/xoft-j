@@ -613,3 +613,19 @@ body[data-route="command"] .cc-home-core [data-mount="cmd"] {
 .cc-recent-act:hover, .cc-recent-act:focus-visible { color:var(--xoft-cyan); border-color:rgba(53,224,234,.4); outline:none; }
 .cc-recent-act[aria-pressed="true"] { color:var(--xoft-warning); }
 .cc-recent-del:hover, .cc-recent-del:focus-visible { color:var(--xoft-danger); border-color:rgba(255,107,107,.5); }
+
+
+/* Low-power mode: keep layout and controls intact while reducing decorative GPU work. */
+.xoft-lite .cc *,
+.xoft-lite .cc *::before,
+.xoft-lite .cc *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+.xoft-lite .cc {
+  background: var(--xoft-bg);
+}
