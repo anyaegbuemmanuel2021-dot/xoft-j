@@ -108,8 +108,8 @@ export const config = {
       return Number.isFinite(parsed) ? Math.max(0, parsed) : 1000;
     })(),
     sttLanguage: String(required('STT_LANGUAGE', '')).trim(),
-    // gpt-transcribe is the higher-accuracy default; set STT_OPENAI_MODEL=whisper-1 for legacy behavior.
-    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-transcribe')).trim(),
+    // gpt-4o-mini-transcribe is the default OpenAI transcription model; set STT_OPENAI_MODEL=whisper-1 for the legacy Whisper model.
+    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-4o-mini-transcribe')).trim(),
     // Context is a spelling hint only. Language detection stays automatic unless STT_LANGUAGE is explicitly set.
     sttContextPrompt: String(required(
       'STT_CONTEXT_PROMPT',
