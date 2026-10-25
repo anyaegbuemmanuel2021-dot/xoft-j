@@ -1,4 +1,4 @@
-// Free local speech-to-text fallback. The model is downloaded from the public model repository
+// Free multilingual local speech-to-text fallback. The model is downloaded from the public model repository
 // on first use and cached by the browser. Recorded audio is processed in-browser.
 let transcriberPromise;
 
@@ -8,7 +8,7 @@ async function getTranscriber() {
       const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2');
       env.allowLocalModels = false;
       env.useBrowserCache = true;
-      return pipeline('automatic-speech-recognition', 'onnx-community/whisper-tiny.en', { dtype: 'q8' });
+      return pipeline('automatic-speech-recognition', 'onnx-community/whisper-tiny', { dtype: 'q8' });
     })().catch((error) => {
       transcriberPromise = null;
       throw error;
