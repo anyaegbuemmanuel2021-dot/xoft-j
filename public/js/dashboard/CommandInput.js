@@ -566,7 +566,7 @@ export function mountCommandInput(el, store, controller) {
             else restored.push({ user: '', reply: msg.content, status: 'done', ts: Date.parse(msg.at) || Date.now() });
           }
         }
-        store.set('chat', { pending: false, exchanges: restored.filter((x) => x.user || x.reply).slice(-100) });
+        store.set('chat', { pending: false, exchanges: restored.filter((x) => x.user || x.reply).slice(-MAX_EXCHANGES) });
       }
     })
     .catch((error) => console.warn('[XOFT] Server history unavailable; keeping local history:', error))
