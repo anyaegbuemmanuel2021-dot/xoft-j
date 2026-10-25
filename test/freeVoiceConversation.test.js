@@ -140,6 +140,9 @@ test('Local STT fallback uses multilingual Whisper and refuses empty audio rathe
   assert.doesNotMatch(whisper, /whisper-tiny\.en/);
   assert.match(whisper, /if \(!blob \|\| !blob\.size\) throw new Error\('No recorded audio was available\.'\)/);
   assert.match(whisper, /if \(!text\) throw new Error\('Whisper did not detect any speech\.'\)/);
+  assert.match(whisper, /function hasAudibleSignal\(samples\)/);
+  assert.match(whisper, /if \(!hasAudibleSignal\(samples\)\)/);
+  assert.match(whisper, /No clear speech signal was detected/);
 });
 
 test('Voice transcription prompt protects against noise hallucinations and preserves Nigerian English/Igbo code-switching', () => {
