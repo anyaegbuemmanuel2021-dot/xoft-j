@@ -98,12 +98,17 @@ export const config = {
     elevenLabsVoiceId: required('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM'),
     elevenLabsModel: String(required('ELEVENLABS_MODEL', 'eleven_flash_v2_5')).trim(),
     elevenLabsOutputFormat: String(required('ELEVENLABS_OUTPUT_FORMAT', 'mp3_22050_32')).trim(),
-    // STT: Whisper (OpenAI) is the default; Gemini is the server-side fallback. Comma-separated, first = preferred.
+    // STT: GPT transcription (OpenAI) is the default; Gemini is the server-side fallback. Comma-separated, first = preferred.
     sttProviderOrder: String(required('STT_PROVIDER_ORDER', 'openai,gemini'))
       .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean),
     sttHedgeMs: Math.max(0, Number(process.env.STT_HEDGE_MS ?? 1000)),
     sttLanguage: String(required('STT_LANGUAGE', '')).trim(),
-    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'whisper-1')).trim(),
+    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-transcribe')).trim(),
+    sttOpenAiPrompt: String(required(
+      'STT_OPENAI_PROMPT',
+      'Transcribe the audio verbatim, preserving the speaker’s actual words and language. The speaker may use Nigerian English, local names, Nigerian accents, or switch between English and Igbo or other Nigerian languages. Keep code-switched words in the language spoken; do not translate, paraphrase, correct grammar, or invent unclear words. Return only the transcript.'
+    )).trim(),
+    sttKeywords: String(required('STT_KEYWORDS', '')).split(',').map((word) => word.trim()).filter(Boolean),
     sttGeminiModel: String(required('STT_GEMINI_MODEL', '')).trim(), // empty = use the configured Gemini chat model
     sttTimeoutMs: Number(process.env.STT_TIMEOUT_MS) || 30000,
     ttsTimeoutMs: Number(process.env.TTS_TIMEOUT_MS) || 20000,
