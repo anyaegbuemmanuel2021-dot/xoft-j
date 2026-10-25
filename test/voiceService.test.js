@@ -33,7 +33,7 @@ test('STT defaults to gpt-transcribe with Nigerian multilingual context and auto
     assert.equal(out.text, 'hello xoft');
     assert.equal(out.provider, 'openai');
     assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /api\.openai\.com\/v1\/audio\/transcriptions/);
+    assert.match(calls[0].url, /api\\.openai\\.com\\/v1\\/audio\\/transcriptions/);
     const form = calls[0].init.body;
     assert.equal(form.get('model'), 'gpt-transcribe');
     assert.match(form.get('prompt'), /Nigerian English/);
@@ -61,9 +61,64 @@ test('STT falls back to Gemini when OpenAI fails and sends multilingual context'
     assert.equal(out.provider, 'gemini');
     assert.equal(out.text, 'from gemini');
     assert.deepEqual(out.attempts.map((a) => [a.provider, a.ok]), [['openai', false], ['gemini', true]]);
-    assert.match(urls[1], /generativelanguage\.googleapis\.com/);
+    assert.match(urls[1], /generativelanguage\\.googleapis\\.com/);
     assert.match(geminiRequest.contents[0].parts[0].text, /Igbo/);
     assert.match(geminiRequest.contents[0].parts[0].text, /XOFT/);
+  } finally { restore(); }
+});
+
+test('STT starts Gemini after the hedge delay when OpenAI is slow, and cancels the losing request', async () => {
+  const restore = withKeys();
+  const previousHedgeMs = config.voice.sttHedgeMs;
+  config.voice.sttHedgeMs = 25;
+  try {
+    let openaiSignal;
+    const called = [];
+    const svc = new VoiceService({
+      fetchImpl: (url, init) => {
+        const target = String(url);
+        called.push(target);
+        if (target.includes('openai.com')) {
+          openaiSignal = init.signal;
+          return new Promise((resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(new Error('OpenAI request aborted after Gemini won')), { once: true });
+          });
+        }
+        return Promise.resolve(json({ candidates: [{ content: { parts: [{ text: 'Gemini transcript' }] } }] }));
+      },
+    });
+
+    const started = Date.now();
+    const out = await svc.transcribe(Buffer.from('audio'));
+    const elapsed = Date.now() - started;
+    assert.equal(out.provider, 'gemini');
+    assert.equal(out.text, 'Gemini transcript');
+    assert.ok(elapsed >= 15, `Gemini should wait for the hedge window; elapsed ${elapsed}ms`);
+    assert.ok(called.some((url) => url.includes('openai.com')));
+    assert.ok(called.some((url) => url.includes('generativelanguage.googleapis.com')));
+    assert.equal(openaiSignal.aborted, true, 'cancel the slow OpenAI request once Gemini wins');
+  } finally {
+    config.voice.sttHedgeMs = previousHedgeMs;
+    restore();
+  }
+});
+
+test('STT falls back immediately to Gemini when OpenAI is unreachable', async () => {
+  const restore = withKeys();
+  try {
+    const started = Date.now();
+    const svc = new VoiceService({
+      fetchImpl: async (url) => {
+        if (String(url).includes('openai.com')) throw new TypeError('fetch failed: network unreachable');
+        return json({ candidates: [{ content: { parts: [{ text: 'Network fallback transcript' }] } }] });
+      },
+    });
+    const out = await svc.transcribe(Buffer.from('audio'));
+    assert.equal(out.provider, 'gemini');
+    assert.equal(out.text, 'Network fallback transcript');
+    assert.ok(Date.now() - started < 500, 'a definite network failure should not wait for the hedge timer');
+    assert.equal(out.attempts[0].ok, false);
+    assert.match(out.attempts[0].error, /network unreachable/);
   } finally { restore(); }
 });
 
@@ -102,7 +157,7 @@ test('TTS uses ElevenLabs, trims input, and surfaces API errors', async () => {
     const ok = new VoiceService({ fetchImpl: async (url, init) => { seen = { url: String(url), body: JSON.parse(init.body), headers: init.headers }; return new Response(Buffer.from('mp3'), { status: 200 }); } });
     const audio = await ok.textToSpeech('  hi there  ');
     assert.equal(audio.toString(), 'mp3');
-    assert.match(seen.url, /api\.elevenlabs\.io\/v1\/text-to-speech\//);
+    assert.match(seen.url, /api\\.elevenlabs\\.io\\/v1\\/text-to-speech\\//);
     assert.equal(seen.body.text, 'hi there');
     assert.equal(seen.headers['xi-api-key'], 'el-test');
     await assert.rejects(() => ok.textToSpeech('   '), /empty/);
@@ -118,5 +173,6 @@ test('status() reports STT providers and ElevenLabs TTS with browser fallback', 
     assert.deepEqual(s.stt.providers, ['openai', 'gemini']);
     assert.equal(s.tts.provider, 'elevenlabs');
     assert.equal(s.tts.fallback, 'browser');
+    assert.equal(s.stt.hedgeMs, config.voice.sttHedgeMs);
   } finally { restore(); }
 });
