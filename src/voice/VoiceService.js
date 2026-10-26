@@ -51,10 +51,9 @@ export class VoiceService {
       openai: Boolean(config.providers.openai.apiKey),
       gemini: Boolean(config.providers.gemini.apiKey),
     };
-    const order = config.voice.sttProviderOrder.filter((name) => name in available);
-    // Anything configured but missing from the order list is appended, so a typo cannot disable STT.
-    for (const name of Object.keys(available)) if (!order.includes(name)) order.push(name);
-    return order.filter((name) => available[name]);
+    // Keep the product contract deterministic: OpenAI first, Gemini second.
+    // Do not let a stale environment/settings override reverse the required fallback order.
+    return ['openai', 'gemini'].filter((name) => available[name]);
   }
 
   isSTTConfigured() {

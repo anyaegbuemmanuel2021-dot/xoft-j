@@ -98,15 +98,10 @@ export const config = {
     elevenLabsVoiceId: required('ELEVENLABS_VOICE_ID', '21m00Tcm4TlvDq8ikWAM'),
     elevenLabsModel: String(required('ELEVENLABS_MODEL', 'eleven_flash_v2_5')).trim(),
     elevenLabsOutputFormat: String(required('ELEVENLABS_OUTPUT_FORMAT', 'mp3_22050_32')).trim(),
-    // STT: Whisper (OpenAI) is the default; Gemini is the server-side fallback. Comma-separated, first = preferred.
-    sttProviderOrder: String(required('STT_PROVIDER_ORDER', 'openai,gemini'))
-      .split(',').map((p) => p.trim().toLowerCase()).filter(Boolean),
-    // Hard failover cutoff: Gemini takes over if the preferred provider is still running after 1s.
-    sttHedgeMs: (() => {
-      const raw = process.env.STT_HEDGE_MS;
-      const parsed = raw == null || raw.trim() === '' ? 1000 : Number(raw);
-      return Number.isFinite(parsed) ? Math.max(0, parsed) : 1000;
-    })(),
+    // XOFT voice STT policy: OpenAI transcription first; Gemini must take over after 1 second.
+    // Keep this fixed so stale Render environment variables cannot disable or delay failover.
+    sttProviderOrder: ['openai', 'gemini'],
+    sttHedgeMs: 1000,
     sttLanguage: String(required('STT_LANGUAGE', '')).trim(),
     // gpt-4o-mini-transcribe is the default OpenAI transcription model; set STT_OPENAI_MODEL=whisper-1 for the legacy Whisper model.
     sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-4o-mini-transcribe')).trim(),
