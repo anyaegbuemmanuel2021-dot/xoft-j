@@ -32,7 +32,7 @@ function hasAudibleSignal(samples) {
   return rms >= 0.003 && peak >= 0.01;
 }
 
-export async function transcribeAudioBlob(blob) {
+export async function transcribeAudioBlob(blob, { language = 'auto' } = {}) {
   if (!blob || !blob.size) throw new Error('No recorded audio was available.');
 
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -64,7 +64,9 @@ export async function transcribeAudioBlob(blob) {
     }
 
     const transcriber = await getTranscriber();
-    const result = await transcriber(samples, { sampling_rate: sampleRate });
+    const options = { sampling_rate: sampleRate };
+    if (language === 'en' || language === 'ig') options.language = language === 'ig' ? 'Igbo' : 'English';
+    const result = await transcriber(samples, options);
     const text = String(result?.text || '').trim();
     if (!text) throw new Error('Whisper did not detect any speech.');
     return text;
