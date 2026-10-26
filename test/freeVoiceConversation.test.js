@@ -33,7 +33,7 @@ test('Every view transcribes through the shared STT module: server gpt-transcrib
   assert.match(input, /from '\.\.\/voice\/stt\.js'/);
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
   assert.match(stt, /voiceFetch\('\/api\/voice\/transcribe'/);
-  assert.ok(stt.indexOf('transcribeOnServer(blob)') < stt.indexOf('transcribeLocally(blob)'), 'server STT must be attempted before on-device Whisper');
+  assert.ok(stt.indexOf('transcribeOnServer(blob, language)') < stt.indexOf('transcribeLocally(blob, { language })'), 'server STT must be attempted before on-device Whisper');
   assert.match(chat, /transcribeAudioBlob\(blob, \(message\) =>/);
   assert.match(chat, /TRANSCRIBING ON XOFT SERVER/);
   assert.match(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
