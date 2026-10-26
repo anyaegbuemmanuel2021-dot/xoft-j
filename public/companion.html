@@ -20,7 +20,7 @@
 </head>
 <body>
 <h1>XOFT Companion</h1>
-<p class="note">Microphone access lives here, in your browser — the XOFT server cannot hear your microphone. Audio is analysed for speech on this device; nothing is sent unless you speak and the wake phrase is heard. Commands go through the same chat entry point (and the same permissions, approvals and kill switch) as typed commands.</p>
+<p class="note">Microphone access lives here, in your browser. Speech is detected locally, then spoken segments are sent to the selected transcription backend. Only a wake phrase and command (or an enabled follow-up conversation) are sent to XOFT chat. Risky actions still use XOFT's confirmation and permission checks.</p>
 
 <div class="box">
   <div class="row">
@@ -34,6 +34,21 @@
     <label>Recognition backend
       <select id="backend"></select>
     </label>
+    <label>Spoken language
+      <select id="language">
+        <option value="auto" selected>Auto: Nigerian English, Pidgin and Igbo</option>
+        <option value="en">English / Nigerian Pidgin (best-effort)</option>
+        <option value="ig">Igbo</option>
+      </select>
+    </label>
+  </div>
+  <div class="row">
+    <label><input id="conversation-mode" type="checkbox" checked /> Continue conversation for 45 seconds after wake phrase</label>
+    <label><input id="speak-replies" type="checkbox" checked /> Speak XOFT replies aloud</label>
+  </div>
+  <div class="box">
+    <strong>Latest transcript / reply</strong>
+    <p id="transcript" aria-live="polite">Your recognized words will appear here.</p>
   </div>
   <p id="backend-note" class="note"></p>
 </div>
