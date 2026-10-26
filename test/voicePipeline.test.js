@@ -17,6 +17,7 @@ describe('EnergyVad', () => {
     assert.equal(tail.filter((r) => r.event === 'end').length, 1);
     assert.equal(v.speaking, false);
   });
+  test('mobile companion VAD detects a quiet voice with its lower configured threshold', () => { const v = new EnergyVad({ minThreshold: 0.008, floorMultiplier: 2.5, startFrames: 2, frameMs: 30 }); const r = feed(v, [0.010, 0.011, 0.012], 1000); assert.equal(r[1].event, 'start'); assert.equal(v.speaking, true); });
   test('a single click/pop does not start speech', () => { const v = new EnergyVad(); assert.ok(feed(v, [0.001, 0.5, 0.001, 0.001, 0.001]).every((r) => r.event !== 'start')); });
   test('short pauses inside an utterance do not end it', () => {
     const v = new EnergyVad({ endSilenceMs: 700 });
