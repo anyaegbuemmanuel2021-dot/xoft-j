@@ -44,24 +44,37 @@ export function matchWake(transcript, { greetings = DEFAULT_GREETINGS, names = D
  * Only text that follows a matched wake phrase ever leaves this object; non-wake speech is discarded unseen.
  */
 export class VoicePipeline {
-  constructor({ activationWindowMs = 8000, confirmWindowMs = 8000, minCommandChars = 2, wake = {}, onState = () => {}, onWake = () => {}, onCommand = () => {}, onNeedConfirm = () => {}, onTimeout = () => {}, onCancel = () => {}, wantRecognizer = () => {} } = {}) {
-    Object.assign(this, { activationWindowMs, confirmWindowMs, minCommandChars, wake, onState, onWake, onCommand, onNeedConfirm, onTimeout, onCancel, wantRecognizer });
-    this.state = 'idle'; this._deadline = 0; this._pending = null;
+  constructor({ activationWindowMs = 8000, confirmWindowMs = 8000, conversationWindowMs = 45000, conversationMode = false, recognitionGraceMs = 2500, minCommandChars = 2, wake = {}, onState = () => {}, onWake = () => {}, onCommand = () => {}, onNeedConfirm = () => {}, onTimeout = () => {}, onCancel = () => {}, wantRecognizer = () => {} } = {}) {
+    Object.assign(this, { activationWindowMs, confirmWindowMs, conversationWindowMs, conversationMode, recognitionGraceMs, minCommandChars, wake, onState, onWake, onCommand, onNeedConfirm, onTimeout, onCancel, wantRecognizer });
+    this.state = 'idle'; this._deadline = 0; this._pending = null; this._recognitionDeadline = 0; this._conversationUntil = 0;
   }
 
   _set(s) { if (this.state !== s) { this.state = s; this.onState(s); } }
 
-  /** VAD events. Speech start opens the recognizer only while idle; speech end lets it close unless we're mid-command. */
+  /** Stop recording at VAD end but keep recognition state briefly: STT completes asynchronously after MediaRecorder stops. */
   vad(event) {
-    if (event === 'start' && this.state === 'idle') { this._set('wake_listening'); this.wantRecognizer(true); }
-    if (event === 'end' && this.state === 'wake_listening') { this._set('idle'); this.wantRecognizer(false); }
+    if (event === 'start' && this.state === 'idle') { this._recognitionDeadline = 0; this._set('wake_listening'); this.wantRecognizer(true); }
+    if (event === 'end' && this.state === 'wake_listening') {
+      this._recognitionDeadline = Date.now() + this.recognitionGraceMs;
+      this.wantRecognizer(false);
+    }
   }
 
   transcript(text, isFinal, now = Date.now()) {
     if (this.state === 'wake_listening') {
       const m = matchWake(text, this.wake);
-      if (!m.matched) return; // ordinary speech: discarded, never stored or sent
+      if (!m.matched) {
+        if (isFinal && this.conversationMode && now < this._conversationUntil) {
+          this._recognitionDeadline = 0;
+          const command = tidy(text);
+          if (command.length >= this.minCommandChars) return this._got(command, now);
+        }
+        if (isFinal && this._recognitionDeadline > 0) { this._recognitionDeadline = 0; this._set('idle'); }
+        return;
+      }
       if (!isFinal) return;
+      this._recognitionDeadline = 0;
+      if (this.conversationMode) this._conversationUntil = now + this.conversationWindowMs;
       this.onWake(m.phrase);
       if (m.command.length >= this.minCommandChars) return this._got(m.command, now);
       this._deadline = now + this.activationWindowMs; this._set('awaiting_command'); return;
@@ -89,12 +102,21 @@ export class VoicePipeline {
   confirm() { if (this.state === 'confirming' && this._pending) this._submit(this._pending); }
   cancel(reason = 'cancelled') { if (this._pending || this.state !== 'idle') { this._pending = null; this.wantRecognizer(false); this._set('idle'); this.onCancel(reason); } }
 
-  /** Call when the command round-trip (and any spoken reply) is finished, so XOFT's own speech is never treated as input. */
-  done() { if (this.state === 'submitting') this._set('idle'); }
+  /** Call only after XOFT's spoken reply finishes, so the assistant does not capture its own voice. */
+  done() {
+    if (this.state === 'submitting') {
+      if (this.conversationMode) this._conversationUntil = Date.now() + this.conversationWindowMs;
+      this._set('idle');
+    }
+  }
 
   tick(now = Date.now()) {
     if ((this.state === 'awaiting_command' || this.state === 'confirming') && now >= this._deadline) {
       const was = this.state; this._pending = null; this.wantRecognizer(false); this._set('idle'); (was === 'confirming' ? this.onCancel : this.onTimeout)(was === 'confirming' ? 'confirmation timed out' : 'no command heard');
+    }
+    if (this.state === 'wake_listening' && this._recognitionDeadline > 0 && now >= this._recognitionDeadline) {
+      this._recognitionDeadline = 0;
+      this._set('idle');
     }
   }
 }
