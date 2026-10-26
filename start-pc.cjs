@@ -51,13 +51,34 @@ function ensureAgentConfig() {
   console.log(`[start-pc] Created pc-agent/config.json — local files reachable by XOFT are limited to:\n  ${roots.join('\n  ')}\n  (edit pc-agent/config.json to change this any time; run with FULL_ACCESS=true for your whole user profile)`);
 }
 
-function waitForCore() {
+function waitForCore(core, timeoutMs = 60_000) {
   const headers = {};
   const key = (process.env.AUTH_API_KEYS ?? '').split(',')[0]?.trim();
   if (key) headers['X-API-Key'] = key;
-  return new Promise((resolve) => {
-    const check = () => {
-      fetch(`${CORE_URL}/api/status`, { headers }).then((res) => (res.ok ? resolve() : setTimeout(check, 500))).catch(() => setTimeout(check, 500));
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    let timer = null;
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      core.off('exit', onExit);
+      core.off('error', onError);
+      error ? reject(error) : resolve();
+    };
+    const onExit = (code, signal) => finish(new Error(`XOFT core exited before becoming ready (code=${code}, signal=${signal ?? 'none'}).`));
+    const onError = (error) => finish(new Error(`Could not start XOFT core: ${error.message}`));
+    core.once('exit', onExit);
+    core.once('error', onError);
+    const check = async () => {
+      if (settled) return;
+      if (Date.now() >= deadline) return finish(new Error(`Timed out after ${timeoutMs / 1000}s waiting for XOFT core at ${CORE_URL}. Check .env, dependencies and the core logs.`));
+      try {
+        const res = await fetch(`${CORE_URL}/api/status`, { headers, signal: AbortSignal.timeout(2000) });
+        if (res.ok) return finish();
+      } catch { /* core may still be starting; retry until the bounded deadline */ }
+      timer = setTimeout(check, 500);
     };
     check();
   });
@@ -73,7 +94,14 @@ async function main() {
     stdio: 'inherit',
   });
 
-  await waitForCore();
+  try {
+    await waitForCore(core);
+  } catch (err) {
+    console.error(`[start-pc] ${err.message}`);
+    core.kill();
+    process.exitCode = 1;
+    return;
+  }
   console.log('[start-pc] Core is up. Starting PC agent...');
   const agent = spawn(process.execPath, [AGENT_ENTRY], {
     cwd: AGENT_DIR,
