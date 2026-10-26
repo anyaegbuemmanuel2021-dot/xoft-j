@@ -12,12 +12,12 @@ const selectedLanguage = () => $('language')?.value || 'auto';
 const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments are transcribed by XOFT server STT (OpenAI primary, Gemini fallback), then on-device Whisper if the server is unavailable. Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
-  'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
-  // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
-  // none is bundled because they require model files that are not part of this repository.
+  'server-stt': {
+    available: typeof MediaRecorder !== 'undefined',
+    label: 'Cloud STT (OpenAI → Gemini after 1 second)',
+    note: 'XOFT records audio in the browser, but all transcription runs through XOFT server STT: OpenAI first, then Gemini automatically if OpenAI fails or takes longer than 1 second. On-device Whisper remains a last-resort fallback only if the server is unavailable. Browser SpeechRecognition is intentionally disabled. Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.'
+  },
 };
 
 const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLocaleTimeString()}] ${t}\n`; el.scrollTop = el.scrollHeight; }, pill(id, text, cls = '') { const el = $(id); el.textContent = text; el.className = `pill ${cls}`; } };
@@ -29,35 +29,16 @@ let recognizer = null; let recognizerWanted = false; let recorder = null; let ch
 
 function makeBackendControls() {
   const sel = $('backend');
-  for (const [id, b] of Object.entries(BACKENDS)) { const o = document.createElement('option'); o.value = id; o.textContent = b.label + (b.available ? '' : ' (unavailable in this browser)'); o.disabled = !b.available; sel.appendChild(o); }
-  const first = Object.entries(BACKENDS).find(([, b]) => b.available)?.[0];
-  if (first) sel.value = first; else ui.log('No speech recognition backend is available in this browser.');
-  const note = () => { $('backend-note').textContent = BACKENDS[sel.value]?.note ?? ''; };
-  sel.addEventListener('change', () => { note(); stopRecognizer(); });
-  note();
-}
-
-// ---- backend: browser SpeechRecognition (opened only while VAD says someone is speaking) ----
-function startBrowserSpeech() {
-  if (recognizer || !SR) return;
-  recognizer = new SR(); recognizer.continuous = true; recognizer.interimResults = true; recognizer.lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
-  recognizer.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const text = String(e.results[i][0]?.transcript || '').trim();
-      if (!text) continue;
-      $('transcript').textContent = text;
-      if (e.results[i].isFinal) ui.log(`heard: ${text}`);
-      pipeline.transcript(text, e.results[i].isFinal);
-    }
-  };
-  recognizer.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') ui.log(`recognizer error: ${e.error}`); };
-  recognizer.onend = () => { recognizer = null; if (recognizerWanted && $('backend').value === 'browser-speech') startBrowserSpeech(); }; // Chrome ends sessions on its own; restart only while wanted
-  try { recognizer.start(); } catch (err) { ui.log(`could not start recognizer: ${err.message}`); recognizer = null; }
-}
-function stopRecognizer() {
-  recognizerWanted = false;
-  // stop(), unlike abort(), allows the recognizer to deliver its final transcript.
-  try { recognizer?.stop(); } catch { /* already stopped */ }
+  sel.replaceChildren();
+  const b = BACKENDS['server-stt'];
+  const o = document.createElement('option');
+  o.value = 'server-stt';
+  o.textContent = b.label + (b.available ? '' : ' (unavailable in this browser)');
+  o.disabled = !b.available;
+  sel.appendChild(o);
+  sel.value = 'server-stt';
+  $('backend-note').textContent = b.note;
+  if (!b.available) ui.log('MediaRecorder is unavailable; this browser cannot send recorded audio to server STT.');
 }
 
 // ---- backend: server STT (records only VAD-detected segments) ----
@@ -82,10 +63,10 @@ function startSegmentRecording() {
 function stopSegmentRecording() { try { if (recorder?.state === 'recording') recorder.stop(); } catch { /* ignore */ } }
 
 function wantRecognizer(on) {
-  recognizerWanted = on;
-  const b = $('backend').value;
-  if (b === 'browser-speech') on ? startBrowserSpeech() : stopRecognizer();
-  if (b === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
+  // The browser only captures audio. Transcription is always server-side OpenAI → Gemini.
+  if ($('backend').value !== 'server-stt') return;
+  if (on) startSegmentRecording();
+  else stopSegmentRecording();
 }
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
@@ -186,7 +167,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; stopRecognizer(); stopSegmentRecording();
+  clearInterval(timer); timer = null; stopSegmentRecording();
   stream?.getTracks().forEach((t) => t.stop()); stream = null; try { ctx?.close(); } catch { /* ignore */ } ctx = null;
   $('level').style.width = '0'; $('confirm-box').style.display = 'none';
   ui.pill('mic', 'mic: off'); ui.pill('state', 'state: idle'); $('start').disabled = false; $('stop').disabled = true; ui.log('stopped — microphone released');
