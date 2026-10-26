@@ -176,7 +176,7 @@ test('STT order is configurable and only providers with keys are used', async ()
   } finally { restore(); }
   restore = withKeys({ order: ['gemini', 'openai'] });
   try {
-    assert.deepEqual(new VoiceService().sttProviders(), ['gemini', 'openai']);
+    assert.deepEqual(new VoiceService().sttProviders(), ['openai', 'gemini']);
   } finally { restore(); }
   restore = withKeys({ openai: null, gemini: null });
   try {
@@ -199,6 +199,11 @@ test('TTS uses ElevenLabs, trims input, and surfaces API errors', async () => {
     const bad = new VoiceService({ fetchImpl: async () => new Response('nope', { status: 401 }) });
     await assert.rejects(() => bad.textToSpeech('x'), /ElevenLabs API error 401/);
   } finally { restore(); }
+});
+
+test('STT production cutoff is fixed at exactly one second', () => {
+  assert.equal(config.voice.sttHedgeMs, 1000);
+  assert.deepEqual(config.voice.sttProviderOrder, ['openai', 'gemini']);
 });
 
 test('status() reports STT providers and ElevenLabs TTS with browser fallback', () => {
