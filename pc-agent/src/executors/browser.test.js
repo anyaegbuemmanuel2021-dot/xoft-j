@@ -13,5 +13,5 @@ test('legacy URL opener refuses non-HTTP schemes before launching an OS handler'
 test('legacy URL opener rejects malformed URLs without invoking an OS handler', async () => {
   const result = await openUrl('not a URL');
   assert.equal(result.success, false);
-  assert.match(result.error, /valid HTTP\\(S\\) URL is required/);
+  assert.match(result.error, /valid HTTP\(S\) URL is required/);
 });
