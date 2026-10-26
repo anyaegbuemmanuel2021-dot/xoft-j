@@ -41,7 +41,15 @@ function makeBackendControls() {
 function startBrowserSpeech() {
   if (recognizer || !SR) return;
   recognizer = new SR(); recognizer.continuous = true; recognizer.interimResults = true; recognizer.lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
-  recognizer.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) pipeline.transcript(e.results[i][0].transcript, e.results[i].isFinal); };
+  recognizer.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const text = String(e.results[i][0]?.transcript || '').trim();
+      if (!text) continue;
+      $('transcript').textContent = text;
+      if (e.results[i].isFinal) ui.log(`heard: ${text}`);
+      pipeline.transcript(text, e.results[i].isFinal);
+    }
+  };
   recognizer.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') ui.log(`recognizer error: ${e.error}`); };
   recognizer.onend = () => { recognizer = null; if (recognizerWanted && $('backend').value === 'browser-speech') startBrowserSpeech(); }; // Chrome ends sessions on its own; restart only while wanted
   try { recognizer.start(); } catch (err) { ui.log(`could not start recognizer: ${err.message}`); recognizer = null; }
