@@ -3,7 +3,7 @@
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
 import { transcribe as transcribeAudioBlob } from './stt.js';
-import { preferredRecorderOptions } from './listen.js';
+import { preferredRecorderOptions, unlockAudio } from './listen.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -147,13 +147,37 @@ async function start() {
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
   catch (err) { ui.pill('mic', err.name === 'NotAllowedError' ? 'mic: permission denied' : 'mic: unavailable', 'err'); ui.log(`microphone: ${err.name} — ${err.message}`); return; }
-  ctx = new (window.AudioContext || window.webkitAudioContext)(); analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
-  ctx.createMediaStreamSource(stream).connect(analyser); // analysis only — never routed to the speakers
-  vad = new EnergyVad({ frameMs: FRAME_MS }); buildPipeline();
+  // Unlock/resume AudioContext directly inside the Start button gesture. Creating a fresh context
+  // after awaiting getUserMedia can leave it suspended on mobile; the analyser then reads zeros
+  // and VAD never starts a recording, making STT appear completely dead.
+  try {
+    ctx = unlockAudio();
+    if (!ctx) {
+      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextCtor) ctx = new AudioContextCtor();
+    }
+    if (!ctx) throw new Error('This browser does not support AudioContext.');
+    if (ctx.state === 'suspended') await ctx.resume();
+    if (ctx.state !== 'running') throw new Error(`AudioContext is ${ctx.state}; tap Start listening again and allow audio access.`);
+    analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+    ctx.createMediaStreamSource(stream).connect(analyser); // analysis only — never routed to the speakers
+  } catch (err) {
+    stream?.getTracks().forEach((t) => t.stop()); stream = null;
+    try { await ctx?.close(); } catch { /* ignore */ } ctx = null;
+    ui.pill('mic', 'mic: audio engine unavailable', 'err');
+    ui.log(`audio capture setup failed: ${err.message}`);
+    return;
+  }
+  // Lower adaptive threshold helps quiet speech, while two frames reduce the chance of clipping
+  // the start of short wake phrases. Ambient-noise adaptation remains enabled.
+  vad = new EnergyVad({ minThreshold: 0.008, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS }); buildPipeline();
   const buf = new Float32Array(analyser.fftSize);
   timer = setInterval(() => {
+    if (ctx?.state === 'suspended') {
+      ctx.resume().catch((err) => ui.log(`audio context resume failed: ${err.message}`));
+    }
     analyser.getFloatTimeDomainData(buf); const rms = rmsOf(buf); const r = vad.process(rms, performance.now());
-    $('level').style.width = `${Math.min(100, Math.round((rms / 0.3) * 100))}%`;
+    $('level').style.width = `${Math.min(100, Math.round((rms / 0.18) * 100))}%`;
     if (r.event) pipeline.vad(r.event); pipeline.tick(Date.now());
   }, FRAME_MS);
   stream.getAudioTracks()[0].addEventListener('ended', () => { ui.log('microphone was disconnected or revoked'); stop(); });
