@@ -3,10 +3,10 @@
 import { voiceFetch, getVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
 import { transcribeAudioBlob as transcribeLocally } from './whisper-fallback.js';
 
-async function transcribeOnServer(blob) {
+async function transcribeOnServer(blob, language = 'auto') {
   const res = await voiceFetch('/api/voice/transcribe', {
     method: 'POST',
-    headers: { 'Content-Type': blob.type || 'audio/webm' },
+    headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Xoft-STT-Language': language },
     body: blob,
     cache: 'no-store',
   });
@@ -26,7 +26,7 @@ async function transcribeOnServer(blob) {
  * @param {(message: string) => void} [onStatus]
  * @returns {Promise<string>} transcript
  */
-export async function transcribe(blob, onStatus = () => {}) {
+export async function transcribe(blob, onStatus = () => {}, language = 'auto') {
   if (!blob || !blob.size) throw new Error('No audio was recorded. Hold the phone closer and try again.');
 
   let serverError = null;
@@ -34,7 +34,7 @@ export async function transcribe(blob, onStatus = () => {}) {
   if (status?.stt?.configured !== false) {
     try {
       onStatus('Transcribing on XOFT server…');
-      return (await transcribeOnServer(blob)).text;
+      return (await transcribeOnServer(blob, language)).text;
     } catch (error) {
       serverError = error;
       console.warn('[XOFT] Server STT failed; falling back to on-device Whisper:', error);
@@ -45,7 +45,7 @@ export async function transcribe(blob, onStatus = () => {}) {
 
   try {
     onStatus('Server transcription unavailable · using on-device Whisper (first use downloads the model)…');
-    return await transcribeLocally(blob);
+    return await transcribeLocally(blob, { language });
   } catch (localError) {
     throw new Error(`${serverError?.message || 'Server speech recognition unavailable'}. On-device Whisper also failed: ${localError?.message || 'unknown error'}`);
   }

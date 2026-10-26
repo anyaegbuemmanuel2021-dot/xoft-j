@@ -1,7 +1,7 @@
 {
   "name": "xoft-windows-agent",
   "version": "0.1.0",
-  "description": "XOFT desktop agent for Windows \u2014 polls xoft-core for commands, executes an allowlisted set of actions, reports verified results.",
+  "description": "XOFT desktop agent for Windows — polls xoft-core for commands, executes an allowlisted set of actions, reports verified results.",
   "type": "commonjs",
   "main": "src/index.js",
   "bin": {
@@ -25,6 +25,6 @@
     "pkg": "^5.8.1"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=18"
   }
 }

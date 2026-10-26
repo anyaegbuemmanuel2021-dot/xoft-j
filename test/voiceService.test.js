@@ -50,6 +50,7 @@ test('STT defaults to a supported OpenAI transcription model with Nigerian multi
     const form = calls[0].init.body;
     assert.equal(form.get('model'), 'gpt-4o-mini-transcribe');
     assert.match(form.get('prompt'), /Nigerian English/);
+    assert.match(form.get('prompt'), /Nigerian Pidgin/);
     assert.match(form.get('prompt'), /Igbo/);
     assert.match(form.get('prompt'), /code-switching/);
     assert.match(form.get('prompt'), /biko/);
@@ -57,6 +58,17 @@ test('STT defaults to a supported OpenAI transcription model with Nigerian multi
     assert.match(form.get('prompt'), /XOFT/);
     assert.equal(form.has('language'), false, 'language should remain auto-detected by default');
     assert.equal(form.has('temperature'), false, 'do not send Whisper-only temperature to the modern model');
+  } finally { restore(); }
+});
+
+test('STT honors explicit Igbo language selection', async () => {
+  const restore = withKeys();
+  try {
+    let form;
+    const svc = new VoiceService({ fetchImpl: async (_url, init) => { form = init.body; return json({ text: 'Kedu?' }); } });
+    const out = await svc.transcribe(Buffer.from('audio'), { language: 'ig' });
+    assert.equal(out.text, 'Kedu?');
+    assert.equal(form.get('language'), 'ig');
   } finally { restore(); }
 });
 

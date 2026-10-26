@@ -8,10 +8,13 @@ import { preferredRecorderOptions } from './listen.js';
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
 const FRAME_MS = 30;
+const selectedLanguage = () => $('language')?.value || 'auto';
+const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
+const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments go to XOFT server transcription: OpenAI primary, Gemini takes over on failure or after the one-second cutoff. On-device Whisper is the final fallback if the server is unavailable. Wake phrase matching stays local.' },
+  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments are transcribed by XOFT server STT (OpenAI primary, Gemini fallback), then on-device Whisper if the server is unavailable. Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
   'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
   // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
   // none is bundled because they require model files that are not part of this repository.
@@ -37,13 +40,25 @@ function makeBackendControls() {
 // ---- backend: browser SpeechRecognition (opened only while VAD says someone is speaking) ----
 function startBrowserSpeech() {
   if (recognizer || !SR) return;
-  recognizer = new SR(); recognizer.continuous = true; recognizer.interimResults = true; recognizer.lang = navigator.language || 'en-US';
-  recognizer.onresult = (e) => { for (let i = e.resultIndex; i < e.results.length; i++) pipeline.transcript(e.results[i][0].transcript, e.results[i].isFinal); };
+  recognizer = new SR(); recognizer.continuous = true; recognizer.interimResults = true; recognizer.lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
+  recognizer.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const text = String(e.results[i][0]?.transcript || '').trim();
+      if (!text) continue;
+      $('transcript').textContent = text;
+      if (e.results[i].isFinal) ui.log(`heard: ${text}`);
+      pipeline.transcript(text, e.results[i].isFinal);
+    }
+  };
   recognizer.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') ui.log(`recognizer error: ${e.error}`); };
   recognizer.onend = () => { recognizer = null; if (recognizerWanted && $('backend').value === 'browser-speech') startBrowserSpeech(); }; // Chrome ends sessions on its own; restart only while wanted
   try { recognizer.start(); } catch (err) { ui.log(`could not start recognizer: ${err.message}`); recognizer = null; }
 }
-function stopRecognizer() { recognizerWanted = false; try { recognizer?.abort(); } catch { /* already stopped */ } recognizer = null; }
+function stopRecognizer() {
+  recognizerWanted = false;
+  // stop(), unlike abort(), allows the recognizer to deliver its final transcript.
+  try { recognizer?.stop(); } catch { /* already stopped */ }
+}
 
 // ---- backend: server STT (records only VAD-detected segments) ----
 function startSegmentRecording() {
@@ -54,9 +69,12 @@ function startSegmentRecording() {
     const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' }); recorder = null; chunks = [];
     if (blob.size < 300) return; // reject only genuinely empty/tiny clips; short wake phrases must survive
     try {
-      const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message));
-      if (transcript) pipeline.transcript(transcript, true);
-      else ui.log('No speech was recognized in this segment.');
+      const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage());
+      if (transcript) {
+        $('transcript').textContent = transcript;
+        ui.log(`heard: ${transcript}`);
+        pipeline.transcript(transcript, true);
+      } else ui.log('No speech was recognized in this segment.');
     } catch (err) { ui.log(`STT failed (server OpenAI → Gemini, then local Whisper): ${err.message}`); }
   };
   recorder.start();
@@ -72,19 +90,47 @@ function wantRecognizer(on) {
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
+function speakReply(text) {
+  if (!speechOutputEnabled() || !('speechSynthesis' in window) || !text) return Promise.resolve();
+  return new Promise((resolve) => {
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(String(text).slice(0, 4000));
+      const lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
+      utterance.lang = lang;
+      const voices = window.speechSynthesis.getVoices();
+      utterance.voice = voices.find((v) => v.lang?.toLowerCase() === lang.toLowerCase())
+        || voices.find((v) => v.lang?.toLowerCase().startsWith(selectedLanguage() === 'ig' ? 'ig' : 'en-ng'))
+        || voices.find((v) => v.lang?.toLowerCase().startsWith('en'));
+      utterance.onend = resolve; utterance.onerror = resolve;
+      window.speechSynthesis.speak(utterance);
+    } catch { resolve(); }
+  });
+}
+
 async function sendCommand({ text }) {
   ui.log(`command: ${text}`);
+  let reply = '';
   try {
     const res = await fetch('/api/chat', { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ sessionId: SESSION, message: text }) });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) ui.log(`XOFT error (${res.status}): ${body.error ?? 'request failed'}`);
-    else ui.log(`XOFT: ${body.reply ?? body.message ?? body.response ?? JSON.stringify(body).slice(0, 300)}`);
+    else {
+      reply = String(body.reply ?? body.message ?? body.response ?? '').trim();
+      if (!reply) reply = JSON.stringify(body).slice(0, 300);
+      ui.log(`XOFT: ${reply}`);
+      $('transcript').textContent = `You: ${text}\nXOFT: ${reply}`;
+    }
   } catch (err) { ui.log(`could not reach XOFT (command NOT sent, not queued): ${err.message}`); }
-  finally { pipeline.done(); }
+  finally {
+    if (reply) await speakReply(reply);
+    pipeline.done();
+  }
 }
 
 function buildPipeline() {
   pipeline = new VoicePipeline({
+    conversationMode: conversationEnabled(),
     onState: (s) => ui.pill('state', `state: ${s.replace('_', ' ')}`, s === 'idle' ? '' : 'ok'),
     onWake: (p) => ui.log(`wake phrase heard ("${p}")`),
     onCommand: sendCommand,
@@ -112,7 +158,7 @@ async function start() {
   }, FRAME_MS);
   stream.getAudioTracks()[0].addEventListener('ended', () => { ui.log('microphone was disconnected or revoked'); stop(); });
   ui.pill('mic', 'mic: listening (local VAD)', 'ok'); $('start').disabled = true; $('stop').disabled = false;
-  ui.log(`listening for "hey xoft" — backend: ${$('backend').value}`);
+  ui.log(`listening for "hey xoft" — backend: ${$('backend').value}; language: ${selectedLanguage()}; follow-up conversation: ${conversationEnabled() ? 'on' : 'off'}`);
 }
 
 function stop() {

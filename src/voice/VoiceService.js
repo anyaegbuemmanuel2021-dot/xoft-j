@@ -119,7 +119,7 @@ export class VoiceService {
     return Buffer.from(await res.arrayBuffer());
   }
 
-  async _openaiTranscribe(audioBuffer, filename, signal) {
+  async _openaiTranscribe(audioBuffer, filename, signal, language = '') {
     const form = new FormData();
     form.append('file', new Blob([audioBuffer]), filename);
     const model = config.voice.sttOpenAiModel;
@@ -128,8 +128,9 @@ export class VoiceService {
     if (config.voice.sttContextPrompt) form.append('prompt', config.voice.sttContextPrompt);
     // Whisper accepts temperature; newer transcription models may reject it.
     if (model === 'whisper-1') form.append('temperature', '0');
-    // Do not force English: an empty STT_LANGUAGE lets the model detect mixed-language speech.
-    if (config.voice.sttLanguage) form.append('language', config.voice.sttLanguage);
+    // Leave language detection open for mixed Nigerian English/Pidgin/Igbo unless explicitly selected.
+    const chosenLanguage = language === 'auto' ? '' : (language || config.voice.sttLanguage);
+    if (chosenLanguage) form.append('language', chosenLanguage);
     const res = await this.fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.providers.openai.apiKey}` },
@@ -144,7 +145,7 @@ export class VoiceService {
     return String(data?.text ?? '').trim();
   }
 
-  async _geminiTranscribe(audioBuffer, mime, signal) {
+  async _geminiTranscribe(audioBuffer, mime, signal, language = 'auto') {
     const model = config.voice.sttGeminiModel || config.providers.gemini.model;
     const res = await this.fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -155,7 +156,7 @@ export class VoiceService {
           contents: [{
             role: 'user',
             parts: [
-              { text: `${config.voice.sttContextPrompt} Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.` },
+              { text: `${config.voice.sttContextPrompt} ${language === 'ig' ? 'The user selected Igbo; prioritize faithful Igbo transcription and preserve any English/Pidgin words that are spoken.' : language === 'en' ? 'The user selected English/Nigerian Pidgin; transcribe the spoken English or Pidgin verbatim and preserve any Igbo words that are spoken.' : 'Automatically detect the language. The audio may mix Nigerian English, Nigerian Pidgin and Igbo within the same sentence; preserve code-switching and do not translate.'} Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.` },
               { inline_data: { mime_type: GEMINI_AUDIO_MIME[mime] ?? 'audio/webm', data: Buffer.from(audioBuffer).toString('base64') } },
             ],
           }],
@@ -179,7 +180,7 @@ export class VoiceService {
    * @param {{filename?: string, mime?: string}} [opts]
    * @returns {Promise<{text: string, provider: string, ms: number, attempts: Array<{provider: string, ok: boolean, error?: string, ms?: number}>}>}
    */
-  async transcribe(audioBuffer, { filename = 'audio.webm', mime = 'audio/webm' } = {}) {
+  async transcribe(audioBuffer, { filename = 'audio.webm', mime = 'audio/webm', language = null } = {}) {
     // Reject missing audio before making any billable provider request; never fabricate a transcript.
     if (!audioBuffer || !audioBuffer.length) {
       throw new Error('VoiceService: no audio was recorded; refusing to invent a transcript.');
@@ -220,9 +221,10 @@ export class VoiceService {
         controllers.set(provider, controller);
         const t0 = Date.now();
         pending += 1;
+        const requestedLanguage = ['auto', 'en', 'ig'].includes(language) ? language : null;
         const run = provider === 'openai'
-          ? this._openaiTranscribe(audioBuffer, filename, controller.signal)
-          : this._geminiTranscribe(audioBuffer, mime, controller.signal);
+          ? this._openaiTranscribe(audioBuffer, filename, controller.signal, requestedLanguage ?? '')
+          : this._geminiTranscribe(audioBuffer, mime, controller.signal, requestedLanguage ?? 'auto');
         run.then((text) => ({ text, error: null }), (error) => ({ text: '', error })).then(({ text, error }) => {
           pending -= 1;
           if (settled) return; // lost the race; its request was aborted
