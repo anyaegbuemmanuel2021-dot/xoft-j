@@ -48,6 +48,29 @@ describe('VoicePipeline', () => {
     const p = new VoicePipeline({ onCommand: (c) => log.commands.push(c), onWake: (w) => log.wakes.push(w), wantRecognizer: (b) => log.recog.push(b), onState: (s) => log.states.push(s), onNeedConfirm: (c) => log.confirms.push(c), onCancel: (r) => log.cancels.push(r), onTimeout: () => log.timeouts.push(1), ...o });
     return { p, log };
   };
+  test('final STT transcript arriving after VAD end is not discarded', () => {
+    const { p, log } = mk();
+    p.vad('start');
+    p.vad('end');
+    assert.equal(p.state, 'wake_listening', 'wait for asynchronous STT after recorder stop');
+    p.transcript('hey xoft open Chrome', true, Date.now());
+    assert.deepEqual(log.commands.map((c) => c.text), ['open Chrome']);
+    assert.equal(p.state, 'submitting');
+  });
+
+  test('conversation mode accepts follow-up turns without repeating the wake phrase', () => {
+    const { p, log } = mk({ conversationMode: true, conversationWindowMs: 45000 });
+    const now = Date.now();
+    p.vad('start');
+    p.transcript('hey xoft what time is it', true, now);
+    assert.deepEqual(log.commands.map((c) => c.text), ['what time is it']);
+    p.done();
+    p.vad('start');
+    p.vad('end');
+    p.transcript('please explain that in Igbo', true, Date.now());
+    assert.deepEqual(log.commands.map((c) => c.text), ['what time is it', 'please explain that in Igbo']);
+  });
+
   test('single-utterance flow: speech → wake+command → submitted as a voice-source command, recognizer closed', () => {
     const { p, log } = mk();
     p.vad('start'); assert.deepEqual(log.recog, [true]);
