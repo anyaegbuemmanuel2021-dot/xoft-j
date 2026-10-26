@@ -1,4 +1,4 @@
-// companion.js — browser-only glue: microphone → local VAD → recognizer backend → VoicePipeline → /api/chat.
+// companion.js — browser audio capture + local VAD → server OpenAI/Gemini STT → VoicePipeline → /api/chat.
 // STATUS: implemented, NOT verifiable in the build sandbox (needs a real microphone/browser). See docs/DEVICE_RUNTIME.md "Requires local testing".
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
@@ -25,7 +25,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null; let chunks = [];
+let recorder = null; let chunks = [];
 
 function makeBackendControls() {
   const sel = $('backend');
