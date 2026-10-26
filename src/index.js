@@ -1072,7 +1072,9 @@ app.post('/api/voice/transcribe', voiceLimit, async (req, res) => {
       : mime === 'audio/mpeg' || mime === 'audio/mp3' ? 'mp3'
       : mime === 'audio/wav' || mime === 'audio/x-wav' ? 'wav'
       : 'webm';
-    const { text, provider, ms } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime });
+    const requestedLanguage = String(req.headers['x-xoft-stt-language'] || 'auto').toLowerCase();
+    const language = ['auto', 'en', 'ig'].includes(requestedLanguage) ? requestedLanguage : 'auto';
+    const { text, provider, ms } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime, language });
     res.json({ text, provider, ms });
   } catch (err) {
     res.status(502).json({ error: err.message, attempts: err.attempts ?? [] });
