@@ -91,7 +91,8 @@ describe('VoicePipeline', () => {
     const { p, log } = mk();
     p.vad('start'); for (const t of ['I will delete the old files later', 'what should we have for dinner', 'send the invoice to Bob']) p.transcript(t, true);
     assert.equal(log.commands.length, 0); assert.equal(log.wakes.length, 0);
-    p.vad('end'); assert.equal(p.state, 'idle'); assert.equal(log.recog.at(-1), false);
+    p.vad('end'); assert.equal(p.state, 'wake_listening', 'leave a short window for delayed final transcription'); assert.equal(log.recog.at(-1), false);
+    p.tick(Date.now() + 3000); assert.equal(p.state, 'idle');
   });
   test('risky commands (delete/deploy/send…) require confirmation: not sent until confirmed, cancel and timeout never send', () => {
     for (const how of ['ui', 'spoken']) {
