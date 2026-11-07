@@ -33,7 +33,7 @@ test('every workspace, including Command Center, keeps the shared page navigatio
   assert.match(app, /id="nav-toggle"/);
   assert.match(app, /\['tasks', 'Tasks', tasks, 'tasks'\]/);
   assert.match(app, /\['memory', 'Memory', memory, 'memory'\]/);
-  assert.match(app, /href="#\\${route}"/);
+  assert.match(app, /nav\.innerHTML = NAV\.map/);
   assert.match(shared, /body\.nav-open #sidebar/);
   assert.doesNotMatch(shell, /body\[data-route="command"\] #sidebar,\s*body\[data-route="command"\] #topbar \{ display: none; \}/);
 });
