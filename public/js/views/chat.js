@@ -85,11 +85,6 @@ export function render(container) {
     <div class="chat-layout chat-voice-home">
       <section class="chat-main-panel">
         <header class="chat-home-heading">
-          <div>
-            <span class="chat-home-eyebrow">XOFT / LIVE INTELLIGENCE</span>
-            <h2>Your personal AI command centre.</h2>
-            <p>Speak naturally. XOFT listens, thinks and responds.</p>
-          </div>
           <div class="tabs" aria-label="Conversation mode">
             <button data-mode="chat" class="${mode === 'chat' ? 'active' : ''}">Chat</button>
             <button data-mode="advise" class="${mode === 'advise' ? 'active' : ''}">Advisor</button>
@@ -106,11 +101,9 @@ export function render(container) {
             <span class="xoft-voice-live-dot" aria-hidden="true"></span>
           </div>
           <div class="xoft-voice-stage-copy">
-            <span class="chat-home-eyebrow">XOFT CENTRAL</span>
-            <h3>I'm here. What would you like to do?</h3>
-            <p>Hands-free conversation is the default. You can pause it or switch to typing whenever you want.</p>
+            <h3>I'm listening.</h3>
           </div>
-          <p class="xoft-voice-permission-note">Microphone access is requested by your browser. If automatic access is blocked, tap Enable live voice.</p>
+          <p class="xoft-voice-permission-note">Allow microphone access when prompted.</p>
         </section>
 
         <section id="chat-view" aria-label="Conversation transcript and message composer">
@@ -118,29 +111,19 @@ export function render(container) {
             <div class="xoft-live-video-frame"><video id="xoft-live-camera" autoplay playsinline muted></video><div class="xoft-live-video-overlay"><span class="xoft-live-badge"><i></i> LIVE CONVERSATION</span><strong id="xoft-live-video-state">Speak naturally. XOFT is listening.</strong><small>Your words are saved to Chats, not shown over the video.</small></div></div>
             <div class="xoft-live-video-controls"><span id="xoft-live-video-caption">Camera ready · waiting for microphone</span><button id="chat-live-video-stop" type="button" class="primary">End Live Conversation</button></div>
           </section>
-          <div class="chat-transcript-heading"><strong>Conversation</strong><span>Transcript and replies appear here</span></div>
+          <div class="chat-transcript-heading"><strong>Conversation</strong></div>
           <div id="chat-log"></div>
           <div id="chat-input-row">
             <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Type a message to XOFT…' : 'Describe a problem to reason through…'}" aria-label="Message XOFT"></textarea>
             <button id="chat-send" class="primary" aria-label="Send message" title="Send message">Send</button>
             <button id="chat-voice-conversation" type="button" aria-pressed="false" aria-label="Start live voice" title="Start or pause live voice">🎙️</button>
             <button id="chat-voice-end" type="button" aria-label="End live voice" title="End live voice">×</button>
-            <button id="chat-mic" type="button" title="Transcribe speech into the message box" aria-label="Voice input">🎙️ Voice input</button>
             <button id="chat-live-video" type="button" title="Start a camera-based live voice conversation">🎥 Live video</button>
-            <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
           </div>
         </section>
       </section>
 
-      <aside class="chat-history-panel" aria-label="Saved conversations">
-        <div class="chat-history-heading">
-          <div><span class="chat-home-eyebrow">YOUR HISTORY</span><strong>Recent chats</strong></div>
-          <button id="chat-new" type="button" class="primary">+ New chat</button>
-        </div>
-        <input id="recent-chat-search" type="search" placeholder="Search saved conversations…" aria-label="Search recent chats">
-        <div id="recent-chat-list"></div>
-        <p class="chat-history-note">Your conversations are saved locally and synced to your XOFT account when the server is available.</p>
-      </aside>
+
 
 
     </div>
@@ -210,7 +193,6 @@ export function render(container) {
   });
 
   onDelegate(container, 'click', '#chat-send', () => send(container));
-  onDelegate(container, 'click', '#chat-mic', () => toggleVoiceInput(container));
   onDelegate(container, 'click', '#chat-voice-conversation', () => toggleVoiceConversation(container));
   onDelegate(container, 'click', '#chat-voice-end', () => stopVoiceConversation(container));
   onDelegate(container, 'click', '#chat-live-video', () => startLiveVideo(container));
