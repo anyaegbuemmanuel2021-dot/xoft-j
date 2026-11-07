@@ -184,9 +184,7 @@ export function render(container) {
       if (history.length) persistHistory();
     });
 
-  onDelegate(container, 'click', '#chat-new', () => { const id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); history = []; persistHistory(); render(container); });
   onDelegate(container, 'click', '[data-recent-session]', (el) => { localStorage.setItem(SESSION_KEY, el.dataset.recentSession); history = readHistory(el.dataset.recentSession); render(container); });
-  onDelegate(container, 'input', '#recent-chat-search', (el) => renderRecentChats(container, el.value));
   onDelegate(container, 'click', '[data-mode]', (el) => {
     mode = el.dataset.mode;
     render(container);
