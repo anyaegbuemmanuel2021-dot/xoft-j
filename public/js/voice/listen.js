@@ -65,11 +65,13 @@ export function createLevelMeter(stream) {
 }
 
 /** Adaptive speech gate: learns the room noise floor for ~0.5 s, then requires 3x that (minimum 0.008). */
-export function createSpeechGate({ preset = 0 } = {}) {
+export function createSpeechGate({ preset = 0, minThreshold = 0.008, floorMultiplier = 3 } = {}) {
   const floorSamples = [];
   // `preset`: reuse a noise threshold learned earlier. Needed when a recording starts because the user is ALREADY
   // speaking (barge-in): calibrating on the first 500 ms would mistake their voice for background noise.
-  let threshold = preset > 0 ? preset : 0.012;
+  // Mobile microphones can deliver quieter speech, so callers may lower minThreshold without disabling
+  // adaptive room-noise calibration.
+  let threshold = preset > 0 ? preset : Math.max(0.001, minThreshold);
   let calibrated = preset > 0;
   const startedAt = Date.now();
   return {
@@ -79,7 +81,7 @@ export function createSpeechGate({ preset = 0 } = {}) {
         if (Date.now() - startedAt > 500 && floorSamples.length >= 5) {
           const sorted = [...floorSamples].sort((a, b) => a - b);
           const floor = sorted[Math.floor(sorted.length / 2)];
-          threshold = Math.min(0.05, Math.max(0.008, floor * 3));
+          threshold = Math.min(0.05, Math.max(minThreshold, floor * floorMultiplier));
           calibrated = true;
         }
       }
