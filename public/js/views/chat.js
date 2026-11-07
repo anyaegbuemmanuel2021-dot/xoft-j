@@ -92,10 +92,6 @@ export function render(container) {
             <h3>I'm here. What would you like to do?</h3>
             <p>Hands-free conversation is the default. You can pause it or switch to typing whenever you want.</p>
           </div>
-          <div class="xoft-voice-stage-actions">
-            <button id="chat-voice-conversation" class="voice-start-button" type="button" aria-pressed="false" title="Start or stop live voice conversation">Enable live voice</button>
-            <button id="chat-speak-stop" class="voice-secondary-button" type="button" ${canSpeakOut() ? '' : 'disabled'}>Stop speaking</button>
-          </div>
           <p class="xoft-voice-permission-note">Microphone access is requested by your browser. If automatic access is blocked, tap Enable live voice.</p>
         </section>
 
@@ -108,7 +104,9 @@ export function render(container) {
           <div id="chat-log"></div>
           <div id="chat-input-row">
             <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Type a message to XOFT…' : 'Describe a problem to reason through…'}" aria-label="Message XOFT"></textarea>
-            <button id="chat-send" class="primary">Send</button>
+            <button id="chat-send" class="primary" aria-label="Send message" title="Send message">Send</button>
+            <button id="chat-voice-conversation" type="button" aria-pressed="false" aria-label="Start live voice" title="Start or pause live voice">🎙️</button>
+            <button id="chat-voice-end" type="button" aria-label="End live voice" title="End live voice">×</button>
             <button id="chat-mic" type="button" title="Transcribe speech into the message box" aria-label="Voice input">🎙️ Voice input</button>
             <button id="chat-live-video" type="button" title="Start a camera-based live voice conversation">🎥 Live video</button>
             <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
@@ -196,6 +194,7 @@ export function render(container) {
   onDelegate(container, 'click', '#chat-send', () => send(container));
   onDelegate(container, 'click', '#chat-mic', () => toggleVoiceInput(container));
   onDelegate(container, 'click', '#chat-voice-conversation', () => toggleVoiceConversation(container));
+  onDelegate(container, 'click', '#chat-voice-end', () => stopVoiceConversation(container));
   onDelegate(container, 'click', '#chat-live-video', () => startLiveVideo(container));
   onDelegate(container, 'click', '#chat-live-video-stop', () => stopLiveVideo(container));
   onDelegate(container, 'click', '#chat-speak-toggle', (button) => {
@@ -783,16 +782,16 @@ async function captureLiveVideoContext(container, question) {
 
 async function send(container, textOverride = null, { voiceTurn = false } = {}) {
   const input = container.querySelector('#chat-input');
-  const continueLiveVoice = voiceConversationActive;
-  if (!voiceTurn && continueLiveVoice && whisperRecorder && whisperRecorder.state !== 'inactive') {
-    discardCurrentVoiceSegment = true;
-    try { whisperRecorder.stop(); } catch { discardCurrentVoiceSegment = false; }
-  }
   if (!input) return;
   const text = String(textOverride ?? input.value).trim();
+  const continueLiveVoice = voiceConversationActive;
   if (!text) {
     if (voiceTurn && voiceConversationActive) scheduleConversationListen(container, 500);
     return;
+  }
+  if (!voiceTurn && continueLiveVoice && whisperRecorder && whisperRecorder.state !== 'inactive') {
+    discardCurrentVoiceSegment = true;
+    try { whisperRecorder.stop(); } catch { discardCurrentVoiceSegment = false; }
   }
   input.value = '';
   if (voiceTurn || continueLiveVoice) setVoiceStatus('thinking', 'XOFT IS THINKING');
