@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { esc, toast } from '../dom.js';
 import { QUICK_COMMANDS } from './logic.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
-import { transcribe as transcribeAudio } from '../voice/stt.js';
+import { transcribe as transcribeAudio, warmVoiceServer } from '../voice/stt.js';
 import { createServerListener, unlockAudio } from '../voice/listen.js';
 import { currentSessionId, deleteSession, exchangesToMessages, filterRecent, mergeRemoteSessions, messagesToExchanges, pickNewestMessages, readMessages, recentSessions, saveMessages, startNewSession, switchSession, togglePin } from '../chatSessions.js';
 
@@ -301,6 +301,7 @@ export function mountCommandInput(el, store, controller) {
 
   function startServerListening() {
     if (!autoListening || destroyed || isSpeaking || serverListener) return;
+    void warmVoiceServer();
     serverListener = createServerListener({
       onSegment: async (blob) => {
         setVoiceStatus('Transcribing…', 'processing');
