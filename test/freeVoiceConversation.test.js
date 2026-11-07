@@ -85,7 +85,7 @@ test('Hands-free recording uses an unlocked shared AudioContext and never silent
   const chat = read('public/js/views/chat.js');
   const listen = read('public/js/voice/listen.js');
   assert.match(chat, /unlockAudio\(\)/);
-  assert.match(chat, /createSpeechGate\(\)/);
+  assert.match(chat, /createSpeechGate\(\{ minThreshold: 0\.005, floorMultiplier: 2\.5 \}\)/);
   assert.doesNotMatch(chat, /rms > 0\.018/);
   assert.match(listen, /rms === null|read\(\) is null|=== null/);
 });

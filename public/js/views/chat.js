@@ -429,7 +429,8 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       }
     };
 
-    recorder.start();
+    // A short timeslice makes mobile MediaRecorder flush audio reliably during long sessions.
+    recorder.start(250);
 
     if (conversationSegment) {
       setVoiceStatus('listening', 'LISTENING · MICROPHONE ACTIVE');
@@ -439,7 +440,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       // Uses the shared unlocked AudioContext and an adaptive noise-floor threshold (see voice/listen.js).
       unlockAudio();
       meter = createLevelMeter(stream);
-      const gate = createSpeechGate();
+      const gate = createSpeechGate({ minThreshold: 0.005, floorMultiplier: 2.5 });
       levelTimer = setInterval(() => {
         if (!voiceConversationActive || recorder.state === 'inactive') { clearInterval(levelTimer); return; }
         const now = Date.now();
