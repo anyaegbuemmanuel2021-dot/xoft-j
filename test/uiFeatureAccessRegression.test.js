@@ -31,8 +31,9 @@ test('every workspace, including Command Center, keeps the shared page navigatio
   const shell = read('public/css/command-center.css');
   const shared = read('public/css/app.css');
   assert.match(app, /id="nav-toggle"/);
-  assert.match(app, /href="#tasks"/);
-  assert.match(app, /href="#memory"/);
+  assert.match(app, /\['tasks', 'Tasks', tasks, 'tasks'\]/);
+  assert.match(app, /\['memory', 'Memory', memory, 'memory'\]/);
+  assert.match(app, /href="#\\${route}"/);
   assert.match(shared, /body\.nav-open #sidebar/);
   assert.doesNotMatch(shell, /body\[data-route="command"\] #sidebar,\s*body\[data-route="command"\] #topbar \{ display: none; \}/);
 });
