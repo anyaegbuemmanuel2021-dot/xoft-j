@@ -1064,8 +1064,8 @@ body[data-route="chat"] .voice-settings { display:inline-flex; width:44px; heigh
 .chat-voice-home #chat-input-row #chat-send::before { content:"↑"; font-size:24px; line-height:1; }
 .chat-voice-home #chat-input-row #chat-mic,.chat-voice-home #chat-input-row #chat-live-video,.chat-voice-home #chat-input-row #chat-speak-toggle { display:none !important; }
 @media (max-width:760px) {
-  #sidebar { position:fixed; inset:0 auto 0 0; width:min(84vw,310px); max-width:310px; flex-basis:auto; transform:translateX(-105%); box-shadow:18px 0 55px rgba(0,0,0,.42); }
-  body.nav-open #sidebar { transform:translateX(0); }
+  #sidebar,body[data-route="chat"] #sidebar { position:fixed; inset:0 auto 0 0; width:min(84vw,310px); max-width:310px; flex:0 0 min(84vw,310px); transform:translateX(-105%); box-shadow:18px 0 55px rgba(0,0,0,.42); }
+  body.nav-open #sidebar,body.nav-open[data-route="chat"] #sidebar { transform:translateX(0); }
   #nav-backdrop { position:fixed; inset:0; z-index:110; background:rgba(0,0,0,.62); backdrop-filter:blur(3px); }
   body.nav-open #nav-backdrop { display:block; }
   body.sidebar-collapsed #sidebar { width:min(84vw,310px); }
