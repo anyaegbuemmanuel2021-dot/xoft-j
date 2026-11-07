@@ -189,7 +189,7 @@ export function splitForSpeech(text) {
 
 async function fetchSpeechBlob(text) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 4500);
   try {
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
