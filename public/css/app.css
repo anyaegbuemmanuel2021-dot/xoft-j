@@ -1128,3 +1128,49 @@ body[data-route="chat"] #content #chat-input-row button {
   padding: 7px 10px;
   font-size: 12px;
 }
+
+
+/* Responsive sizing pass: keep voice stage and controls proportional to viewport. */
+body[data-route="chat"] #topbar { min-height:56px; height:auto; padding:8px clamp(10px,2vw,18px); }
+body[data-route="chat"] #topbar .nav-toggle,
+body[data-route="chat"] .voice-settings { width:38px; height:38px; flex:0 0 38px; }
+.chat-voice-home { min-width:0; width:100%; max-width:100%; }
+.chat-voice-home .xoft-voice-stage {
+  width:100%; min-width:0; gap:clamp(12px,2vh,20px);
+  padding:clamp(12px,2vh,22px) clamp(10px,3vw,22px) clamp(92px,13vh,126px);
+}
+.chat-voice-home .xoft-voice-status { width:min(100%,300px); gap:clamp(10px,2vh,16px); }
+.chat-voice-home .xoft-voice-orb {
+  width:clamp(132px,min(31vw,25vh),218px);
+  height:clamp(132px,min(31vw,25vh),218px);
+  max-width:68vw; max-height:34vh;
+}
+.chat-voice-home #chat-view { width:100%; min-width:0; padding-inline:clamp(8px,2vw,16px); }
+.chat-voice-home #chat-input-row {
+  width:min(100%,680px); min-width:0; grid-template-columns:minmax(0,1fr) 38px 38px 38px;
+  gap:6px; padding:5px;
+}
+.chat-voice-home #chat-input-row #chat-send,
+.chat-voice-home #chat-input-row #chat-voice-conversation,
+.chat-voice-home #chat-input-row #chat-voice-end { width:38px; height:38px; min-width:38px; min-height:38px; }
+.chat-voice-home .chat-voice-tools { width:min(100%,680px); gap:5px; }
+.chat-voice-home .chat-voice-tools button { min-height:28px; padding:5px 8px; font-size:10px; }
+.chat-voice-home #chat-log { width:min(100%,680px); align-self:center; max-width:100%; }
+@media (max-width:760px) {
+  body[data-route="chat"] #topbar { min-height:52px; padding:6px 10px; }
+  .chat-voice-home .xoft-voice-stage { padding-bottom:clamp(84px,12vh,108px); }
+  .chat-voice-home .xoft-voice-orb {
+    width:clamp(124px,min(42vw,23vh),184px);
+    height:clamp(124px,min(42vw,23vh),184px); max-height:27vh;
+  }
+  .chat-voice-home #chat-input-row { grid-template-columns:minmax(0,1fr) 36px 36px 36px; }
+  .chat-voice-home #chat-input-row #chat-send,
+  .chat-voice-home #chat-input-row #chat-voice-conversation,
+  .chat-voice-home #chat-input-row #chat-voice-end { width:36px; height:36px; min-width:36px; min-height:36px; }
+}
+@media (max-height:620px) {
+  .chat-voice-home .xoft-voice-stage { padding-top:6px; padding-bottom:76px; gap:8px; }
+  .chat-voice-home .xoft-voice-orb { width:clamp(104px,22vh,148px); height:clamp(104px,22vh,148px); }
+  .chat-voice-home .xoft-voice-status { gap:6px; }
+  .chat-voice-home .xoft-voice-status-label { font-size:10px; }
+}
