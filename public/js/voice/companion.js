@@ -1,4 +1,4 @@
-// companion.js — browser-only glue: microphone → local VAD → recognizer backend → VoicePipeline → /api/chat.
+// companion.js — browser-only glue: microphone → local VAD → XOFT server STT (OpenAI → Gemini fallback) → VoicePipeline → /api/chat.
 // STATUS: implemented, NOT verifiable in the build sandbox (needs a real microphone/browser). See docs/DEVICE_RUNTIME.md "Requires local testing".
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
@@ -75,7 +75,7 @@ function startSegmentRecording() {
         ui.log(`heard: ${transcript}`);
         pipeline.transcript(transcript, true);
       } else ui.log('No speech was recognized in this segment.');
-    } catch (err) { ui.log(`XOFT server STT failed (OpenAI → Gemini): ${err.message}`); }
+    } catch (err) { ui.log(`XOFT server STT failed (OpenAI → Gemini fallback): ${err.message}`); }
   };
   recorder.start();
 }

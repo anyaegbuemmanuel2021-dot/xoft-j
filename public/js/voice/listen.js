@@ -79,9 +79,9 @@ export function createSpeechGate({ preset = 0, minThreshold = 0.005, floorMultip
         if (Number.isFinite(rms) && rms >= 0 && rms <= thresholdFloor * 2) floorSamples.push(rms);
         if (Date.now() - startedAt > 500) {
           const sorted = [...floorSamples].sort((a, b) => a - b);
-          const floor = sorted.length ? sorted[Math.floor((sorted.length - 1) * 0.25)] : 0;
-          // Never let a loud first utterance raise the gate above its configured minimum.
-          threshold = Math.min(thresholdFloor, Math.max(0.001, floor * floorMultiplier));
+          const floor = sorted.length ? sorted[Math.floor((sorted.length - 1) * 0.25)] : null;
+          // Never let a loud first utterance raise the gate; with no quiet sample, retain the safe default.
+          threshold = floor === null ? thresholdFloor : Math.min(thresholdFloor, Math.max(0.001, floor * floorMultiplier));
           calibrated = true;
         }
       }
@@ -109,7 +109,7 @@ export function looksLikeEcho(transcript, spoken) {
  * Continuous listener: keeps the mic open, records, and emits one Blob per spoken phrase.
  * Silence-only audio is never emitted. Call stop() to release the microphone.
  */
-export function createServerListener({ onSegment, onLevel = () => {}, onError = () => {}, silenceMs = 1100, idleResetMs = 7000, maxMs = 20000 }) {
+export function createServerListener({ onSegment, onLevel = () => {}, onError = () => {}, silenceMs = 700, idleResetMs = 7000, maxMs = 20000 }) {
   let stream = null;
   let meter = null;
   let recorder = null;

@@ -1112,7 +1112,7 @@ body[data-route="chat"] .voice-settings { display:inline-flex; width:44px; heigh
 body[data-route="chat"] #content .chat-voice-home #chat-input-row textarea,
 body[data-route="chat"] #content #chat-input-row textarea {
   box-sizing: border-box;
-  min-height:40px !important;
+  min-height: 40px !important;
   height: 40px;
   max-height: 112px;
   padding: 9px 12px !important;
@@ -1121,3 +1121,10 @@ body[data-route="chat"] #content #chat-input-row textarea {
   border-radius: 12px;
 }
 body[data-route="chat"] #content .chat-voice-home #chat-input-row { gap: 7px; align-items: flex-end; }
+
+/* Keep chat actions aligned with the compact composer. */
+body[data-route="chat"] #content #chat-input-row button {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 12px;
+}

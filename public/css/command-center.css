@@ -633,7 +633,7 @@ body[data-route="command"] .cc-home-core [data-mount="cmd"] {
 /* Compact command composer: the message box should not dominate the screen. */
 body[data-route="command"] #content .cc-home-core .cc-cmd textarea {
   box-sizing: border-box;
-  min-height:42px !important;
+  min-height: 42px !important;
   height: 42px;
   max-height: 18dvh;
   padding: 10px 12px !important;
@@ -642,3 +642,12 @@ body[data-route="command"] #content .cc-home-core .cc-cmd textarea {
   border-radius: 10px;
 }
 body[data-route="command"] #content .cc-home-core .cc-cmd { gap: 6px; }
+
+/* Compact controls to match the smaller composer while preserving the existing layout. */
+body[data-route="command"] #content .cc-home-core .cc-cmd .cc-actions button {
+  min-height: 34px;
+  padding: 6px 9px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+body[data-route="command"] #content .cc-home-core .cc-cmd-bar { gap: 6px; }

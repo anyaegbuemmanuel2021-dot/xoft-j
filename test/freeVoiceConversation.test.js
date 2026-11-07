@@ -38,7 +38,7 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.match(chat, /TRANSCRIPTION READY · XOFT/);
   assert.doesNotMatch(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
   assert.match(chat, /OpenAI → Gemini fallback/);
-  assert.match(companion, /OpenAI → Gemini/);
+  assert.match(companion, /OpenAI → Gemini fallback/);
   assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
