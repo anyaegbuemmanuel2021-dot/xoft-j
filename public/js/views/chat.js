@@ -43,11 +43,12 @@ function renderRecentChats(root, query = '') {
   const list = root?.querySelector('#recent-chat-list');
   const navList = document.querySelector('#nav-recent-chat-list');
   if (!list && !navList) return;
-  const q = query.trim().toLowerCase();
+  const navSearch = document.querySelector('#nav-recent-chat-search');
+  const q = String(query || navSearch?.value || '').trim().toLowerCase();
   const sessions = recentSessions().filter(item => !q || item.title.toLowerCase().includes(q));
   const empty = '<div class="empty">No saved chats yet.</div>';
   if (list) list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || empty;
-  if (navList) navList.innerHTML = sessions.slice(0, 8).map(item => '<button type="button" class="nav-recent-item ' + (item.id === sessionId() ? 'active' : '') + '" data-nav-recent-session="' + esc(item.id) + '"><span>' + esc(item.title) + '</span></button>').join('') || empty;
+  if (navList) navList.innerHTML = sessions.slice(0, 30).map(item => '<button type="button" class="nav-recent-item ' + (item.id === sessionId() ? 'active' : '') + '" data-nav-recent-session="' + esc(item.id) + '"><span>' + esc(item.title) + '</span></button>').join('') || empty;
 }
 function formatChatText(value) {
   let text = esc(String(value ?? '').replace(/\r\n?/g, '\n'));
@@ -60,6 +61,14 @@ function formatChatText(value) {
   text = text.replace(/(<li>.*<\/li>\n?)+/g, match => '<ul>' + match.replace(/\n/g, '') + '</ul>');
   text = text.replace(/%%CODE(\d+)%%/g, (_, i) => code[Number(i)] || '');
   return text.split(/\n{2,}/).map(p => /^\s*<(h[234]|ul|pre)/.test(p.trim()) ? p : p.replace(/\n/g, '<br>')).join('');
+}
+
+if (!window.__xoftNavRecentSearchBound) {
+  window.__xoftNavRecentSearchBound = true;
+  document.addEventListener('input', (event) => {
+    if (event.target?.id !== 'nav-recent-chat-search') return;
+    renderRecentChats(document.querySelector('#content'), event.target.value);
+  });
 }
 
 if (!window.__xoftNavRecentBound) {
@@ -127,12 +136,17 @@ export function render(container) {
           </section>
           <div class="chat-transcript-heading"><strong>Conversation</strong></div>
           <div id="chat-log"></div>
+          <div class="chat-voice-tools" aria-label="Additional voice controls">
+            <button id="chat-mic" type="button" title="Dictate a message into the composer" aria-label="Voice input">🎙 Dictate</button>
+            <button id="chat-live-video" type="button" title="Start a camera-based live voice conversation" aria-label="Start live video">▣ Live video</button>
+            <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
+            <button id="chat-speak-stop" type="button" ${canSpeakOut() ? '' : 'disabled'}>Stop audio</button>
+          </div>
           <div id="chat-input-row">
-            <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Type a message to XOFT…' : 'Describe a problem to reason through…'}" aria-label="Message XOFT"></textarea>
-            <button id="chat-send" class="primary" aria-label="Send message" title="Send message">Send</button>
+            <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Type a message to XOFT…' : 'Describe a problem to reason through…'}" aria-label="Message XOFT" rows="1"></textarea>
+            <button id="chat-send" class="primary" aria-label="Send message" title="Send message">↑</button>
             <button id="chat-voice-conversation" type="button" aria-pressed="false" aria-label="Start live voice" title="Start or pause live voice">🎙️</button>
             <button id="chat-voice-end" type="button" aria-label="End live voice" title="End live voice">×</button>
-            <button id="chat-live-video" type="button" title="Start a camera-based live voice conversation">🎥 Live video</button>
           </div>
         </section>
       </section>
@@ -205,6 +219,7 @@ export function render(container) {
   });
 
   onDelegate(container, 'click', '#chat-send', () => send(container));
+  onDelegate(container, 'click', '#chat-mic', () => toggleVoiceInput(container));
   onDelegate(container, 'click', '#chat-voice-conversation', () => toggleVoiceConversation(container));
   onDelegate(container, 'click', '#chat-voice-end', () => stopVoiceConversation(container));
   onDelegate(container, 'click', '#chat-live-video', () => startLiveVideo(container));
