@@ -429,7 +429,8 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       }
     };
 
-    // A short timeslice makes mobile MediaRecorder flush audio reliably during long sessions.\n    recorder.start(250);
+    // A short timeslice makes mobile MediaRecorder flush audio reliably during long sessions.
+    recorder.start(250);
 
     if (conversationSegment) {
       setVoiceStatus('listening', 'LISTENING · MICROPHONE ACTIVE');
