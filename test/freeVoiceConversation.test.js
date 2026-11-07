@@ -20,7 +20,7 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   assert.match(chat, /void send\(container, finalText\.trim\(\), \{ voiceTurn: true \}\)/);
   assert.match(chat, /await send\(container, voiceText, \{ voiceTurn: true \}\)/);
   // Status updates happen before the UI button is repainted; assert the whole turn-resume sequence, not an obsolete adjacent-line layout.
-  assert.match(chat, /if \(voiceTurn && voiceConversationActive\)\s*\{[^}]*setVoiceStatus\('listening'[^}]*setConversationButton\(container, true,[^}]*scheduleConversationListen\(container, 500\);/);
+  assert.match(chat, /if \(\(voiceTurn \|\| continueLiveVoice\) && voiceConversationActive\)\s*\{[^}]*setVoiceStatus\('listening'[^}]*setConversationButton\(container, true,[^}]*scheduleConversationListen\(container, 500\);/);
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 

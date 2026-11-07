@@ -41,10 +41,13 @@ function persistHistory() {
 }
 function renderRecentChats(root, query = '') {
   const list = root?.querySelector('#recent-chat-list');
-  if (!list) return;
+  const navList = document.querySelector('#nav-recent-chat-list');
+  if (!list && !navList) return;
   const q = query.trim().toLowerCase();
   const sessions = recentSessions().filter(item => !q || item.title.toLowerCase().includes(q));
-  list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || '<div class="empty">No saved chats yet.</div>';
+  const empty = '<div class="empty">No saved chats yet.</div>';
+  if (list) list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || empty;
+  if (navList) navList.innerHTML = sessions.slice(0, 8).map(item => '<button type="button" class="nav-recent-item ' + (item.id === sessionId() ? 'active' : '') + '" data-nav-recent-session="' + esc(item.id) + '"><span>' + esc(item.title) + '</span></button>').join('') || empty;
 }
 function formatChatText(value) {
   let text = esc(String(value ?? '').replace(/\r\n?/g, '\n'));
@@ -59,6 +62,35 @@ function formatChatText(value) {
   return text.split(/\n{2,}/).map(p => /^\s*<(h[234]|ul|pre)/.test(p.trim()) ? p : p.replace(/\n/g, '<br>')).join('');
 }
 
+if (!window.__xoftNavRecentBound) {
+  window.__xoftNavRecentBound = true;
+  document.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-nav-recent-session]');
+    if (!item) return;
+    const id = item.dataset.navRecentSession;
+    if (!id) return;
+    localStorage.setItem(SESSION_KEY, id);
+    history = readHistory(id);
+    const content = document.querySelector('#content');
+    if (location.hash.split('?')[0] === '#chat') render(content);
+    else location.hash = 'chat';
+  });
+}
+
+if (!window.__xoftNewChatBound) {
+  window.__xoftNewChatBound = true;
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-new-chat]')) return;
+    const id = crypto.randomUUID();
+    localStorage.setItem(SESSION_KEY, id);
+    history = [];
+    persistHistory();
+    const content = document.querySelector('#content');
+    if (location.hash.split('?')[0] === '#chat') render(content);
+    else location.hash = 'chat';
+  });
+}
+
 export function render(container) {
   const resumeVoice = voiceConversationActive;
   stopLiveVideo(container, true);
@@ -67,11 +99,6 @@ export function render(container) {
     <div class="chat-layout chat-voice-home">
       <section class="chat-main-panel">
         <header class="chat-home-heading">
-          <div>
-            <span class="chat-home-eyebrow">XOFT / LIVE INTELLIGENCE</span>
-            <h2>Your personal AI command centre.</h2>
-            <p>Speak naturally. XOFT listens, thinks and responds.</p>
-          </div>
           <div class="tabs" aria-label="Conversation mode">
             <button data-mode="chat" class="${mode === 'chat' ? 'active' : ''}">Chat</button>
             <button data-mode="advise" class="${mode === 'advise' ? 'active' : ''}">Advisor</button>
@@ -88,15 +115,9 @@ export function render(container) {
             <span class="xoft-voice-live-dot" aria-hidden="true"></span>
           </div>
           <div class="xoft-voice-stage-copy">
-            <span class="chat-home-eyebrow">XOFT CENTRAL</span>
-            <h3>I'm here. What would you like to do?</h3>
-            <p>Hands-free conversation is the default. You can pause it or switch to typing whenever you want.</p>
+            <h3>I'm listening.</h3>
           </div>
-          <div class="xoft-voice-stage-actions">
-            <button id="chat-voice-conversation" class="voice-start-button" type="button" aria-pressed="false" title="Start or stop live voice conversation">Enable live voice</button>
-            <button id="chat-speak-stop" class="voice-secondary-button" type="button" ${canSpeakOut() ? '' : 'disabled'}>Stop speaking</button>
-          </div>
-          <p class="xoft-voice-permission-note">Microphone access is requested by your browser. If automatic access is blocked, tap Enable live voice.</p>
+          <p class="xoft-voice-permission-note">Allow microphone access when prompted.</p>
         </section>
 
         <section id="chat-view" aria-label="Conversation transcript and message composer">
@@ -104,35 +125,21 @@ export function render(container) {
             <div class="xoft-live-video-frame"><video id="xoft-live-camera" autoplay playsinline muted></video><div class="xoft-live-video-overlay"><span class="xoft-live-badge"><i></i> LIVE CONVERSATION</span><strong id="xoft-live-video-state">Speak naturally. XOFT is listening.</strong><small>Your words are saved to Chats, not shown over the video.</small></div></div>
             <div class="xoft-live-video-controls"><span id="xoft-live-video-caption">Camera ready · waiting for microphone</span><button id="chat-live-video-stop" type="button" class="primary">End Live Conversation</button></div>
           </section>
-          <div class="chat-transcript-heading"><strong>Conversation</strong><span>Transcript and replies appear here</span></div>
+          <div class="chat-transcript-heading"><strong>Conversation</strong></div>
           <div id="chat-log"></div>
           <div id="chat-input-row">
             <textarea id="chat-input" placeholder="${mode === 'chat' ? 'Type a message to XOFT…' : 'Describe a problem to reason through…'}" aria-label="Message XOFT"></textarea>
-            <button id="chat-send" class="primary">Send</button>
-            <button id="chat-mic" type="button" title="Transcribe speech into the message box" aria-label="Voice input">🎙️ Voice input</button>
+            <button id="chat-send" class="primary" aria-label="Send message" title="Send message">Send</button>
+            <button id="chat-voice-conversation" type="button" aria-pressed="false" aria-label="Start live voice" title="Start or pause live voice">🎙️</button>
+            <button id="chat-voice-end" type="button" aria-label="End live voice" title="End live voice">×</button>
             <button id="chat-live-video" type="button" title="Start a camera-based live voice conversation">🎥 Live video</button>
-            <button id="chat-speak-toggle" type="button" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'Speak Out: ON' : 'Speak Out: OFF'}</button>
           </div>
         </section>
       </section>
 
-      <aside class="chat-history-panel" aria-label="Saved conversations">
-        <div class="chat-history-heading">
-          <div><span class="chat-home-eyebrow">YOUR HISTORY</span><strong>Recent chats</strong></div>
-          <button id="chat-new" type="button" class="primary">+ New chat</button>
-        </div>
-        <input id="recent-chat-search" type="search" placeholder="Search saved conversations…" aria-label="Search recent chats">
-        <div id="recent-chat-list"></div>
-        <p class="chat-history-note">Your conversations are saved locally and synced to your XOFT account when the server is available.</p>
-      </aside>
 
-      <nav class="chat-mobile-nav" aria-label="Primary navigation">
-        <a href="#chat" aria-current="page"><span>◉</span><small>Voice</small></a>
-        <a href="#command"><span>⌘</span><small>Home</small></a>
-        <a href="#tasks"><span>✓</span><small>Tasks</small></a>
-        <a href="#memory"><span>▤</span><small>Memory</small></a>
-        <a href="#settings"><span>⋯</span><small>More</small></a>
-      </nav>
+
+
     </div>
   `;
   renderLog(container);
@@ -191,17 +198,15 @@ export function render(container) {
       if (history.length) persistHistory();
     });
 
-  onDelegate(container, 'click', '#chat-new', () => { const id = crypto.randomUUID(); localStorage.setItem(SESSION_KEY, id); history = []; persistHistory(); render(container); });
   onDelegate(container, 'click', '[data-recent-session]', (el) => { localStorage.setItem(SESSION_KEY, el.dataset.recentSession); history = readHistory(el.dataset.recentSession); render(container); });
-  onDelegate(container, 'input', '#recent-chat-search', (el) => renderRecentChats(container, el.value));
   onDelegate(container, 'click', '[data-mode]', (el) => {
     mode = el.dataset.mode;
     render(container);
   });
 
   onDelegate(container, 'click', '#chat-send', () => send(container));
-  onDelegate(container, 'click', '#chat-mic', () => toggleVoiceInput(container));
   onDelegate(container, 'click', '#chat-voice-conversation', () => toggleVoiceConversation(container));
+  onDelegate(container, 'click', '#chat-voice-end', () => stopVoiceConversation(container));
   onDelegate(container, 'click', '#chat-live-video', () => startLiveVideo(container));
   onDelegate(container, 'click', '#chat-live-video-stop', () => stopLiveVideo(container));
   onDelegate(container, 'click', '#chat-speak-toggle', (button) => {
@@ -784,13 +789,17 @@ async function captureLiveVideoContext(container, question) {
 async function send(container, textOverride = null, { voiceTurn = false } = {}) {
   const input = container.querySelector('#chat-input');
   if (!input) return;
-  const text = String(textOverride ?? input.value).trim();
+  const typedText = input.value.trim();
+  const text = textOverride !== null && voiceTurn
+    ? [typedText, String(textOverride).trim()].filter(Boolean).join(' ')
+    : String(textOverride ?? input.value).trim();
+  const continueLiveVoice = voiceConversationActive;
   if (!text) {
     if (voiceTurn && voiceConversationActive) scheduleConversationListen(container, 500);
     return;
   }
   input.value = '';
-  if (voiceTurn) setVoiceStatus('thinking', 'XOFT IS THINKING');
+  if (voiceTurn || continueLiveVoice) setVoiceStatus('thinking', 'XOFT IS THINKING');
   history.push({ role: 'user', content: text, at: new Date().toISOString() });
   persistHistory();
   renderLog(container);
@@ -846,7 +855,7 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
       console.info('[XOFT] Speech output was unavailable; continuing voice conversation.');
     }
   }
-  if (voiceTurn && voiceConversationActive) {
+  if ((voiceTurn || continueLiveVoice) && voiceConversationActive) {
     setVoiceStatus('listening', 'LISTENING · YOUR TURN');
     setConversationButton(container, true, '🟢 Listening… speak naturally');
     scheduleConversationListen(container, 500);
