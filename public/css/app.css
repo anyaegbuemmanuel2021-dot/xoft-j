@@ -1106,3 +1106,25 @@ body[data-route="chat"] .voice-settings { display:inline-flex; width:44px; heigh
 .nav-recent-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .nav-new-chat { display:inline-grid; place-items:center; width:24px; height:24px; border:1px solid rgba(91,196,214,.22); border-radius:7px; background:rgba(40,217,232,.06); color:#c8faff; font:600 17px/1 system-ui,sans-serif; cursor:pointer; }
 .nav-new-chat:hover { background:rgba(40,217,232,.16); }
+
+
+/* Compact live-chat composer: override legacy global textarea sizing without changing the approved layout. */
+body[data-route="chat"] #content .chat-voice-home #chat-input-row textarea,
+body[data-route="chat"] #content #chat-input-row textarea {
+  box-sizing: border-box;
+  min-height: 40px !important;
+  height: 40px;
+  max-height: 112px;
+  padding: 9px 12px !important;
+  font-size: 14px !important;
+  line-height: 20px;
+  border-radius: 12px;
+}
+body[data-route="chat"] #content .chat-voice-home #chat-input-row { gap: 7px; align-items: flex-end; }
+
+/* Keep chat actions aligned with the compact composer. */
+body[data-route="chat"] #content #chat-input-row button {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 12px;
+}

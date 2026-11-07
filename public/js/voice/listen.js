@@ -65,23 +65,23 @@ export function createLevelMeter(stream) {
 }
 
 /** Adaptive speech gate: learns the room noise floor for ~0.5 s, then requires 3x that (minimum 0.008). */
-export function createSpeechGate({ preset = 0, minThreshold = 0.008, floorMultiplier = 3 } = {}) {
+export function createSpeechGate({ preset = 0, minThreshold = 0.005, floorMultiplier = 2.5 } = {}) {
+  // Only quiet frames may teach the noise floor. Sampling every frame caused opening speech
+  // to be learned as background noise, making the microphone ignore the user's first sentence.
   const floorSamples = [];
-  // `preset`: reuse a noise threshold learned earlier. Needed when a recording starts because the user is ALREADY
-  // speaking (barge-in): calibrating on the first 500 ms would mistake their voice for background noise.
-  // Mobile microphones can deliver quieter speech, so callers may lower minThreshold without disabling
-  // adaptive room-noise calibration.
-  let threshold = preset > 0 ? preset : Math.max(0.001, minThreshold);
+  const thresholdFloor = Math.max(0.001, minThreshold);
+  let threshold = preset > 0 ? preset : thresholdFloor;
   let calibrated = preset > 0;
   const startedAt = Date.now();
   return {
     update(rms) {
       if (!calibrated) {
-        floorSamples.push(rms);
-        if (Date.now() - startedAt > 500 && floorSamples.length >= 5) {
+        if (Number.isFinite(rms) && rms >= 0 && rms <= thresholdFloor * 2) floorSamples.push(rms);
+        if (Date.now() - startedAt > 500) {
           const sorted = [...floorSamples].sort((a, b) => a - b);
-          const floor = sorted[Math.floor(sorted.length / 2)];
-          threshold = Math.min(0.05, Math.max(minThreshold, floor * floorMultiplier));
+          const floor = sorted.length ? sorted[Math.floor((sorted.length - 1) * 0.25)] : null;
+          // Never let a loud first utterance raise the gate; with no quiet sample, retain the safe default.
+          threshold = floor === null ? thresholdFloor : Math.min(thresholdFloor, Math.max(0.001, floor * floorMultiplier));
           calibrated = true;
         }
       }
@@ -109,7 +109,7 @@ export function looksLikeEcho(transcript, spoken) {
  * Continuous listener: keeps the mic open, records, and emits one Blob per spoken phrase.
  * Silence-only audio is never emitted. Call stop() to release the microphone.
  */
-export function createServerListener({ onSegment, onLevel = () => {}, onError = () => {}, silenceMs = 1100, idleResetMs = 7000, maxMs = 20000 }) {
+export function createServerListener({ onSegment, onLevel = () => {}, onError = () => {}, silenceMs = 700, idleResetMs = 7000, maxMs = 20000 }) {
   let stream = null;
   let meter = null;
   let recorder = null;

@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { esc, toast } from '../dom.js';
 import { QUICK_COMMANDS } from './logic.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
-import { transcribe as transcribeAudio } from '../voice/stt.js';
+import { transcribe as transcribeAudio, warmVoiceServer } from '../voice/stt.js';
 import { createServerListener, unlockAudio } from '../voice/listen.js';
 import { currentSessionId, deleteSession, exchangesToMessages, filterRecent, mergeRemoteSessions, messagesToExchanges, pickNewestMessages, readMessages, recentSessions, saveMessages, startNewSession, switchSession, togglePin } from '../chatSessions.js';
 
@@ -66,7 +66,7 @@ function friendlyProviderError(rawMessage) {
 }
 function sessionId() { return currentSessionId(); }
 async function transcribe(blob, onStatus = () => {}) {
-  // One shared path: server Whisper (OpenAI, Gemini fallback) first, on-device Whisper second.
+  // One shared path: XOFT server transcription (OpenAI primary, Gemini fallback).
   return transcribeAudio(blob, onStatus);
 }
 
@@ -78,7 +78,7 @@ export function mountCommandInput(el, store, controller) {
   let stream = null;
   let recognition = null;
   let serverListener = null;
-  // AUTO LISTEN uses Whisper (server: OpenAI, Gemini fallback, then on-device Whisper) by default.
+  // AUTO LISTEN sends recorded audio to XOFT server transcription (OpenAI → Gemini fallback).
   // Browser Web Speech is used only when this browser cannot record audio.
   let serverMode = canRecord || !Recognition;
   let autoListening = false;
@@ -102,7 +102,7 @@ export function mountCommandInput(el, store, controller) {
           <button type="button" data-act="recent" aria-expanded="false" title="Find your saved chats">RECENT</button>
           <button type="button" data-act="command" aria-haspopup="menu" aria-expanded="false" title="Quick commands">MORE</button>
           <button type="button" data-act="voice" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">VOICE</button>
-          <button type="button" data-act="auto-listen" ${(canRecord || Recognition) ? '' : 'disabled title="Automatic listening needs microphone access in a supported browser (HTTPS)"'} aria-pressed="false">WHISPER AUTO LISTEN</button>
+          <button type="button" data-act="auto-listen" ${(canRecord || Recognition) ? '' : 'disabled title="Automatic listening needs microphone access in a supported browser (HTTPS)"'} aria-pressed="false">XOFT AUTO LISTEN</button>
           <button type="button" data-act="speakout" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'SPEAK: ON' : 'SPEAK: OFF'}</button>
           <button type="button" data-act="stop-speaking" ${canSpeakOut() ? '' : 'disabled'} title="Stop spoken output">STOP</button>
           <button type="submit" class="cc-primary" data-act="send">SEND</button>
@@ -301,6 +301,7 @@ export function mountCommandInput(el, store, controller) {
 
   function startServerListening() {
     if (!autoListening || destroyed || isSpeaking || serverListener) return;
+    void warmVoiceServer();
     serverListener = createServerListener({
       onSegment: async (blob) => {
         setVoiceStatus('Transcribing…', 'processing');
@@ -317,12 +318,12 @@ export function mountCommandInput(el, store, controller) {
       onError: (error) => {
         autoListening = false;
         autoBtn.setAttribute('aria-pressed', 'false');
-        autoBtn.textContent = 'WHISPER AUTO LISTEN';
+        autoBtn.textContent = 'XOFT AUTO LISTEN';
         setVoiceStatus(`Microphone unavailable: ${error?.message || 'permission denied'}. Allow mic access, then tap AUTO LISTEN.`, 'error');
         stopRecognition();
       },
     });
-    setVoiceStatus('AUTO LISTEN active (Whisper) · say “XOFT”, then your command.', 'listening');
+    setVoiceStatus('AUTO LISTEN active · say “XOFT”, then your command.', 'listening');
     void serverListener.start();
   }
 
@@ -357,20 +358,12 @@ export function mountCommandInput(el, store, controller) {
         } else if (event.error === 'not-allowed') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'WHISPER AUTO LISTEN';
-          setVoiceStatus('Microphone or browser speech permission denied. Allow mic access, then use VOICE for local Whisper transcription.', 'error');
-        } else if (event.error === 'network') {
-          // Web Speech often depends on a vendor cloud service. Don't restart it forever
-          // on a network failure; push-to-talk uses local Whisper and can work independently.
-          autoListening = false;
-          wakeArmed = false;
-          autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'WHISPER AUTO LISTEN';
-          setVoiceStatus('AUTO LISTEN needs the browser speech service, which is unreachable right now. AUTO LISTEN is off; tap VOICE to record and transcribe with local Whisper instead.', 'error');
+          autoBtn.textContent = 'XOFT AUTO LISTEN';
+          setVoiceStatus('Microphone or browser speech permission denied. Allow microphone access, then retry XOFT server transcription.', 'error');
         } else if (event.error === 'audio-capture') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'WHISPER AUTO LISTEN';
+          autoBtn.textContent = 'XOFT AUTO LISTEN';
           setVoiceStatus('No microphone was detected. Check Android microphone permission and close other apps using the mic.', 'error');
         } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           setVoiceStatus(`Listening issue: ${event.error}. Tap AUTO LISTEN to retry.`, 'error');
@@ -493,7 +486,7 @@ export function mountCommandInput(el, store, controller) {
     } else {
       stopRecognition();
       autoBtn.setAttribute('aria-pressed', 'false');
-      autoBtn.textContent = 'WHISPER AUTO LISTEN';
+      autoBtn.textContent = 'XOFT AUTO LISTEN';
       setVoiceStatus('Automatic listening is off.', 'idle');
     }
   }

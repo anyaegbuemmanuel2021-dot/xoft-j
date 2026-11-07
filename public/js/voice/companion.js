@@ -1,8 +1,8 @@
-// companion.js — browser-only glue: microphone → local VAD → recognizer backend → VoicePipeline → /api/chat.
+// companion.js — browser-only glue: microphone → local VAD → XOFT server STT (OpenAI → Gemini fallback) → VoicePipeline → /api/chat.
 // STATUS: implemented, NOT verifiable in the build sandbox (needs a real microphone/browser). See docs/DEVICE_RUNTIME.md "Requires local testing".
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
-import { transcribe as transcribeAudioBlob } from './stt.js';
+import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,7 +14,7 @@ const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments are transcribed by XOFT server STT (OpenAI primary, Gemini fallback), then on-device Whisper if the server is unavailable. Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
+  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments are transcribed by XOFT server STT (OpenAI primary, Gemini fallback). Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
   'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
   // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
   // none is bundled because they require model files that are not part of this repository.
@@ -63,6 +63,7 @@ function stopRecognizer() {
 // ---- backend: server STT (records only VAD-detected segments) ----
 function startSegmentRecording() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
+  void warmVoiceServer();
   chunks = []; recorder = new MediaRecorder(stream, preferredRecorderOptions());
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   recorder.onstop = async () => {
@@ -75,7 +76,7 @@ function startSegmentRecording() {
         ui.log(`heard: ${transcript}`);
         pipeline.transcript(transcript, true);
       } else ui.log('No speech was recognized in this segment.');
-    } catch (err) { ui.log(`STT failed (server OpenAI → Gemini, then local Whisper): ${err.message}`); }
+    } catch (err) { ui.log(`XOFT server STT failed (OpenAI → Gemini fallback): ${err.message}`); }
   };
   recorder.start();
 }
