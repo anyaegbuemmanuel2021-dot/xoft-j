@@ -81,7 +81,7 @@ function buildSidebar() {
     </details>
   `).join('');
   const brand = document.querySelector('#sidebar .brand');
-  if (brand) brand.innerHTML = `<span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M4 5h10l22 30H25z"/><path d="M36 5H25L4 35h11z"/></svg></span><span class="brand-copy">XOFT<small>AI CORE <i>PERSONAL OS</i></small></span>`;
+  if (brand) brand.innerHTML = `<span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M4 5h10l22 30H25z"/><path d="M36 5H25L4 35h11z"/></svg></span><span class="brand-copy">XOFT</span>`;
   const topbar = document.getElementById('topbar');
   topbar.innerHTML = `
     <div class="topbar-leading">
