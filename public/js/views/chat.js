@@ -277,7 +277,7 @@ function renderLog(container) {
 }
 
 
-// STT: XOFT server transcription (OpenAI primary, Gemini fallback).
+// STT: server Whisper (OpenAI, Gemini fallback) first; on-device Whisper only if the server path fails.
 import { transcribe as transcribeAudioBlob } from '../voice/stt.js';
 import { createLevelMeter, createSpeechGate, preferredRecorderOptions, unlockAudio } from '../voice/listen.js';
 let activeRecognition = null;
@@ -409,7 +409,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       setVoiceStatus('thinking', 'TRANSCRIBING YOUR VOICE');
       setMicButton(container, '⏳ Transcribing your voice…', true);
       if (!conversationSegment) {
-        toast('Sending audio to XOFT for transcription.', 'info');
+        toast('Transcribing with Whisper. If the server provider is unavailable, XOFT falls back to on-device Whisper.', 'info');
       } else {
         setConversationButton(container, true, '⏳ Transcribing your voice…');
       }
@@ -417,9 +417,9 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       let voiceText = '';
       try {
         const transcript = await transcribeAudioBlob(blob, (message) => {
-          if (/Sending audio to XOFT/i.test(message)) {
-            setVoiceStatus('thinking', 'SENDING AUDIO TO XOFT');
-          } else if (/Transcribed by XOFT/i.test(message)) {
+          if (/on-device Whisper/i.test(message)) {
+            setVoiceStatus('thinking', 'SERVER UNAVAILABLE · LOCAL WHISPER');
+          } else if (/Transcribing on XOFT server/i.test(message)) {
             setVoiceStatus('thinking', 'TRANSCRIBING ON XOFT SERVER');
           }
         });
@@ -431,7 +431,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
           input.focus();
           toast('Transcription ready. Review it, then tap Send.', 'success');
         } else if (!conversationSegment) {
-          toast('XOFT did not detect speech. Try recording again.', 'warn');
+          toast('Whisper did not detect speech. Try recording again.', 'warn');
         }
       } catch (error) {
         console.error('[XOFT] Speech recognition failed:', error);
@@ -477,7 +477,7 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
         if ((detectedSpeech && now - lastVoiceAt > 650) || (!detectedSpeech && elapsed > 8000) || elapsed > 15000) recorder.stop();
       }, 50);
     } else {
-      setMicButton(container, '🔴 Recording… tap to stop', true);
+      setMicButton(container, '🔴 Recording for Whisper… tap to stop', true);
       toast('Recording started. Tap the microphone button again to stop and transcribe.', 'info');
     }
   } catch (error) {
@@ -536,14 +536,14 @@ function toggleVoiceInput(container) {
   recognition.onerror = (event) => {
     if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
       fallbackToWhisper = true;
-      toast('Browser speech recognition is unavailable. Recording directly for XOFT transcription…', 'warn');
+      toast('Browser speech recognition is unavailable. Trying free on-device Whisper…', 'warn');
     } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
       toast('Microphone access is blocked. Allow microphone permission in your browser settings.', 'warn');
     } else if (event.error === 'no-speech') {
       toast('No speech detected. Tap Voice Input and try again.', 'info');
     } else if (event.error !== 'aborted') {
       fallbackToWhisper = true;
-      toast('Browser speech recognition failed. Recording directly for XOFT transcription…', 'warn');
+      toast('Browser speech recognition failed. Trying free local Whisper…', 'warn');
     }
   };
   recognition.onend = () => {
@@ -558,7 +558,7 @@ function toggleVoiceInput(container) {
   } catch {
     activeRecognition = null;
     setMicButton(container, '🎙️ Voice Input');
-    toast('Browser recognition could not start. Recording directly for XOFT transcription…', 'warn');
+    toast('Browser recognition could not start. Trying free local Whisper…', 'warn');
     startWhisperRecording(container);
   }
 }
@@ -661,7 +661,7 @@ function listenForConversationTurn(container) {
   // This avoids relying on vendor-specific browser recognition services.
   if (!voiceFallbackNoticeShown) {
     voiceFallbackNoticeShown = true;
-    toast('Voice conversation uses XOFT server transcription (OpenAI → Gemini fallback).', 'info');
+    toast('Voice conversation uses XOFT server transcription (OpenAI → Gemini fallback); local Whisper is the offline fallback.', 'info');
   }
   startWhisperRecording(container, { autoSegment: true });
   return;
@@ -720,7 +720,7 @@ function listenForConversationTurn(container) {
     if (fallbackToWhisper) {
       if (!voiceFallbackNoticeShown) {
         voiceFallbackNoticeShown = true;
-        toast('Browser speech service is unavailable. Switching to direct XOFT microphone capture.', 'warn');
+        toast('Browser speech service is unavailable. Switching to free local Whisper.', 'warn');
       }
       startWhisperRecording(container, { autoSegment: true });
       return;
@@ -743,7 +743,7 @@ function listenForConversationTurn(container) {
     activeRecognition = null;
     if (!voiceFallbackNoticeShown) {
       voiceFallbackNoticeShown = true;
-      toast('Starting direct XOFT microphone capture because browser speech could not start.', 'warn');
+      toast('Starting free local Whisper as the browser speech service could not start.', 'warn');
     }
     startWhisperRecording(container, { autoSegment: true });
   }

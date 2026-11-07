@@ -628,17 +628,3 @@ body[data-route="command"] .cc-home-core [data-mount="cmd"] {
 .xoft-lite .cc {
   background: var(--xoft-bg);
 }
-
-
-/* Compact command composer: the message box should not dominate the screen. */
-body[data-route="command"] #content .cc-home-core .cc-cmd textarea {
-  box-sizing: border-box;
-  min-height: 42px !important;
-  height: 42px;
-  max-height: 18dvh;
-  padding: 10px 12px !important;
-  font-size: 14px !important;
-  line-height: 20px;
-  border-radius: 10px;
-}
-body[data-route="command"] #content .cc-home-core .cc-cmd { gap: 6px; }

@@ -1,12 +1,13 @@
-// All microphone audio is transcribed by XOFT's server.
-// Provider order and failover are handled server-side: OpenAI first, then Gemini.
-// No browser-local Whisper model is downloaded or required.
-import { voiceFetch } from './voice-status.js';
+// Single speech-to-text path used by every view.
+// Order: XOFT server (gpt-transcribe by default, then Gemini - chosen by the server) -> on-device Whisper (free, private).
+import { voiceFetch, getVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
+import { transcribeAudioBlob as transcribeLocally } from './whisper-fallback.js';
 
 async function transcribeOnServer(blob, language = 'auto') {
+  // Bound the server request: a stalled mobile connection must not leave the conversation
+  // stuck in "Transcribing" forever. The server's OpenAI/Gemini hedge normally finishes sooner.
   const controller = new AbortController();
-  // A sleeping Render free instance can take time to wake. Allow the request to reach it.
-  const timer = setTimeout(() => controller.abort(), 60000);
+  const timer = setTimeout(() => controller.abort(), 18000);
   let res;
   try {
     res = await voiceFetch('/api/voice/transcribe', {
@@ -17,26 +18,48 @@ async function transcribeOnServer(blob, language = 'auto') {
       signal: controller.signal,
     });
   } catch (error) {
-    if (error?.name === 'AbortError') throw new Error('XOFT server transcription timed out after 60 seconds. Check the server and try again.');
+    if (error?.name === 'AbortError') throw new Error('XOFT server transcription timed out after 18 seconds.');
     throw error;
   } finally {
     clearTimeout(timer);
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(`XOFT server transcription returned ${res.status}${detail ? `: ${detail.slice(0, 240)}` : ''}`);
+    if (res.status === 503) invalidateVoiceStatus();
+    throw new Error(`Server speech recognition returned ${res.status}${detail ? `: ${detail.slice(0, 240)}` : ''}`);
   }
   const data = await res.json();
   const text = String(data?.text || '').trim();
-  if (!text) throw new Error('XOFT server returned an empty transcript. Try speaking closer to the microphone.');
+  if (!text) throw new Error('Server speech recognition returned an empty transcript.');
   return { text, provider: data?.provider || 'server' };
 }
 
-/** Send a captured audio Blob to XOFT's server-side OpenAI → Gemini transcription pipeline. */
+/**
+ * @param {Blob} blob recorded audio
+ * @param {(message: string) => void} [onStatus]
+ * @returns {Promise<string>} transcript
+ */
 export async function transcribe(blob, onStatus = () => {}, language = 'auto') {
   if (!blob || !blob.size) throw new Error('No audio was recorded. Hold the phone closer and try again.');
-  onStatus('Sending audio to XOFT…');
-  const result = await transcribeOnServer(blob, language);
-  onStatus(`Transcribed by XOFT (${result.provider})`);
-  return result.text;
+
+  let serverError = null;
+  const status = await getVoiceStatus();
+  if (status?.stt?.configured !== false) {
+    try {
+      onStatus('Transcribing on XOFT server…');
+      return (await transcribeOnServer(blob, language)).text;
+    } catch (error) {
+      serverError = error;
+      console.warn('[XOFT] Server STT failed; falling back to on-device Whisper:', error);
+    }
+  } else {
+    serverError = new Error('No server speech-to-text provider is configured (set OPENAI_API_KEY and/or GEMINI_API_KEY).');
+  }
+
+  try {
+    onStatus('Server transcription unavailable · using on-device Whisper (first use downloads the model)…');
+    return await transcribeLocally(blob, { language });
+  } catch (localError) {
+    throw new Error(`${serverError?.message || 'Server speech recognition unavailable'}. On-device Whisper also failed: ${localError?.message || 'unknown error'}`);
+  }
 }

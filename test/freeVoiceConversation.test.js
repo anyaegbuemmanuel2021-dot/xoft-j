@@ -24,24 +24,22 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 
-test('Every view transcribes through the shared STT module: server gpt-transcribe/Gemini first, on-device Whisper second', () => {
+test('Every view transcribes through the shared XOFT server STT module only', () => {
   const chat = read('public/js/views/chat.js');
   const input = read('public/js/dashboard/CommandInput.js');
   const stt = read('public/js/voice/stt.js');
-  const whisper = read('public/js/voice/whisper-fallback.js');
+  const companion = read('public/js/voice/companion.js');
   assert.match(chat, /from '\.\.\/voice\/stt\.js'/);
   assert.match(input, /from '\.\.\/voice\/stt\.js'/);
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
   assert.match(stt, /voiceFetch\('\/api\/voice\/transcribe'/);
-  assert.ok(stt.indexOf('transcribeOnServer(blob, language)') < stt.indexOf('transcribeLocally(blob, { language })'), 'server STT must be attempted before on-device Whisper');
+  assert.doesNotMatch(stt, /whisper-fallback|transcribeLocally|on-device Whisper/);
   assert.match(chat, /transcribeAudioBlob\(blob, \(message\) =>/);
   assert.match(chat, /TRANSCRIBING ON XOFT SERVER/);
-  assert.match(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
+  assert.doesNotMatch(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
   assert.match(chat, /OpenAI → Gemini fallback/);
-  assert.match(whisper, /onnx-community\/whisper-tiny['\"]?/);
-  assert.doesNotMatch(whisper, /whisper-tiny\.en/, 'local fallback must be multilingual for English/Igbo code-switching');
-  assert.match(whisper, /if \(!blob \|\| !blob\.size\) throw new Error/);
-  assert.doesNotMatch(whisper, /api\.openai\.com|api\.elevenlabs\.io/);
+  assert.match(companion, /OpenAI → Gemini/);
+  assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
 test('Voice companion defaults to server STT and uses shared fallback instead of browser speech first', () => {

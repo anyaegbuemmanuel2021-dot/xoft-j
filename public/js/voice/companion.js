@@ -14,7 +14,7 @@ const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments are transcribed by XOFT server STT (OpenAI primary, Gemini fallback), then on-device Whisper if the server is unavailable. Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
+  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (OpenAI → Gemini)', note: 'Speech segments are transcribed by XOFT server STT (OpenAI primary, Gemini fallback). Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
   'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
   // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
   // none is bundled because they require model files that are not part of this repository.
