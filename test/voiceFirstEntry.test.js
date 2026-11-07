@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { currentRoute } from '../public/js/router.js';
-import { claimAutoVoiceStart } from '../public/js/voice/auto-start.js';\nimport { createSpeechGate } from '../public/js/voice/listen.js';
+import { claimAutoVoiceStart } from '../public/js/voice/auto-start.js';
+import { createSpeechGate } from '../public/js/voice/listen.js';
 
 test('opening XOFT without a route starts on the live conversation workspace', () => {
   const previous = globalThis.location;
