@@ -10,7 +10,7 @@ export function registerRoute(name, module) {
 }
 
 export function currentRoute() {
-  return (location.hash.replace(/^#/, '') || 'command').split('?')[0];
+  return (location.hash.replace(/^#/, '') || 'chat').split('?')[0];
 }
 
 async function render() {

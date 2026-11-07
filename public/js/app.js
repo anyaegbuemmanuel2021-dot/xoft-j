@@ -42,7 +42,7 @@ const ICONS = {
 const icon = (name) => `<svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.overview}</svg>`;
 
 const NAV = [
-  { group: 'Workspace', items: [['command', 'Command Center', command, 'command'], ['overview', 'Overview', overview, 'overview'], ['chat', 'Chat', chat, 'chat']] },
+  { group: 'Workspace', items: [['chat', 'Live Conversation', chat, 'chat'], ['command', 'Command Center', command, 'command'], ['overview', 'Overview', overview, 'overview']] },
   { group: 'Intelligence', items: [['tasks', 'Tasks', tasks, 'tasks'], ['engines', 'Agents', engines, 'agents'], ['missions', 'Missions & Goals', missions, 'missions'], ['memory', 'Memory', memory, 'memory']] },
   { group: 'Automation', items: [['automation', 'Automations', automation, 'automation'], ['social', 'Social Studio', social, 'plugins'], ['approvals', 'Approvals', approvals, 'approvals'], ['integrations', 'Plugins & Apps', integrations, 'plugins']] },
   { group: 'System', items: [['devices', 'Devices', devices, 'devices'], ['runtime', 'Device Runtime', runtime, 'runtime'], ['activity', 'Activity Log', activity, 'activity'], ['settings', 'Runtime Settings', settings, 'settings']] },
