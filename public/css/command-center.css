@@ -15,14 +15,13 @@
   --xoft-warning: #f2c14e;
   --xoft-success: #4fe3a1;
   --xoft-glow: 0 0 12px rgba(53, 224, 234, 0.18);
-  --xoft-radius: 6px;
-  --xoft-font: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --xoft-radius: 12px;
+  --xoft-font: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ---- shell overrides, only while the command view is active ---- */
 body[data-route="command"] { background: var(--xoft-bg); overflow: hidden; }
-body[data-route="command"] #sidebar,
-body[data-route="command"] #topbar { display: none; }
+/* Keep the shared XOFT sidebar and topbar mounted on this route. */
 body[data-route="command"] #app { height: 100dvh; }
 body[data-route="command"] #content { padding: 0; overflow-y: auto; overflow-x: hidden; }
 body[data-route="command"] .toast-wrap { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
@@ -31,7 +30,7 @@ body[data-route="command"] .toast-wrap { bottom: calc(76px + env(safe-area-inset
   --core-color: var(--xoft-cyan);
   font-family: var(--xoft-font);
   color: var(--xoft-text);
-  font-size: 12px;
+  font-size: 13px;
   min-height: 100%;
   display: grid;
   grid-template-rows: auto 1fr auto;
