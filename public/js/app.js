@@ -37,7 +37,8 @@ const ICONS = {
   plugins: '<path d="M9 3v3m6-3v3M9 18v3m6-3v3M3 9h3m-3 6h3m12-6h3m-3 6h3"/><rect x="6" y="6" width="12" height="12" rx="3"/><circle cx="12" cy="12" r="2"/>',
   speaker: '<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7m3-10a9 9 0 0 1 0 13"/>',
   stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
-  chevron: '<path d="m9 18 6-6-6-6"/>'
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>'
 };
 const icon = (name) => `<svg class="nav-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ICONS.overview}</svg>`;
 
@@ -69,24 +70,54 @@ if (typeof window.matchMedia === 'function') {
 
 function buildSidebar() {
   const nav = document.getElementById('nav');
-  nav.innerHTML = NAV.map((g) => `
-    <div class="group-label">${g.group}</div>
-    ${g.items.map(([route, label, , glyph]) => `
-      <a href="#${route}" data-route="${route}" title="${label}">
-        ${icon(glyph)}<span class="label">${label}</span><span class="nav-chevron">${icon('chevron')}</span>
-      </a>`).join('')}
+  nav.innerHTML = NAV.map((g, index) => `
+    <details class="nav-group" ${index === 0 ? 'open' : ''}>
+      <summary><span>${g.group}</span><span class="nav-group-chevron">${icon('chevron')}</span></summary>
+      <div class="nav-group-items">${g.items.map(([route, label, , glyph]) => `
+        <a href="#${route}" data-route="${route}" title="${label}">
+          ${icon(glyph)}<span class="label">${label}</span>
+        </a>`).join('')}
+      </div>
+    </details>
   `).join('');
   const brand = document.querySelector('#sidebar .brand');
   if (brand) brand.innerHTML = `<span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M4 5h10l22 30H25z"/><path d="M36 5H25L4 35h11z"/></svg></span><span class="brand-copy">XOFT<small>AI CORE <i>PERSONAL OS</i></small></span>`;
   const topbar = document.getElementById('topbar');
   topbar.innerHTML = `
-    <div class="topbar-title"><span class="eyebrow">XOFT / SYSTEM CONSOLE</span><h1 id="page-title">Command Center</h1></div>
+    <div class="topbar-leading">
+      <button id="nav-toggle" class="icon-button nav-toggle" type="button" aria-expanded="false" aria-controls="sidebar" aria-label="Open navigation">${icon('menu')}</button>
+      <div class="topbar-title"><span class="eyebrow">XOFT</span><h1 id="page-title">Live Voice</h1></div>
+    </div>
     <div class="topbar-actions">
       <span class="system-pill"><i class="status-pulse"></i><span id="system-state">SYSTEM ONLINE</span></span>
       <button id="global-speak-toggle" class="icon-button voice-toggle" type="button" aria-pressed="true" title="Toggle Speak Out" aria-label="Toggle Speak Out">${icon('speaker')}<span>Speak Out</span><b id="speak-state">ON</b></button>
       <button id="global-stop-speaking" class="icon-button stop-speaking" type="button" title="Stop speaking" aria-label="Stop speaking">${icon('stop')}</button>
     </div>`;
   wireGlobalVoice();
+  const backdrop = document.getElementById('nav-backdrop');
+  const navToggle = document.getElementById('nav-toggle');
+  const closeNavigation = () => {
+    document.body.classList.remove('nav-open');
+    navToggle?.setAttribute('aria-expanded', 'false');
+    navToggle?.setAttribute('aria-label', 'Open navigation');
+  };
+  navToggle?.addEventListener('click', () => {
+    const open = !document.body.classList.contains('nav-open');
+    document.body.classList.toggle('nav-open', open);
+    document.body.classList.toggle('sidebar-collapsed', !open && window.innerWidth > 760);
+    navToggle.setAttribute('aria-expanded', String(open));
+    navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+  });
+  backdrop?.addEventListener('click', closeNavigation);
+  nav?.addEventListener('click', (event) => {
+    if (event.target.closest('a[data-route]')) closeNavigation();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeNavigation();
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 760) closeNavigation();
+  });
 }
 function wireGlobalVoice() {
   const toggle = document.getElementById('global-speak-toggle');
