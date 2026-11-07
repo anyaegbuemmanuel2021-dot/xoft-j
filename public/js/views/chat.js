@@ -259,7 +259,6 @@ let whisperStream = null;
 let whisperChunks = [];
 let whisperBusy = false;
 let voiceConversationActive = false;
-let discardCurrentVoiceSegment = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
 let liveVideoStream = null;
@@ -361,11 +360,6 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
       await cleanupAudio();
 
-      if (discardCurrentVoiceSegment) {
-        discardCurrentVoiceSegment = false;
-        whisperBusy = false;
-        return;
-      }
       if (conversationSegment && !voiceConversationActive) {
         whisperBusy = false;
         return;
@@ -783,15 +777,14 @@ async function captureLiveVideoContext(container, question) {
 async function send(container, textOverride = null, { voiceTurn = false } = {}) {
   const input = container.querySelector('#chat-input');
   if (!input) return;
-  const text = String(textOverride ?? input.value).trim();
+  const typedText = input.value.trim();
+  const text = textOverride !== null && voiceTurn
+    ? [typedText, String(textOverride).trim()].filter(Boolean).join(' ')
+    : String(textOverride ?? input.value).trim();
   const continueLiveVoice = voiceConversationActive;
   if (!text) {
     if (voiceTurn && voiceConversationActive) scheduleConversationListen(container, 500);
     return;
-  }
-  if (!voiceTurn && continueLiveVoice && whisperRecorder && whisperRecorder.state !== 'inactive') {
-    discardCurrentVoiceSegment = true;
-    try { whisperRecorder.stop(); } catch { discardCurrentVoiceSegment = false; }
   }
   input.value = '';
   if (voiceTurn || continueLiveVoice) setVoiceStatus('thinking', 'XOFT IS THINKING');
