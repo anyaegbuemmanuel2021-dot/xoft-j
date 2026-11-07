@@ -278,7 +278,7 @@ function renderLog(container) {
 
 
 // STT: XOFT server transcription (OpenAI primary, Gemini fallback).
-import { transcribe as transcribeAudioBlob } from '../voice/stt.js';
+import { transcribe as transcribeAudioBlob, warmVoiceServer } from '../voice/stt.js';
 import { createLevelMeter, createSpeechGate, preferredRecorderOptions, unlockAudio } from '../voice/listen.js';
 let activeRecognition = null;
 let voiceRecorder = null;
@@ -338,6 +338,7 @@ function setMicButton(container, label, pressed = false) {
 }
 
 async function startVoiceRecording(container, { autoSegment = false } = {}) {
+  void warmVoiceServer();
   const conversationSegment = Boolean(autoSegment && voiceConversationActive);
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     toast('Voice input needs microphone access in a supported browser. Open XOFT over HTTPS and allow microphone permission.', 'warn');

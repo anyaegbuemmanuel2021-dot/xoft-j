@@ -35,6 +35,12 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.match(stt, /voiceFetch\('\/api\/voice\/transcribe'/);
   assert.doesNotMatch(stt, /whisper-fallback|transcribeLocally|on-device Whisper/);
   assert.match(chat, /transcribeAudioBlob\(blob, \(message\) =>/);
+  assert.match(stt, /export function warmVoiceServer/);
+  assert.match(stt, /fetch\('\/healthz'/);
+  assert.match(chat, /warmVoiceServer/);
+  assert.match(input, /warmVoiceServer/);
+  assert.match(companion, /warmVoiceServer/);
+
   assert.match(chat, /TRANSCRIPTION READY · XOFT/);
   assert.doesNotMatch(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
   assert.match(chat, /OpenAI → Gemini fallback/);

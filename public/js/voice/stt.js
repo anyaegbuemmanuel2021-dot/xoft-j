@@ -3,6 +3,18 @@
 // No browser-local Whisper model is downloaded or required.
 import { voiceFetch } from './voice-status.js';
 
+let warmRequest = null;
+/** Start Render's wake-up request as soon as the user starts speaking; never block recording on it. */
+export function warmVoiceServer() {
+  if (warmRequest) return warmRequest;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  warmRequest = fetch('/healthz', { method: 'GET', cache: 'no-store', signal: controller.signal })
+    .catch(() => null)
+    .finally(() => { clearTimeout(timer); warmRequest = null; });
+  return warmRequest;
+}
+
 async function transcribeOnServer(blob, language = 'auto') {
   const controller = new AbortController();
   // A sleeping Render free instance can take time to wake. Allow the request to reach it.

@@ -359,14 +359,6 @@ export function mountCommandInput(el, store, controller) {
           autoBtn.setAttribute('aria-pressed', 'false');
           autoBtn.textContent = 'XOFT AUTO LISTEN';
           setVoiceStatus('Microphone or browser speech permission denied. Allow microphone access, then retry XOFT server transcription.', 'error');
-        } else if (event.error === 'network') {
-          // Web Speech often depends on a vendor cloud service. Don't restart it forever
-          // on a network failure; direct microphone recording uses XOFT server transcription.
-          autoListening = false;
-          wakeArmed = false;
-          autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'XOFT AUTO LISTEN';
-          setVoiceStatus('AUTO LISTEN needs the browser speech service, which is unreachable right now. AUTO LISTEN is off; tap VOICE to record and send audio to XOFT server transcription.', 'error');
         } else if (event.error === 'audio-capture') {
           autoListening = false;
           autoBtn.setAttribute('aria-pressed', 'false');

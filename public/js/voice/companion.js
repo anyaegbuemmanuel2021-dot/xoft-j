@@ -2,7 +2,7 @@
 // STATUS: implemented, NOT verifiable in the build sandbox (needs a real microphone/browser). See docs/DEVICE_RUNTIME.md "Requires local testing".
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
-import { transcribe as transcribeAudioBlob } from './stt.js';
+import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 
 const $ = (id) => document.getElementById(id);
@@ -63,6 +63,7 @@ function stopRecognizer() {
 // ---- backend: server STT (records only VAD-detected segments) ----
 function startSegmentRecording() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
+  void warmVoiceServer();
   chunks = []; recorder = new MediaRecorder(stream, preferredRecorderOptions());
   recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   recorder.onstop = async () => {
