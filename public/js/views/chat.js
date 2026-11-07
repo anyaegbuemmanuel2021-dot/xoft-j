@@ -77,6 +77,20 @@ if (!window.__xoftNavRecentBound) {
   });
 }
 
+if (!window.__xoftNewChatBound) {
+  window.__xoftNewChatBound = true;
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-new-chat]')) return;
+    const id = crypto.randomUUID();
+    localStorage.setItem(SESSION_KEY, id);
+    history = [];
+    persistHistory();
+    const content = document.querySelector('#content');
+    if (location.hash.split('?')[0] === '#chat') render(content);
+    else location.hash = 'chat';
+  });
+}
+
 export function render(container) {
   const resumeVoice = voiceConversationActive;
   stopLiveVideo(container, true);
