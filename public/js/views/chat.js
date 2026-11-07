@@ -126,13 +126,7 @@ export function render(container) {
         <p class="chat-history-note">Your conversations are saved locally and synced to your XOFT account when the server is available.</p>
       </aside>
 
-      <nav class="chat-mobile-nav" aria-label="Primary navigation">
-        <a href="#chat" aria-current="page"><span>◉</span><small>Voice</small></a>
-        <a href="#command"><span>⌘</span><small>Home</small></a>
-        <a href="#tasks"><span>✓</span><small>Tasks</small></a>
-        <a href="#memory"><span>▤</span><small>Memory</small></a>
-        <a href="#settings"><span>⋯</span><small>More</small></a>
-      </nav>
+
     </div>
   `;
   renderLog(container);
@@ -266,6 +260,7 @@ let whisperStream = null;
 let whisperChunks = [];
 let whisperBusy = false;
 let voiceConversationActive = false;
+let discardCurrentVoiceSegment = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
 let liveVideoStream = null;
@@ -367,6 +362,11 @@ async function startWhisperRecording(container, { autoSegment = false } = {}) {
       const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
       await cleanupAudio();
 
+      if (discardCurrentVoiceSegment) {
+        discardCurrentVoiceSegment = false;
+        whisperBusy = false;
+        return;
+      }
       if (conversationSegment && !voiceConversationActive) {
         whisperBusy = false;
         return;
@@ -783,6 +783,11 @@ async function captureLiveVideoContext(container, question) {
 
 async function send(container, textOverride = null, { voiceTurn = false } = {}) {
   const input = container.querySelector('#chat-input');
+  const continueLiveVoice = voiceConversationActive;
+  if (!voiceTurn && continueLiveVoice && whisperRecorder && whisperRecorder.state !== 'inactive') {
+    discardCurrentVoiceSegment = true;
+    try { whisperRecorder.stop(); } catch { discardCurrentVoiceSegment = false; }
+  }
   if (!input) return;
   const text = String(textOverride ?? input.value).trim();
   if (!text) {
@@ -790,7 +795,7 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
     return;
   }
   input.value = '';
-  if (voiceTurn) setVoiceStatus('thinking', 'XOFT IS THINKING');
+  if (voiceTurn || continueLiveVoice) setVoiceStatus('thinking', 'XOFT IS THINKING');
   history.push({ role: 'user', content: text, at: new Date().toISOString() });
   persistHistory();
   renderLog(container);
@@ -846,7 +851,7 @@ async function send(container, textOverride = null, { voiceTurn = false } = {}) 
       console.info('[XOFT] Speech output was unavailable; continuing voice conversation.');
     }
   }
-  if (voiceTurn && voiceConversationActive) {
+  if ((voiceTurn || continueLiveVoice) && voiceConversationActive) {
     setVoiceStatus('listening', 'LISTENING · YOUR TURN');
     setConversationButton(container, true, '🟢 Listening… speak naturally');
     scheduleConversationListen(container, 500);
