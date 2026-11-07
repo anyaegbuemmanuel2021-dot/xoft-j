@@ -4,12 +4,25 @@ import { voiceFetch, getVoiceStatus, invalidateVoiceStatus } from './voice-statu
 import { transcribeAudioBlob as transcribeLocally } from './whisper-fallback.js';
 
 async function transcribeOnServer(blob, language = 'auto') {
-  const res = await voiceFetch('/api/voice/transcribe', {
-    method: 'POST',
-    headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Xoft-STT-Language': language },
-    body: blob,
-    cache: 'no-store',
-  });
+  // Bound the server request: a stalled mobile connection must not leave the conversation
+  // stuck in "Transcribing" forever. The server's OpenAI/Gemini hedge normally finishes sooner.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 18000);
+  let res;
+  try {
+    res = await voiceFetch('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Xoft-STT-Language': language },
+      body: blob,
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('XOFT server transcription timed out after 18 seconds.');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
     if (res.status === 503) invalidateVoiceStatus();
