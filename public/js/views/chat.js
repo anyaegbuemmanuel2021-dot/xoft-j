@@ -337,7 +337,7 @@ function setMicButton(container, label, pressed = false) {
   }
 }
 
-async function startvoiceRecording(container, { autoSegment = false } = {}) {
+async function startVoiceRecording(container, { autoSegment = false } = {}) {
   const conversationSegment = Boolean(autoSegment && voiceConversationActive);
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     toast('Voice input needs microphone access in a supported browser. Open XOFT over HTTPS and allow microphone permission.', 'warn');
@@ -503,12 +503,12 @@ function toggleVoiceInput(container) {
     try { activeRecognition.abort(); } catch {}
     activeRecognition = null;
   }
-  startvoiceRecording(container);
+  startVoiceRecording(container);
   return;
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    startvoiceRecording(container);
+    startVoiceRecording(container);
     return;
   }
   const recognition = new SpeechRecognition();
@@ -517,7 +517,7 @@ function toggleVoiceInput(container) {
   recognition.continuous = false;
   recognition.interimResults = true;
   let finalText = '';
-  let fallbackTovoice = false;
+  let fallbackToVoice = false;
 
   setVoiceStatus('listening', 'LISTENING · SPEAK NOW');
   setMicButton(container, '🔴 Listening… tap to stop', true);
@@ -535,14 +535,14 @@ function toggleVoiceInput(container) {
   };
   recognition.onerror = (event) => {
     if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
-      fallbackTovoice = true;
+      fallbackToVoice = true;
       toast('Browser speech recognition is unavailable. Recording directly for XOFT transcription…', 'warn');
     } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
       toast('Microphone access is blocked. Allow microphone permission in your browser settings.', 'warn');
     } else if (event.error === 'no-speech') {
       toast('No speech detected. Tap Voice Input and try again.', 'info');
     } else if (event.error !== 'aborted') {
-      fallbackTovoice = true;
+      fallbackToVoice = true;
       toast('Browser speech recognition failed. Recording directly for XOFT transcription…', 'warn');
     }
   };
@@ -551,7 +551,7 @@ function toggleVoiceInput(container) {
     setMicButton(container, '🎙️ Voice Input');
     const input = container.querySelector('#chat-input');
     if (input && input.value.trim()) input.focus();
-    if (fallbackTovoice && !voiceConversationActive) startvoiceRecording(container);
+    if (fallbackToVoice && !voiceConversationActive) startVoiceRecording(container);
   };
   try {
     recognition.start();
@@ -559,7 +559,7 @@ function toggleVoiceInput(container) {
     activeRecognition = null;
     setMicButton(container, '🎙️ Voice Input');
     toast('Browser recognition could not start. Recording directly for XOFT transcription…', 'warn');
-    startvoiceRecording(container);
+    startVoiceRecording(container);
   }
 }
 
@@ -663,12 +663,12 @@ function listenForConversationTurn(container) {
     voiceFallbackNoticeShown = true;
     toast('Voice conversation uses XOFT server transcription (OpenAI → Gemini fallback).', 'info');
   }
-  startvoiceRecording(container, { autoSegment: true });
+  startVoiceRecording(container, { autoSegment: true });
   return;
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    startvoiceRecording(container, { autoSegment: true });
+    startVoiceRecording(container, { autoSegment: true });
     return;
   }
   const recognition = new SpeechRecognition();
@@ -677,7 +677,7 @@ function listenForConversationTurn(container) {
   recognition.continuous = false;
   recognition.interimResults = true;
   let finalText = '';
-  let fallbackTovoice = false;
+  let fallbackToVoice = false;
   let permissionDenied = false;
   setVoiceStatus('listening', 'LISTENING · SPEAK NATURALLY');
   setConversationButton(container, true, '🟢 Listening… speak naturally');
@@ -699,14 +699,14 @@ function listenForConversationTurn(container) {
 
   recognition.onerror = (event) => {
     if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
-      fallbackTovoice = true;
+      fallbackToVoice = true;
     } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
       permissionDenied = true;
       toast('Microphone access is blocked. Allow microphone permission, then start Voice Conversation again.', 'warn');
     } else if (event.error === 'no-speech') {
       // Normal in a conversation: a silent turn just starts a fresh listen.
     } else if (event.error !== 'aborted') {
-      fallbackTovoice = true;
+      fallbackToVoice = true;
     }
   };
 
@@ -717,12 +717,12 @@ function listenForConversationTurn(container) {
       stopVoiceConversation(container, true);
       return;
     }
-    if (fallbackTovoice) {
+    if (fallbackToVoice) {
       if (!voiceFallbackNoticeShown) {
         voiceFallbackNoticeShown = true;
         toast('Browser speech service is unavailable. Switching to direct XOFT microphone capture.', 'warn');
       }
-      startvoiceRecording(container, { autoSegment: true });
+      startVoiceRecording(container, { autoSegment: true });
       return;
     }
     if (finalText.trim()) {
@@ -745,7 +745,7 @@ function listenForConversationTurn(container) {
       voiceFallbackNoticeShown = true;
       toast('Starting direct XOFT microphone capture because browser speech could not start.', 'warn');
     }
-    startvoiceRecording(container, { autoSegment: true });
+    startVoiceRecording(container, { autoSegment: true });
   }
 }
 
