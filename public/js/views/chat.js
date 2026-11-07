@@ -750,8 +750,8 @@ function toggleVoiceConversation(container) {
   }
   voiceFallbackNoticeShown = false;
   voiceConversationActive = true;
-  setVoiceStatus('listening', 'STARTING MICROPHONE');
-  setConversationButton(container, true, '🟢 Starting voice conversation…');
+  setVoiceStatus('thinking', 'REQUESTING MICROPHONE');
+  setConversationButton(container, true, 'Allow microphone access…');
   toast('Voice conversation is on. Speak naturally; XOFT will answer aloud and then listen again. Tap Stop Voice Conversation to finish.', 'success');
   listenForConversationTurn(container);
 }
