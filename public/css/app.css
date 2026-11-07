@@ -1080,3 +1080,10 @@ body[data-route="chat"] .voice-settings { display:inline-flex; width:44px; heigh
   .chat-voice-home #chat-input-row #chat-send,.chat-voice-home #chat-input-row #chat-voice-conversation,.chat-voice-home #chat-input-row #chat-voice-end { width:40px; height:40px; }
 }
 @media (prefers-reduced-motion:reduce) { #sidebar,.nav-group-chevron { transition:none !important; } }
+
+#nav-recent-chats { padding:12px 14px 16px; border-top:1px solid rgba(91,196,214,.12); }
+.nav-recent-heading { margin-bottom:8px; color:#8199a5; font-size:10px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+#nav-recent-chat-list { display:grid; gap:3px; max-height:210px; overflow:auto; }
+#nav-recent-chat-list .nav-recent-item { width:100%; min-height:36px; padding:8px 9px; overflow:hidden; border:0; border-radius:8px; background:transparent; color:#a2b6c0; text-align:left; text-overflow:ellipsis; white-space:nowrap; font:400 12px/1.4 system-ui,sans-serif; }
+#nav-recent-chat-list .nav-recent-item:hover,#nav-recent-chat-list .nav-recent-item.active { background:rgba(40,217,232,.09); color:#effcff; }
+#nav-recent-chat-list .empty { padding:5px 2px; color:#71818e; font-size:11px; }
