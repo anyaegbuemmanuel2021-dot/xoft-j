@@ -39,7 +39,15 @@ export async function voiceFetch(url, options = {}) {
 export async function getVoiceStatus({ force = false } = {}) {
   if (!force && cached && Date.now() - cachedAt < TTL_MS) return cached;
   try {
-    const res = await voiceFetch('/api/voice/status', { method: 'GET' });
+    // Status is advisory; keep it fast so it never delays a voice turn on a slow free host.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    let res;
+    try {
+      res = await voiceFetch('/api/voice/status', { method: 'GET', signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     if (res.ok) {
       cached = await res.json();
       cachedAt = Date.now();
