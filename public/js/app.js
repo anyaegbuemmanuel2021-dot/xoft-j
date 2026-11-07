@@ -103,11 +103,17 @@ function buildSidebar() {
     navToggle?.setAttribute('aria-label', 'Open navigation');
   };
   navToggle?.addEventListener('click', () => {
-    const open = !document.body.classList.contains('nav-open');
-    document.body.classList.toggle('nav-open', open);
-    document.body.classList.toggle('sidebar-collapsed', !open && window.innerWidth > 760);
-    navToggle.setAttribute('aria-expanded', String(open));
-    navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    if (window.innerWidth <= 760) {
+      const open = !document.body.classList.contains('nav-open');
+      document.body.classList.toggle('nav-open', open);
+      navToggle.setAttribute('aria-expanded', String(open));
+      navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+      return;
+    }
+    const collapsed = !document.body.classList.contains('sidebar-collapsed');
+    document.body.classList.toggle('sidebar-collapsed', collapsed);
+    navToggle.setAttribute('aria-expanded', String(!collapsed));
+    navToggle.setAttribute('aria-label', collapsed ? 'Expand navigation' : 'Collapse navigation');
   });
   backdrop?.addEventListener('click', closeNavigation);
   nav?.addEventListener('click', (event) => {
