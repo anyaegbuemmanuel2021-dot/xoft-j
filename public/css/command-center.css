@@ -651,3 +651,29 @@ body[data-route="command"] #content .cc-home-core .cc-cmd .cc-actions button {
   line-height: 1.2;
 }
 body[data-route="command"] #content .cc-home-core .cc-cmd-bar { gap: 6px; }
+
+
+/* Viewport-aware Command Center sizing: prevent panels and composer overflow. */
+body[data-route="command"] #content,
+body[data-route="command"] .cc,
+body[data-route="command"] .cc-home,
+body[data-route="command"] .cc-main-home { min-width:0; max-width:100%; }
+body[data-route="command"] .cc-home-core { min-width:0; width:100%; }
+body[data-route="command"] .cc-home-core .cc-cmd { width:100%; max-width:100%; padding:clamp(6px,1vw,10px); }
+body[data-route="command"] .cc-home-core .cc-cmd textarea {
+  width:100%; min-width:0; min-height:40px !important; height:40px;
+  max-height:16dvh; font-size:14px !important; line-height:20px;
+}
+body[data-route="command"] .cc-home-core .cc-cmd-bar,
+body[data-route="command"] .cc-home-core .cc-actions { min-width:0; max-width:100%; gap:5px; }
+body[data-route="command"] .cc-home-core .cc-actions button { min-width:0; min-height:32px; padding:5px 8px; font-size:11px; }
+body[data-route="command"] .cc-home-core .cc-exchange,
+body[data-route="command"] .cc-home-core .cc-exchanges { min-width:0; max-width:100%; overflow-wrap:anywhere; }
+@media (max-width:760px) {
+  body[data-route="command"] .cc-home-core .cc-cmd textarea { min-height:40px !important; height:40px; max-height:14dvh; font-size:16px !important; }
+  body[data-route="command"] .cc-home-core .cc-actions { width:100%; flex-wrap:wrap; }
+  body[data-route="command"] .cc-home-core .cc-actions button { flex:1 1 auto; min-height:32px; }
+}
+@media (max-height:620px) {
+  body[data-route="command"] .cc-home-core .cc-cmd textarea { max-height:12dvh; }
+}
