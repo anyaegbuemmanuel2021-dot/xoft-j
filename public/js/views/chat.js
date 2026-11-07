@@ -41,10 +41,13 @@ function persistHistory() {
 }
 function renderRecentChats(root, query = '') {
   const list = root?.querySelector('#recent-chat-list');
-  if (!list) return;
+  const navList = document.querySelector('#nav-recent-chat-list');
+  if (!list && !navList) return;
   const q = query.trim().toLowerCase();
   const sessions = recentSessions().filter(item => !q || item.title.toLowerCase().includes(q));
-  list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || '<div class="empty">No saved chats yet.</div>';
+  const empty = '<div class="empty">No saved chats yet.</div>';
+  if (list) list.innerHTML = sessions.map(item => '<button type="button" class="recent-chat-item ' + (item.id === sessionId() ? 'active' : '') + '" data-recent-session="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(new Date(item.updatedAt).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})) + '</small></button>').join('') || empty;
+  if (navList) navList.innerHTML = sessions.slice(0, 8).map(item => '<button type="button" class="nav-recent-item ' + (item.id === sessionId() ? 'active' : '') + '" data-nav-recent-session="' + esc(item.id) + '"><span>' + esc(item.title) + '</span></button>').join('') || empty;
 }
 function formatChatText(value) {
   let text = esc(String(value ?? '').replace(/\r\n?/g, '\n'));
@@ -57,6 +60,21 @@ function formatChatText(value) {
   text = text.replace(/(<li>.*<\/li>\n?)+/g, match => '<ul>' + match.replace(/\n/g, '') + '</ul>');
   text = text.replace(/%%CODE(\d+)%%/g, (_, i) => code[Number(i)] || '');
   return text.split(/\n{2,}/).map(p => /^\s*<(h[234]|ul|pre)/.test(p.trim()) ? p : p.replace(/\n/g, '<br>')).join('');
+}
+
+if (!window.__xoftNavRecentBound) {
+  window.__xoftNavRecentBound = true;
+  document.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-nav-recent-session]');
+    if (!item) return;
+    const id = item.dataset.navRecentSession;
+    if (!id) return;
+    localStorage.setItem(SESSION_KEY, id);
+    history = readHistory(id);
+    const content = document.querySelector('#content');
+    if (location.hash.split('?')[0] === '#chat') render(content);
+    else location.hash = 'chat';
+  });
 }
 
 export function render(container) {
