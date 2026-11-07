@@ -65,7 +65,7 @@ export function createLevelMeter(stream) {
 }
 
 /** Adaptive speech gate: learns the room noise floor for ~0.5 s, then requires 3x that (minimum 0.008). */
-export function createSpeechGate({ preset = 0, minThreshold = 0.008, floorMultiplier = 3 } = {}) {
+export function createSpeechGate({ preset = 0, minThreshold = 0.005, floorMultiplier = 2.5 } = {}) {
   // Only quiet frames may teach the noise floor. Sampling every frame caused opening speech
   // to be learned as background noise, making the microphone ignore the user's first sentence.
   const floorSamples = [];

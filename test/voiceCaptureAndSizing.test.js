@@ -43,6 +43,6 @@ test('chat and Command Center composers override the global oversized textarea h
   const commandCss = read('../public/css/command-center.css');
   const chatRule = appCss.slice(appCss.lastIndexOf('body[data-route="chat"] #content .chat-voice-home #chat-input-row textarea'));
   const commandRule = commandCss.slice(commandCss.lastIndexOf('body[data-route="command"] #content .cc-home-core .cc-cmd textarea'));
-  assert.ok(chatRule.includes('min-height:40px'), 'chat composer must override the global 88px textarea');
-  assert.ok(commandRule.includes('min-height:42px'), 'command composer must override the global 88px textarea');
+  assert.ok(chatRule.includes('min-height: 40px !important'), 'chat composer must override the global 88px textarea');
+  assert.ok(commandRule.includes('min-height: 42px !important'), 'command composer must override the global 88px textarea');
 });

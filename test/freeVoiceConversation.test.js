@@ -48,7 +48,7 @@ test('Voice companion defaults to server STT and uses shared fallback instead of
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
   assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
-  assert.match(companion, /OpenAI → Gemini, then local Whisper/);
+  assert.match(companion, /OpenAI → Gemini fallback/);
 });
 
 test('Speech output uses ElevenLabs by default and falls back to browser TTS', () => {
@@ -60,19 +60,21 @@ test('Speech output uses ElevenLabs by default and falls back to browser TTS', (
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);
 });
 
-test('The service worker cache includes the local voice fallback and has a new cache key', () => {
+test('The service worker cache uses server-only transcription and has a new cache key', () => {
   const sw = read('public/sw.js');
   assert.match(sw, /const CACHE_NAME = ['\"]xoft-shell-v\d+['\"]/);
-  assert.match(sw, /\/js\/voice\/whisper-fallback\.js/);
+  assert.doesNotMatch(sw, /whisper-fallback/);
   assert.match(sw, /\/js\/voice\/stt\.js/);
   assert.match(sw, /\/js\/voice\/voice-status\.js/);
   assert.match(read('public/js/app.js'), /sw\.js\?v=\d{8}-\d+/);
 });
 
-test('AUTO LISTEN uses Whisper by default and only uses browser Web Speech when the browser cannot record', () => {
+test('AUTO LISTEN uses XOFT server transcription by default and only uses browser Web Speech when recording is unavailable', () => {
   const input = read('public/js/dashboard/CommandInput.js');
   const listen = read('public/js/voice/listen.js');
   assert.match(input, /let serverMode = canRecord \|\| !Recognition/);
+  assert.match(input, /AUTO LISTEN sends recorded audio to XOFT server transcription/);
+  assert.doesNotMatch(input, /local Whisper|on-device Whisper|WHISPER AUTO LISTEN/);
   assert.match(input, /event\.error === 'network' \|\| event\.error === 'service-not-allowed'/);
   assert.match(input, /createServerListener/);
   assert.match(listen, /setInterval/);
@@ -132,15 +134,11 @@ test('Live video sends a bounded camera snapshot for visual context without disp
 });
 
 
-test('Local STT fallback uses multilingual Whisper and refuses empty audio rather than inventing words', () => {
-  const whisper = read('public/js/voice/whisper-fallback.js');
-  assert.match(whisper, /onnx-community\/whisper-tiny['\"]?/);
-  assert.doesNotMatch(whisper, /whisper-tiny\.en/);
-  assert.match(whisper, /if \(!blob \|\| !blob\.size\) throw new Error\('No recorded audio was available\.'\)/);
-  assert.match(whisper, /if \(!text\) throw new Error\('Whisper did not detect any speech\.'\)/);
-  assert.match(whisper, /function hasAudibleSignal\(samples\)/);
-  assert.match(whisper, /if \(!hasAudibleSignal\(samples\)\)/);
-  assert.match(whisper, /No clear speech signal was detected/);
+test('Browser-local Whisper is not required by the production transcription path', () => {
+  const stt = read('public/js/voice/stt.js');
+  const shell = read('public/sw.js');
+  assert.doesNotMatch(stt, /whisper-fallback|transcribeLocally/);
+  assert.doesNotMatch(shell, /whisper-fallback/);
 });
 
 test('Voice transcription prompt protects against noise hallucinations and preserves Nigerian English/Igbo code-switching', () => {

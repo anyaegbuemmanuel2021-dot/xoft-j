@@ -75,7 +75,7 @@ function startSegmentRecording() {
         ui.log(`heard: ${transcript}`);
         pipeline.transcript(transcript, true);
       } else ui.log('No speech was recognized in this segment.');
-    } catch (err) { ui.log(`STT failed (server OpenAI → Gemini, then local Whisper): ${err.message}`); }
+    } catch (err) { ui.log(`XOFT server STT failed (OpenAI → Gemini): ${err.message}`); }
   };
   recorder.start();
 }
