@@ -87,6 +87,7 @@ function buildSidebar() {
     <div class="topbar-leading">
       <button id="nav-toggle" class="icon-button nav-toggle" type="button" aria-expanded="false" aria-controls="sidebar" aria-label="Open navigation">${icon('menu')}</button>
       <div class="topbar-title"><span class="eyebrow">XOFT</span><h1 id="page-title">Live Voice</h1></div>
+      <a href="#settings" class="icon-button voice-settings" aria-label="Settings" title="Settings">${icon('settings')}</a>
     </div>
     <div class="topbar-actions">
       <span class="system-pill"><i class="status-pulse"></i><span id="system-state">SYSTEM ONLINE</span></span>
