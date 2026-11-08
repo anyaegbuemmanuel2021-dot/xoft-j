@@ -25,7 +25,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null; let chunks = [];
+let recognizer = null; let recognizerWanted = false; let recorder = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -73,19 +73,17 @@ function startSegmentRecording() {
     return;
   }
 
-  chunks = [];
+  const segmentChunks = [];
   recorder = activeRecorder;
-  activeRecorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+  activeRecorder.ondataavailable = (e) => { if (e.data?.size) segmentChunks.push(e.data); };
   activeRecorder.onerror = (event) => {
     const error = event.error;
     ui.log('MediaRecorder error: ' + (error?.name || 'UnknownError') + ' — ' + (error?.message || 'audio capture failed'));
     if (recorder === activeRecorder) recorder = null;
-    chunks = [];
   };
   activeRecorder.onstop = async () => {
     const type = activeRecorder.mimeType || options?.mimeType || 'audio/webm';
-    const capturedChunks = chunks;
-    chunks = [];
+    const capturedChunks = segmentChunks;
     if (recorder === activeRecorder) recorder = null;
     const blob = new Blob(capturedChunks, { type });
     ui.log('audio segment captured: ' + blob.size + ' bytes (' + type + ')');
@@ -108,7 +106,6 @@ function startSegmentRecording() {
     ui.log('recording started: ' + (activeRecorder.mimeType || options?.mimeType || 'browser default'));
   } catch (error) {
     if (recorder === activeRecorder) recorder = null;
-    chunks = [];
     ui.log('MediaRecorder start failed: ' + (error.name || 'Error') + ' — ' + error.message);
   }
 }
