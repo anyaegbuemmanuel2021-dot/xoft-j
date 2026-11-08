@@ -2,13 +2,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-// node:sqlite is loaded lazily (not as a static import) so that simply
-// importing this file never crashes a runtime that lacks it (some
-// serverless/edge Node builds ship without experimental built-ins even on
-// Node 22+). The constructor still requires it — SqliteStore genuinely
-// needs SQLite — but callers that never instantiate it (STORAGE_MODE !=
-// 'sqlite') are unaffected, and the failure mode here is a clear thrown
-// error instead of the whole process failing to boot.
 function loadDatabaseSync() {
   try {
     return createRequire(import.meta.url)('node:sqlite').DatabaseSync;
@@ -24,44 +17,44 @@ function loadDatabaseSync() {
 export class SqliteStore {
   constructor(filePath = './data/xoft.sqlite') {
     const DatabaseSync = loadDatabaseSync();
-    fs.mkdirSync(path.dirname(path.resolve(filePath)), { recursive: true });
-    this.db = new DatabaseSync(filePath);
+    this.filePath = path.resolve(filePath);
+    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+    this.db = new DatabaseSync(this.filePath);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS activity_logs (
-        id TEXT PRIMARY KEY,
-        ts TEXT NOT NULL,
-        task_id TEXT,
-        value TEXT NOT NULL
+        id TEXT PRIMARY KEY, ts TEXT NOT NULL, task_id TEXT, value TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_activity_logs_task_ts ON activity_logs(task_id, ts);
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commands (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_commands_device_status ON commands(device_id, status);
-
-      -- Per-device bearer credentials (spec section 10 — device-to-cloud auth
-      -- distinct from the human/admin shared API key). Only a salted hash is
-      -- ever stored; the raw token is returned once, at issue time, and never
-      -- persisted or logged anywhere.
       CREATE TABLE IF NOT EXISTS device_tokens (
-        token_hash TEXT PRIMARY KEY,
-        device_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        revoked_at TEXT
+        token_hash TEXT PRIMARY KEY, device_id TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_device_tokens_device ON device_tokens(device_id);
     `);
+    this._secureFiles();
   }
+
+  // Settings can contain provider credentials. Protect the database and WAL
+  // sidecars as well as the legacy JSON files that preceded SQLite storage.
+  _secureFiles() {
+    for (const file of [this.filePath, `${this.filePath}-wal`, `${this.filePath}-shm`]) {
+      try { if (fs.existsSync(file)) fs.chmodSync(file, 0o600); } catch { /* platform/filesystem may not support chmod */ }
+    }
+  }
+
   get(key) { const row = this.db.prepare('SELECT value FROM kv WHERE key=?').get(key); return row ? JSON.parse(row.value) : null; }
-  set(key, value) { this.db.prepare('INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value)); }
-  // --- Append-only activity history ---
-  countActivityLogs() {
-    return this.db.prepare('SELECT COUNT(*) AS count FROM activity_logs').get().count;
+  set(key, value) {
+    this.db.prepare('INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value));
+    this._secureFiles();
   }
+  countActivityLogs() { return this.db.prepare('SELECT COUNT(*) AS count FROM activity_logs').get().count; }
   appendActivityLog(entry) {
-    this.db.prepare('INSERT INTO activity_logs(id, ts, task_id, value) VALUES(?,?,?,?)')
-      .run(entry.id, entry.ts, entry.taskId ?? null, JSON.stringify(entry));
+    this.db.prepare('INSERT INTO activity_logs(id, ts, task_id, value) VALUES(?,?,?,?)').run(entry.id, entry.ts, entry.taskId ?? null, JSON.stringify(entry));
+    this._secureFiles();
   }
   loadActivityLogs({ taskId } = {}) {
     const rows = taskId
@@ -70,15 +63,19 @@ export class SqliteStore {
     return rows.map((row) => JSON.parse(row.value));
   }
   loadDevices() { return this.db.prepare('SELECT value FROM devices').all().map(r => JSON.parse(r.value)); }
-  saveDevice(device) { this.db.prepare('INSERT INTO devices(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(device.id, JSON.stringify(device)); }
+  saveDevice(device) {
+    this.db.prepare('INSERT INTO devices(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(device.id, JSON.stringify(device));
+    this._secureFiles();
+  }
   loadCommands() { return this.db.prepare('SELECT value FROM commands').all().map(r => JSON.parse(r.value)); }
-  saveCommand(command) { this.db.prepare('INSERT INTO commands(id,device_id,status,value) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET device_id=excluded.device_id,status=excluded.status,value=excluded.value').run(command.id, command.deviceId, command.status, JSON.stringify(command)); }
-
-  // --- Device tokens ---
+  saveCommand(command) {
+    this.db.prepare('INSERT INTO commands(id,device_id,status,value) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET device_id=excluded.device_id,status=excluded.status,value=excluded.value').run(command.id, command.deviceId, command.status, JSON.stringify(command));
+    this._secureFiles();
+  }
   saveDeviceToken({ tokenHash, deviceId, createdAt }) {
     this.db.prepare('INSERT INTO device_tokens(token_hash, device_id, created_at) VALUES(?,?,?)').run(tokenHash, deviceId, createdAt);
+    this._secureFiles();
   }
-  /** Returns { deviceId } for a live (non-revoked) token hash, or null. */
   findDeviceToken(tokenHash) {
     const row = this.db.prepare('SELECT device_id, revoked_at FROM device_tokens WHERE token_hash=?').get(tokenHash);
     if (!row || row.revoked_at) return null;
@@ -86,7 +83,7 @@ export class SqliteStore {
   }
   revokeDeviceTokens(deviceId) {
     this.db.prepare("UPDATE device_tokens SET revoked_at=? WHERE device_id=? AND revoked_at IS NULL").run(new Date().toISOString(), deviceId);
+    this._secureFiles();
   }
-
   close() { this.db.close(); }
 }
