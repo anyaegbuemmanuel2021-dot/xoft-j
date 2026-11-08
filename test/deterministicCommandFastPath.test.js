@@ -56,7 +56,7 @@ test('explicit date and time questions use the registered utility without an AI 
   const { brain, calls } = makeBrain();
   const result = await brain.handle('session-4', 'Hey XOFT, what time is it?');
   assert.equal(result.action, 'tool');
-  assert.match(result.reply, /Africa\\/Lagos/);
+  assert.ok(result.reply.includes('Africa/Lagos'));
   assert.deepEqual(calls.execute, [{ name: 'get_current_time', input: {} }]);
   assert.equal(calls.model, 0);
 });
