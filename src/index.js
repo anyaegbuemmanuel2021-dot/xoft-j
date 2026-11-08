@@ -247,6 +247,8 @@ const executiveBrain = new ExecutiveBrain({
   address,
   advisorAgent,
   intelligenceDirector,
+  dataDir: config.memory.dataDir,
+  sqliteStore: durableStore,
 });
 
 const channelGateway = new ChannelGateway({ executiveBrain, activityLog, address });
