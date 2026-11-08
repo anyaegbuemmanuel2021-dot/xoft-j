@@ -1,5 +1,5 @@
 // XOFT speech output: local Android TextToSpeech first, server TTS second.
-// Browser speechSynthesis is intentionally not used: it is inconsistent across mobile browsers/WebViews.
+// Browser-provided speech synthesis is intentionally not used: it is inconsistent across mobile browsers/WebViews.
 import { apiHeaders, getVoiceStatus, peekVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
 import { hasNativeSpeech, speakNative, stopNativeSpeech } from './native-bridge.js';
 
