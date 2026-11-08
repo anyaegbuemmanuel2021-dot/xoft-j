@@ -38,3 +38,8 @@ export function assessStorageReadiness({ persistentRoot, dataRoot, sqlitePath, s
   );
   return { durable, configured, mounted };
 }
+
+/** Strict readiness is opt-in so existing ephemeral deployments keep serving while operators migrate. */
+export function isStorageReady({ durable, required = false }) {
+  return !required || durable === true;
+}
