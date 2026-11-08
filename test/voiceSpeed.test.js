@@ -64,7 +64,7 @@ test('a fast Gemini answer never starts OpenAI (no wasted calls)', async () => {
   } finally { restore(); }
 });
 
-test('hedging off (0) keeps strictly sequential fallback', async () => {
+test('hedging off (0) keeps providers sequential while allowing a bounded transient retry', async () => {
   const restore = withVoiceConfig({ hedgeMs: 0 });
   try {
     const order = [];
@@ -76,7 +76,7 @@ test('hedging off (0) keeps strictly sequential fallback', async () => {
       },
     });
     const out = await svc.transcribe(Buffer.from('audio'));
-    assert.deepEqual(order, ['gemini', 'openai']);
+    assert.deepEqual(order, ['gemini', 'gemini', 'openai']);
     assert.equal(out.provider, 'openai');
   } finally { restore(); }
 });
@@ -134,14 +134,18 @@ test('unmistakable confirm, cancel and status phrases are resolved without a mod
   assert.equal(fastClassify('What should I be doing right now?').action, ExecutiveAction.WORLD_STATE);
 });
 
-test('anything that could be a task, advice request or ambiguous approval still goes to the model', async () => {
-  for (const message of ['send an email to John about Friday', 'schedule a meeting with Ada tomorrow', 'any ideas for my project?', 'how should I structure this?', 'ok', 'sure', 'sounds good', 'okay thanks', 'x'.repeat(300)]) {
-    assert.equal(fastClassify(message), null, message);
+test('tasks, advice and ambiguous acknowledgements are classified with deterministic rules', async () => {
+  assert.equal(fastClassify('send an email to John about Friday').action, ExecutiveAction.GOAL);
+  assert.equal(fastClassify('schedule a meeting with Ada tomorrow').action, ExecutiveAction.GOAL);
+  assert.equal(fastClassify('any ideas for my project?').action, ExecutiveAction.ADVISE);
+  assert.equal(fastClassify('how should I structure this?').action, ExecutiveAction.ADVISE);
+  for (const message of ['ok', 'sure', 'sounds good', 'okay thanks', 'x'.repeat(300)]) {
+    assert.equal(fastClassify(message).action, ExecutiveAction.DELEGATE, message);
   }
   let calls = 0;
   const classifier = new ExecutiveClassifier({ complete: async () => { calls += 1; return { text: '{"action":"goal"}' }; } });
   assert.equal((await classifier.classify('send an email to John')).action, ExecutiveAction.GOAL);
-  assert.equal(calls, 1);
+  assert.equal(calls, 0);
 });
 
 test('speech is split into short sentence chunks so the first audio starts quickly', () => {
