@@ -103,6 +103,7 @@ import { WhatsAppInboxStore } from './integrations/WhatsAppInboxStore.js';
 import { TwilioService } from './integrations/TwilioService.js';
 import { buildCommunicationTools } from './tools/builtins/communicationTools.js';
 import { SocialHandleManager } from './social/SocialHandleManager.js';
+import { NativeCommandEngine } from './native/NativeCommandEngine.js';
 
 const durableStore = config.storage.mode === 'sqlite' ? new SqliteStore(config.storage.sqlitePath) : null;
 const modelHealth = new ModelHealthManager();
@@ -234,6 +235,7 @@ const automationFactory = new AutomationFactory({ router, toolRegistry, rulesEng
 const specialistDirector = new SpecialistDirector({ router, injectionGuard, activityLog });
 const contextEngine = new ContextEngine({ worldState, memory, activityLog });
 const intelligenceDirector = new IntelligenceDirector({ router, reasoningEngine, confidenceEngine, memory, contextEngine, activityLog });
+const nativeCommandEngine = new NativeCommandEngine({ toolRegistry, activityLog });
 const executiveBrain = new ExecutiveBrain({
   router,
   memory,
@@ -247,6 +249,7 @@ const executiveBrain = new ExecutiveBrain({
   address,
   advisorAgent,
   intelligenceDirector,
+  nativeCommandEngine,
 });
 
 const channelGateway = new ChannelGateway({ executiveBrain, activityLog, address });
@@ -1117,7 +1120,22 @@ app.post('/api/voice/transcribe', voiceLimit, async (req, res) => {
     const { text, provider, ms } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime, language });
     res.json({ text, provider, ms });
   } catch (err) {
-    res.status(502).json({ error: err.message, attempts: err.attempts ?? [] });
+    const attempts = Array.isArray(err.attempts) ? err.attempts : [];
+    const quotaBlocked = attempts.some((attempt) => (
+      attempt.code === 'insufficient_quota'
+      || attempt.code === 'billing_hard_limit_reached'
+      || /insufficient_quota|billing_hard_limit|exceeded your current quota/i.test(attempt.error || '')
+    ));
+    // A quota/billing rejection is not a transient gateway fault. Return a
+    // clear service-unavailable response so the client can preserve the
+    // recording and avoid hammering a provider that cannot accept requests.
+    res.status(quotaBlocked ? 503 : 502).json({
+      error: err.message,
+      code: quotaBlocked ? 'STT_PROVIDER_QUOTA_EXHAUSTED' : 'STT_PROVIDER_FAILURE',
+      retryable: !quotaBlocked,
+      requestId: req.requestId,
+      attempts,
+    });
   }
 });
 
