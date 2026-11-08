@@ -146,17 +146,19 @@ function buildPipeline() {
 
 async function start() {
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
+  // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
+  // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
+  ctx = unlockAudio();
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-  catch (err) { ui.pill('mic', err.name === 'NotAllowedError' ? 'mic: permission denied' : 'mic: unavailable', 'err'); ui.log(`microphone: ${err.name} — ${err.message}`); return; }
-  // Unlock/resume AudioContext directly inside the Start button gesture. Creating a fresh context
-  // after awaiting getUserMedia can leave it suspended on mobile; the analyser then reads zeros
-  // and VAD never starts a recording, making STT appear completely dead.
+  catch (err) {
+    try { await ctx?.close(); } catch { /* ignore */ } ctx = null;
+    ui.pill('mic', err.name === 'NotAllowedError' ? 'mic: permission denied' : 'mic: unavailable', 'err');
+    ui.log(`microphone: ${err.name} — ${err.message}`);
+    return;
+  }
+  // The context was already unlocked in the click handler; finish any pending resume before VAD starts.
   try {
-    ctx = unlockAudio();
-    if (!ctx) {
-      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      if (AudioContextCtor) ctx = new AudioContextCtor();
-    }
+    if (!ctx) throw new Error('This browser does not support AudioContext.');
     if (!ctx) throw new Error('This browser does not support AudioContext.');
     if (ctx.state === 'suspended') await ctx.resume();
     if (ctx.state !== 'running') throw new Error(`AudioContext is ${ctx.state}; tap Start listening again and allow audio access.`);
