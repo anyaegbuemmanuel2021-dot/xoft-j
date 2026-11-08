@@ -8,11 +8,16 @@ export const title = 'Overview';
 export let cleanup = null;
 
 export async function render(container) {
-  const [status, world, autonomy, stop, queue, realtime, activityResult] = await Promise.all([
+  const [status, world, autonomy, stop, queue, realtime, activityResult, readiness] = await Promise.all([
     api.get('/api/status'), api.get('/api/world-state'), api.get('/api/autonomy'),
     api.get('/api/emergency-stop'), api.get('/api/task-queue/status'), api.get('/api/realtime/status'),
     api.get('/api/activity').catch(() => []),
+    api.get('/readyz').catch(() => null),
   ]);
+  const persistence = readiness?.persistence;
+  const persistenceNotice = persistence?.durable
+    ? '<div class="empty" role="status">Data storage: persistent mount detected. Keep regular backups of important data.</div>'
+    : '<div class="empty" role="alert"><strong>Data protection warning:</strong> XOFT is running without verified persistent storage. Memory, settings, tasks and SQLite data may be lost after a restart or redeploy. On Render Free, attach a paid persistent disk or use an external durable database before storing important data.</div>';
   const recentActivity = Array.isArray(activityResult) ? activityResult.slice().reverse().slice(0, 6) : [];
   const runningCount = Number(queue.running?.length || 0);
   const pendingCount = Number(queue.pending?.length || 0);
@@ -21,6 +26,7 @@ export async function render(container) {
 
   container.innerHTML = `
     ${status.__stale ? '<div class="empty">Offline — showing last known status.</div>' : ''}
+    ${persistenceNotice}
     <div class="grid">
       ${card('System', `
         <div class="row"><span class="main">AI providers</span><span>${status.configuredProviders.length ? status.configuredProviders.map(p => badge(p, 'ok')).join('') : badge('none configured', 'warn')}</span></div>
