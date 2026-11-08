@@ -17,7 +17,7 @@ describe('PC agent connection resilience', () => {
       sleepImpl: async (ms) => delays.push(ms),
     });
     assert.equal(probes, 3);
-    assert.deepEqual(delays, [100, 200]);
+    assert.deepEqual(delays, [100, 250]);
     assert.deepEqual(result, { attempts: 3 });
   });
 
