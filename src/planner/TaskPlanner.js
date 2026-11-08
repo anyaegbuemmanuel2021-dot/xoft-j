@@ -200,6 +200,10 @@ export class TaskPlanner {
       throw new Error(`TaskPlanner: planner model returned non-JSON output: ${result.text.slice(0, 200)}`);
     }
 
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('TaskPlanner: planner response must be a JSON object containing steps and blockedReason.');
+    }
+
     const taskId = crypto.randomUUID();
     const rawSteps = parsed.steps ?? [];
     const availableToolNames = new Set(toolSchemas.map((tool) => tool.name));
