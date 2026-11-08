@@ -40,8 +40,9 @@ export class ExecutiveBrain {
    * @param {import('../advisor/AdvisorAgent.js').AdvisorAgent} [deps.advisorAgent]
    * @param {import('../intelligence/IntelligenceDirector.js').IntelligenceDirector} [deps.intelligenceDirector]
    */
-  constructor({ router, memory, orchestrator, taskPlanner, approvalSystem, worldState, activityLog, confidenceEngine, personality, advisorAgent, intelligenceDirector, address }) {
+  constructor({ router, memory, orchestrator, taskPlanner, approvalSystem, worldState, activityLog, confidenceEngine, personality, advisorAgent, intelligenceDirector, address, nativeCommandEngine }) {
     this.address = address ?? null;
+    this.nativeCommandEngine = nativeCommandEngine ?? null;
     this.router = router;
     this.memory = memory;
     this.orchestrator = orchestrator;
@@ -74,6 +75,10 @@ export class ExecutiveBrain {
    * @returns {Promise<{action:string, reply:string, meta?:object}>}
    */
   async handle(sessionId, message) {
+    // Deterministic built-ins run before any classifier or model call.
+    const nativeResult = await this.nativeCommandEngine?.handle(message, { sessionId });
+    if (nativeResult) return nativeResult;
+
     // UNDERSTAND
     const classification = await this.classifier.classify(message);
     this.activityLog.log({ type: 'executive_classified', detail: { sessionId, action: classification.action } });
