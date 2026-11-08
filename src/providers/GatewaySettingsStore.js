@@ -1,47 +1,58 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { GATEWAY_IDS, GATEWAY_DEFAULTS, normalizeBaseUrl, envNum } from './gatewayConfig.js';
+import { GATEWAY_IDS, GATEWAY_DEFAULTS, normalizeBaseUrl } from './gatewayConfig.js';
 
 /**
- * GatewaySettingsStore — lets the Settings UI configure FreeLLMAPI / LiteLLM without editing .env.
- *
- * Precedence: values saved here override the env-derived defaults in `config.providers[id]`; deleting a field (or the file) falls back
- * to the env. The file lives in the data directory (gitignored), is written atomically with owner-only permissions, and is NEVER
- * returned to a client with the key in it (see publicView: keys are masked). A missing, unreadable or corrupt file is ignored with a
- * warning — it can never stop Xoft from starting.
+ * GatewaySettingsStore — owner-configurable FreeLLMAPI / LiteLLM settings.
+ * SQLite is authoritative when supplied; existing JSON settings are imported
+ * once and retained as a migration backup. API keys are never returned by
+ * publicView. SqliteStore protects its database and WAL files with owner-only
+ * permissions; JSON mode retains atomic 0600 writes.
  */
 const FIELDS = ['enabled', 'baseUrl', 'apiKey', 'model', 'embeddingModel', 'vision', 'tools', 'timeoutMs'];
+const SQLITE_KEY = 'settings:provider-gateways';
 
 export class GatewaySettingsStore {
-  /** @param {{ dataDir:string, config:object, logger?:object }} o */
-  constructor({ dataDir, config, logger = console }) {
+  /** @param {{ dataDir:string, config:object, logger?:object, sqliteStore?:object }} o */
+  constructor({ dataDir, config, logger = console, sqliteStore = null }) {
     this.file = path.join(dataDir, 'provider-settings.json');
     this.config = config;
     this.logger = logger;
+    this.sqliteStore = sqliteStore;
     this.envDefaults = Object.fromEntries(GATEWAY_IDS.map((id) => [id, { ...config.providers[id] }]));
     this.saved = {};
     this.loadError = null;
   }
 
-  /** Reads the file (if any) and applies it over the env defaults. Never throws. */
+  /** Reads settings and imports legacy JSON once. Never throws during startup. */
   load() {
     try {
-      if (!fs.existsSync(this.file)) return this;
-      const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      let raw = this.sqliteStore ? this.sqliteStore.get(SQLITE_KEY) : null;
+      if (this.sqliteStore && raw === null && fs.existsSync(this.file)) {
+        raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+        this.sqliteStore.set(SQLITE_KEY, raw);
+      }
+      if (!this.sqliteStore && fs.existsSync(this.file)) raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return this;
       for (const id of GATEWAY_IDS) {
-        if (raw?.[id] && typeof raw[id] === 'object') {
-          try { this._apply(id, this._validate(id, raw[id], { partial: true })); this.saved[id] = { ...this._validate(id, raw[id], { partial: true }) }; }
-          catch (err) { this.logger.warn?.(`[providers] ignoring invalid saved settings for ${id}: ${err.message}`); }
+        if (raw[id] && typeof raw[id] === 'object') {
+          try {
+            const patch = this._validate(id, raw[id], { partial: true });
+            this._apply(id, patch);
+            this.saved[id] = { ...patch };
+          } catch (err) {
+            this.logger.warn?.(`[providers] ignoring invalid saved settings for ${id}: ${err.message}`);
+          }
         }
       }
     } catch (err) {
       this.loadError = err.message;
-      this.logger.warn?.(`[providers] could not read ${this.file} (${err.message}) — using environment settings only`);
+      this.logger.warn?.(`[providers] could not read saved settings (${err.message}) — using environment settings only`);
     }
     return this;
   }
 
-  _validate(id, input, { partial = true } = {}) {
+  _validate(id, input) {
     const out = {};
     if (input.enabled !== undefined) out.enabled = input.enabled === true || input.enabled === 'true';
     if (input.baseUrl !== undefined) {
@@ -52,8 +63,8 @@ export class GatewaySettingsStore {
     if (input.apiKey !== undefined) {
       if (input.apiKey !== null && typeof input.apiKey !== 'string') throw new Error('apiKey must be a string');
       const k = (input.apiKey ?? '').trim();
-      if (k.length > 500 || /\s/.test(k)) throw new Error('apiKey looks invalid (whitespace or too long)');
-      out.apiKey = k || null; // '' clears the saved key
+      if (k.length > 500 || /\\s/.test(k)) throw new Error('apiKey looks invalid (whitespace or too long)');
+      out.apiKey = k || null;
     }
     for (const f of ['model', 'embeddingModel']) {
       if (input[f] !== undefined) {
@@ -74,7 +85,6 @@ export class GatewaySettingsStore {
 
   _apply(id, patch) { Object.assign(this.config.providers[id], patch); }
 
-  /** Validate + apply + persist a partial update. `apiKey` omitted => unchanged. Throws Error(message) on invalid input. */
   update(id, input) {
     if (!GATEWAY_IDS.includes(id)) throw new Error(`unknown gateway '${id}'`);
     if (!input || typeof input !== 'object') throw new Error('settings object required');
@@ -85,7 +95,6 @@ export class GatewaySettingsStore {
     return this.publicView(id);
   }
 
-  /** Drop every saved override for a gateway: back to whatever the environment says. */
   reset(id) {
     if (!GATEWAY_IDS.includes(id)) throw new Error(`unknown gateway '${id}'`);
     delete this.saved[id];
@@ -95,14 +104,18 @@ export class GatewaySettingsStore {
   }
 
   _persist() {
-    fs.mkdirSync(path.dirname(this.file), { recursive: true });
+    if (this.sqliteStore) {
+      this.sqliteStore.set(SQLITE_KEY, this.saved);
+      return;
+    }
+    fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.saved, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, this.file);
-    try { fs.chmodSync(this.file, 0o600); } catch { /* not supported on this filesystem (e.g. Windows) */ }
+    try { fs.chmodSync(this.file, 0o600); } catch { /* Windows */ }
   }
 
-  /** Client-safe view: the key is NEVER included, only whether one is set. */
+  /** Client-safe view: never returns the API key, only whether one is set. */
   publicView(id) {
     const c = this.config.providers[id];
     return { id, enabled: Boolean(c.enabled), baseUrl: c.baseUrl, model: c.model, embeddingModel: c.embeddingModel, vision: Boolean(c.vision), tools: c.tools !== false, timeoutMs: c.timeoutMs, apiKeySet: Boolean(c.apiKey), source: this.saved[id] && Object.keys(this.saved[id]).length ? 'settings' : 'environment' };
