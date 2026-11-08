@@ -178,7 +178,7 @@ async function serverSpeak(text, runId) {
     const blob = await ensure(index);
     if (runId !== speechRun) return false;
     ensure(index + 2); // keep the pipeline two chunks ahead of playback
-      if (!blob) {
+    if (!blob) {
       // Keep one speech engine for the entire reply; never switch to browser TTS.
       if (index > 0) setSpeechState('error', 'Server voice failed before the reply finished.');
       return false;
