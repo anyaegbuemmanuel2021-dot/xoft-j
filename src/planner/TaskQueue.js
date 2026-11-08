@@ -18,7 +18,7 @@ import { EventType } from '../events/EventBus.js';
  * the point, not an oversight.
  */
 export class TaskQueue {
-  constructor({ taskPlanner, eventBus, activityLog, concurrency = 2, pollIntervalMs = 5000 }) {
+  constructor({ taskPlanner, eventBus, activityLog, concurrency = 2, pollIntervalMs = 5000, maxPending = 250 }) {
     this.taskPlanner = taskPlanner;
     this.eventBus = eventBus;
     this.activityLog = activityLog;
@@ -30,6 +30,10 @@ export class TaskQueue {
     this.pollIntervalMs = Number.isFinite(requestedPollInterval)
       ? Math.max(250, Math.min(60_000, Math.floor(requestedPollInterval)))
       : 5000;
+    const requestedMaxPending = Number(maxPending);
+    this.maxPending = Number.isFinite(requestedMaxPending)
+      ? Math.max(1, Math.min(5000, Math.floor(requestedMaxPending)))
+      : 250;
     this._running = new Set(); // taskIds currently inside taskPlanner.execute()
     this._pending = []; // [{ taskId, priority }] waiting for a concurrency slot
     this._timer = null;
@@ -49,6 +53,9 @@ export class TaskQueue {
     const task = this.taskPlanner.get(taskId);
     if (this._running.has(taskId) || this._pending.some((p) => p.taskId === taskId)) return task;
     if (['blocked', 'completed', 'cancelled', 'rolled_back'].includes(task.status)) return task;
+    if (this._pending.length >= this.maxPending) {
+      throw new Error(`TaskQueue: pending queue is full (maximum ${this.maxPending}). Try again when a slot is available.`);
+    }
 
     const patched = this.taskPlanner.setStatus(taskId, 'queued');
     this._pending.push({ taskId, priority: patched.priority ?? 'normal' });
@@ -201,6 +208,7 @@ export class TaskQueue {
   status() {
     return {
       concurrency: this.concurrency,
+      maxPending: this.maxPending,
       running: [...this._running],
       pending: this._pending.filter((p) => {
         try { return this.taskPlanner.get(p.taskId).status === 'queued'; } catch { return false; }

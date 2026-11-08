@@ -35,7 +35,7 @@ function makeControlledTool(name, delayMs = 30) {
   return { tool, getMaxActive: () => maxActive };
 }
 
-function makeHarness({ tool, concurrency = 2 }) {
+function makeHarness({ tool, concurrency = 2, maxPending = 250 }) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-queue-test-'));
   const activityLog = new ActivityLog({ dataDir });
   const eventBus = new EventBus({ activityLog });
@@ -50,7 +50,7 @@ function makeHarness({ tool, concurrency = 2 }) {
   };
   const executionRecordStore = new ExecutionRecordStore({ dataDir });
   const taskPlanner = new TaskPlanner({ router, toolRegistry, approvalSystem, activityLog, memory: null, eventBus, executionRecordStore, dataDir });
-  const taskQueue = new TaskQueue({ taskPlanner, eventBus, activityLog, concurrency, pollIntervalMs: 20 });
+  const taskQueue = new TaskQueue({ taskPlanner, eventBus, activityLog, concurrency, pollIntervalMs: 20, maxPending });
   return { taskPlanner, taskQueue };
 }
 
@@ -97,6 +97,29 @@ describe('TaskQueue', () => {
     }
     assert.deepEqual(order, [high.id, low.id], 'high priority must drain before low priority');
     await sleep(60);
+  });
+
+  test('pending queue capacity applies backpressure without changing rejected task state', async () => {
+    const { tool } = makeControlledTool('test.backpressure', 100);
+    const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 1, maxPending: 1 });
+    const active = await taskPlanner.plan('active task');
+    const waiting = await taskPlanner.plan('waiting task');
+    const rejected = await taskPlanner.plan('rejected task');
+
+    taskQueue.enqueue(active.id);
+    taskQueue.enqueue(waiting.id);
+
+    assert.throws(
+      () => taskQueue.enqueue(rejected.id),
+      /pending queue is full/
+    );
+    assert.equal(taskPlanner.get(rejected.id).status, 'planned', 'rejected work must remain retryable');
+    assert.equal(taskQueue.status().pending.length, 1);
+    assert.equal(taskQueue.status().maxPending, 1);
+
+    await sleep(260);
+    assert.equal(taskPlanner.get(active.id).status, 'completed');
+    assert.equal(taskPlanner.get(waiting.id).status, 'completed');
   });
 
   test('enqueueing the same task twice does not run it twice concurrently', async () => {
@@ -313,6 +336,13 @@ describe('TaskQueue', () => {
 
     const invalid = makeHarness({ tool, concurrency: Number.NaN }).taskQueue;
     assert.equal(invalid.concurrency, 2, 'invalid configuration must fall back to the default');
+
+    const tinyCapacity = new TaskQueue({ taskPlanner: {}, eventBus: null, activityLog: null, maxPending: 0 });
+    assert.equal(tinyCapacity.maxPending, 1, 'pending capacity must never be disabled accidentally');
+    const excessiveCapacity = new TaskQueue({ taskPlanner: {}, eventBus: null, activityLog: null, maxPending: 99_999 });
+    assert.equal(excessiveCapacity.maxPending, 5000, 'pending capacity must be capped');
+    const invalidCapacity = new TaskQueue({ taskPlanner: {}, eventBus: null, activityLog: null, maxPending: Number.NaN });
+    assert.equal(invalidCapacity.maxPending, 250, 'invalid capacity must use the default');
   });
 
 });
