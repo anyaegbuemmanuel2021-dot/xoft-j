@@ -29,6 +29,13 @@ export class SqliteStore {
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id TEXT PRIMARY KEY,
+        ts TEXT NOT NULL,
+        task_id TEXT,
+        value TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_activity_logs_task_ts ON activity_logs(task_id, ts);
       CREATE TABLE IF NOT EXISTS devices (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS commands (id TEXT PRIMARY KEY, device_id TEXT NOT NULL, status TEXT NOT NULL, value TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS idx_commands_device_status ON commands(device_id, status);
@@ -48,6 +55,20 @@ export class SqliteStore {
   }
   get(key) { const row = this.db.prepare('SELECT value FROM kv WHERE key=?').get(key); return row ? JSON.parse(row.value) : null; }
   set(key, value) { this.db.prepare('INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value)); }
+  // --- Append-only activity history ---
+  countActivityLogs() {
+    return this.db.prepare('SELECT COUNT(*) AS count FROM activity_logs').get().count;
+  }
+  appendActivityLog(entry) {
+    this.db.prepare('INSERT INTO activity_logs(id, ts, task_id, value) VALUES(?,?,?,?)')
+      .run(entry.id, entry.ts, entry.taskId ?? null, JSON.stringify(entry));
+  }
+  loadActivityLogs({ taskId } = {}) {
+    const rows = taskId
+      ? this.db.prepare('SELECT value FROM activity_logs WHERE task_id=? ORDER BY rowid ASC').all(taskId)
+      : this.db.prepare('SELECT value FROM activity_logs ORDER BY rowid ASC').all();
+    return rows.map((row) => JSON.parse(row.value));
+  }
   loadDevices() { return this.db.prepare('SELECT value FROM devices').all().map(r => JSON.parse(r.value)); }
   saveDevice(device) { this.db.prepare('INSERT INTO devices(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value').run(device.id, JSON.stringify(device)); }
   loadCommands() { return this.db.prepare('SELECT value FROM commands').all().map(r => JSON.parse(r.value)); }

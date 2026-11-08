@@ -110,7 +110,7 @@ const router = new ProviderRouter(modelHealth, { privacy: config.privacy.routing
 // Optional gateway settings saved from the Settings UI (data/provider-settings.json, owner-only). load() never throws: a missing or
 // corrupt file just means "use the environment".
 const gatewaySettings = new GatewaySettingsStore({ dataDir: config.memory.dataDir, config }).load();
-const activityLog = new ActivityLog({ dataDir: config.memory.dataDir });
+const activityLog = new ActivityLog({ dataDir: config.memory.dataDir, sqliteStore: durableStore });
 const socialHandles = new SocialHandleManager({ dataDir: config.memory.dataDir, sqliteStore: durableStore, activityLog, router });
 const visionInterpreter = new VisionInterpreter({ providerRouter: router, activityLog });
 const eventBus = new EventBus({ activityLog });
