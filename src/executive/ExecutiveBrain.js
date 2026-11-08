@@ -1,3 +1,4 @@
+import { PendingPlanStore } from './PendingPlanStore.js';
 import { TaskType } from '../providers/ProviderRouter.js';
 import { RiskLevel } from '../tools/Tool.js';
 import { ExecutiveClassifier, ExecutiveAction } from './ExecutiveClassifier.js';
@@ -54,7 +55,11 @@ export class ExecutiveBrain {
     this.intelligenceDirector = intelligenceDirector ?? null;
     this.classifier = new ExecutiveClassifier(router);
     /** @type {Map<string, {taskId:string, goal:string}>} last proposed-but-unconfirmed plan per session */
-    this._pendingPlans = new Map();
+    this._pendingPlans = new PendingPlanStore({
+      onExpire: (plan) => {
+        if (plan?.taskId) this.taskPlanner.cancel(plan.taskId);
+      },
+    });
   }
 
   _personalityFragment(context = {}, sessionId = null) {
@@ -127,6 +132,11 @@ export class ExecutiveBrain {
   async _handleGoal(sessionId, message) {
     this.memory.addTurn(sessionId, 'user', message);
 
+    // Any new goal supersedes the previous unconfirmed proposal in this
+    // session, even if the new request is blocked or safe to execute directly.
+    const previousPending = this._pendingPlans.take(sessionId);
+    if (previousPending?.taskId) this.taskPlanner.cancel(previousPending.taskId);
+
     const task = await this.taskPlanner.plan(message);
 
     if (task.status === 'blocked' || task.steps.length === 0) {
@@ -178,18 +188,17 @@ export class ExecutiveBrain {
 
     // RISK is high enough to require explicit go-ahead before EXECUTE.
     this._pendingPlans.set(sessionId, { taskId: task.id, goal: message });
-    const reply = `Here's the plan:\n${preview.text}\n\nThis includes at least one ${preview.maxRiskName}-risk step, so I'll wait for you to confirm before running it. Say "do it" to proceed.`;
+    const reply = `Here's the plan:\n${preview.text}\n\nThis includes at least one ${preview.maxRiskName}-risk step, so I'll wait for you to confirm before running it. This proposal expires in 15 minutes. Say "do it" to proceed.`;
     this.memory.addTurn(sessionId, 'assistant', reply);
     return { action: 'goal', reply, meta: { task, preview, intelligence, awaitingConfirmation: true } };
   }
 
   async _handleConfirm(sessionId) {
-    const pending = this._pendingPlans.get(sessionId);
+    const pending = this._pendingPlans.take(sessionId);
     if (!pending) {
-      const reply = "I don't have a plan waiting on your confirmation right now.";
+      const reply = "I don't have an active plan waiting on your confirmation. It may have expired or been replaced.";
       return { action: 'confirm', reply };
     }
-    this._pendingPlans.delete(sessionId);
 
     let executed = await this.taskPlanner.execute(pending.taskId);
 
@@ -211,12 +220,11 @@ export class ExecutiveBrain {
   }
 
   async _handleCancel(sessionId) {
-    const pending = this._pendingPlans.get(sessionId);
+    const pending = this._pendingPlans.take(sessionId);
     if (!pending) {
-      const reply = "There's nothing pending to cancel.";
+      const reply = "There's no active plan waiting to be cancelled.";
       return { action: 'cancel', reply };
     }
-    this._pendingPlans.delete(sessionId);
     this.taskPlanner.cancel(pending.taskId);
     const reply = 'Cancelled — I haven\'t run anything.';
     this.memory.addTurn(sessionId, 'assistant', reply);
