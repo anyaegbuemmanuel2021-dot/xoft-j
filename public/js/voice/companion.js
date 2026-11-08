@@ -4,6 +4,7 @@ import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
+import { classifyMicInput } from './mic-diagnostics.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -25,7 +26,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null;
+let recognizer = null; let recognizerWanted = false; let recorder = null; let micDiagnosticTimer = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -214,19 +215,29 @@ async function start() {
   // are not discarded before server STT can hear them; the adaptive noise floor still rises in noisy rooms.
   vad = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS }); buildPipeline();
   const buf = new Float32Array(analyser.fftSize);
+  let peakMicRms = 0;
+  let speechStartEvents = 0;
   timer = setInterval(() => {
     if (ctx?.state === 'suspended') {
       ctx.resume().catch((err) => ui.log(`audio context resume failed: ${err.message}`));
     }
-    analyser.getFloatTimeDomainData(buf); const rms = rmsOf(buf); const r = vad.process(rms, performance.now());
+    analyser.getFloatTimeDomainData(buf); const rms = rmsOf(buf); peakMicRms = Math.max(peakMicRms, rms); const r = vad.process(rms, performance.now());
     $('level').style.width = `${Math.min(100, Math.round((rms / 0.18) * 100))}%`;
     if (r.event) {
+      if (r.event === 'start') speechStartEvents += 1;
       ui.log('voice activity ' + r.event + ' (RMS ' + r.rms.toFixed(4) + ', gate ' + r.threshold.toFixed(4) + ')');
       pipeline.vad(r.event);
     }
     pipeline.tick(Date.now());
   }, FRAME_MS);
+  micDiagnosticTimer = setTimeout(() => {
+    micDiagnosticTimer = null;
+    if (!stream) return;
+    const diagnostic = classifyMicInput({ peakRms: peakMicRms, speechEvents: speechStartEvents, threshold: vad?.threshold ?? 0.003 });
+    ui.log(`microphone check: ${diagnostic.message} (peak RMS ${peakMicRms.toFixed(4)}, speech starts ${speechStartEvents})`);
+  }, 5000);
   stream.getAudioTracks()[0].addEventListener('ended', () => { ui.log('microphone was disconnected or revoked'); stop(); });
+  ui.log('Speak now for the 5-second microphone signal check.');
   ui.pill('mic', 'mic: listening (local VAD)', 'ok'); $('start').disabled = true; $('stop').disabled = false;
   const audioTrackSettings = stream.getAudioTracks()[0]?.getSettings?.() ?? {};
   ui.log('microphone ready; AudioContext ' + ctx.state + '; sample rate ' + (audioTrackSettings.sampleRate ?? ctx.sampleRate ?? 'unknown') + ' Hz; channels ' + (audioTrackSettings.channelCount ?? 'unknown'));
@@ -234,7 +245,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; stopRecognizer(); stopSegmentRecording();
+  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; stopRecognizer(); stopSegmentRecording();
   stream?.getTracks().forEach((t) => t.stop()); stream = null; try { ctx?.close(); } catch { /* ignore */ } ctx = null;
   $('level').style.width = '0'; $('confirm-box').style.display = 'none';
   ui.pill('mic', 'mic: off'); ui.pill('state', 'state: idle'); $('start').disabled = false; $('stop').disabled = true; ui.log('stopped — microphone released');
