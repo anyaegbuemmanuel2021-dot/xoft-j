@@ -71,25 +71,18 @@ async function transcribe(blob, onStatus = () => {}) {
 }
 
 export function mountCommandInput(el, store, controller) {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const canRecord = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   let menuOpen = false;
   let recorder = null;
   let stream = null;
-  let recognition = null;
   let serverListener = null;
-  // AUTO LISTEN sends recorded audio to XOFT server transcription (Gemini → OpenAI fallback).
-  // Browser Web Speech is used only when this browser cannot record audio.
-  let serverMode = canRecord || !Recognition;
+  // AUTO LISTEN always uses captured audio and XOFT server transcription. Browser speech APIs are not used.
   let autoListening = false;
   let wakeArmed = false;
   let isSpeaking = false;
   let destroyed = false;
   let serverHistoryReady = false;
   let historySaveTimer = null;
-  let recognitionRestartTimer = null;
-  // Start with the Nigeria-specific locale, then fall back to widely supported English if the browser rejects it.
-  let recognitionLanguage = 'en-NG';
 
   el.innerHTML = `
     <form class="cc-cmd" data-form autocomplete="off">
@@ -102,7 +95,7 @@ export function mountCommandInput(el, store, controller) {
           <button type="button" data-act="recent" aria-expanded="false" title="Find your saved chats">RECENT</button>
           <button type="button" data-act="command" aria-haspopup="menu" aria-expanded="false" title="Quick commands">MORE</button>
           <button type="button" data-act="voice" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">VOICE</button>
-          <button type="button" data-act="auto-listen" ${(canRecord || Recognition) ? '' : 'disabled title="Automatic listening needs microphone access in a supported browser (HTTPS)"'} aria-pressed="false">XOFT AUTO LISTEN</button>
+          <button type="button" data-act="auto-listen" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">XOFT AUTO LISTEN</button>
           <button type="button" data-act="speakout" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'SPEAK: ON' : 'SPEAK: OFF'}</button>
           <button type="button" data-act="stop-speaking" ${canSpeakOut() ? '' : 'disabled'} title="Stop spoken output">STOP</button>
           <button type="submit" class="cc-primary" data-act="send">SEND</button>
@@ -264,14 +257,9 @@ export function mountCommandInput(el, store, controller) {
   }
 
   function stopRecognition() {
-    clearTimeout(recognitionRestartTimer);
     if (serverListener) { serverListener.stop(); serverListener = null; }
-    if (recognition) {
-      try { recognition.onend = null; recognition.stop(); } catch { /* ignore */ }
-      recognition = null;
-    }
   }
-  // Wake-word handling shared by browser Web Speech and server STT. Returns true when a command was submitted.
+  // Deterministic wake-word handling for transcripts returned by XOFT server STT.
   function handleHeard(heard) {
     heard = String(heard ?? '').trim();
     if (!heard) return false;
@@ -327,58 +315,7 @@ export function mountCommandInput(el, store, controller) {
   }
 
   function startRecognition() {
-    if (serverMode) { startServerListening(); return; }
-    if (!Recognition || !autoListening || destroyed || isSpeaking || recognition) return;
-    try {
-      const instance = new Recognition();
-      recognition = instance;
-      instance.lang = recognitionLanguage;
-      instance.continuous = true;
-      instance.interimResults = false;
-      instance.maxAlternatives = 1;
-      instance.onstart = () => setVoiceStatus('AUTO LISTEN active · say “XOFT”, then your command. “Hey XOFT” also works.', 'listening');
-      instance.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          if (!event.results[i].isFinal) continue;
-          if (handleHeard(event.results[i][0]?.transcript)) return;
-        }
-      };
-      instance.onerror = (event) => {
-        if (event.error === 'language-not-supported' && recognitionLanguage !== 'en-US') {
-          recognitionLanguage = 'en-US';
-          setVoiceStatus('Switching speech recognition language for browser compatibility…', 'processing');
-          try { instance.stop(); } catch { /* onend restarts with the fallback locale */ }
-        } else if (event.error === 'network' || event.error === 'service-not-allowed') {
-          // The browser's cloud speech service is unreachable or blocked: keep listening through XOFT server STT.
-          serverMode = true;
-          recognition = null;
-          setVoiceStatus('Browser speech service unavailable · switching to XOFT server listening…', 'processing');
-          startRecognition();
-        } else if (event.error === 'not-allowed') {
-          autoListening = false;
-          autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'XOFT AUTO LISTEN';
-          setVoiceStatus('Microphone or browser speech permission denied. Allow microphone access, then retry XOFT server transcription.', 'error');
-        } else if (event.error === 'audio-capture') {
-          autoListening = false;
-          autoBtn.setAttribute('aria-pressed', 'false');
-          autoBtn.textContent = 'XOFT AUTO LISTEN';
-          setVoiceStatus('No microphone was detected. Check Android microphone permission and close other apps using the mic.', 'error');
-        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-          setVoiceStatus(`Listening issue: ${event.error}. Tap AUTO LISTEN to retry.`, 'error');
-        }
-      };
-      instance.onend = () => {
-        if (recognition === instance) recognition = null;
-        if (autoListening && !destroyed && !isSpeaking) {
-          recognitionRestartTimer = setTimeout(startRecognition, 350);
-        }
-      };
-      instance.start();
-    } catch (err) {
-      recognition = null;
-      setVoiceStatus(`Could not start automatic listening: ${err.message}`, 'error');
-    }
+    startServerListening();
   }
 
   async function submit(text, { fromVoice = false } = {}) {
@@ -469,8 +406,8 @@ export function mountCommandInput(el, store, controller) {
   }
 
   function toggleAutoListen() {
-    if (!Recognition && !canRecord) {
-      toast('Automatic listening needs microphone access in a supported browser (HTTPS).', 'warn');
+    if (!canRecord) {
+      toast('Automatic listening requires microphone recording support and permission over HTTPS.', 'warn');
       return;
     }
     unlockAudio();
