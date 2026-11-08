@@ -336,6 +336,13 @@ describe('TaskQueue', () => {
 
     const invalid = makeHarness({ tool, concurrency: Number.NaN }).taskQueue;
     assert.equal(invalid.concurrency, 2, 'invalid configuration must fall back to the default');
+
+    const tinyCapacity = new TaskQueue({ taskPlanner: {}, eventBus: null, activityLog: null, maxPending: 0 });
+    assert.equal(tinyCapacity.maxPending, 1, 'pending capacity must never be disabled accidentally');
+    const excessiveCapacity = new TaskQueue({ taskPlanner: {}, eventBus: null, activityLog: null, maxPending: 99_999 });
+    assert.equal(excessiveCapacity.maxPending, 5000, 'pending capacity must be capped');
+    const invalidCapacity = new TaskQueue({ taskPlanner: {}, eventBus: null, activityLog: null, maxPending: Number.NaN });
+    assert.equal(invalidCapacity.maxPending, 250, 'invalid capacity must use the default');
   });
 
 });
