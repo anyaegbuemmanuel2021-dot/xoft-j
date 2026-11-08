@@ -100,3 +100,23 @@ test('invalid proposal ids are rejected (no path injection through the id)', () 
   const { eng } = repo();
   assert.throws(() => eng.get('../../etc/passwd'), /invalid proposal id/);
 });
+
+test('apply restores every original file when a later file write fails partway through', async () => {
+  const { root, eng } = repo();
+  fs.writeFileSync(path.join(root, 'blocked'), 'not a directory');
+  const p = eng.propose({
+    title: 'partial write must roll back',
+    files: {
+      'src/util.js': 'export const v = 2;\\n',
+      'blocked/child.js': 'export const child = true;\\n',
+    },
+  });
+  await eng.sandboxTest(p.id);
+  await assert.rejects(
+    () => eng.apply(p.id, { approvedBy: 'ikye' }),
+    /original files were restored/,
+  );
+  assert.equal(read(root, 'src/util.js'), 'export const v = 1;\\n');
+  assert.equal(read(root, 'blocked'), 'not a directory');
+  assert.equal(eng.get(p.id).status, 'rolled_back');
+});
