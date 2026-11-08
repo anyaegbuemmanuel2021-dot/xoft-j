@@ -64,7 +64,6 @@ function stopRecognizer() {
 // ---- backend: server STT (records only VAD-detected segments) ----
 function startSegmentRecording() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
-  void warmVoiceServer();
   const options = preferredRecorderOptions();
   let activeRecorder;
   try {
@@ -195,6 +194,9 @@ async function start() {
     ui.log(`microphone: ${err.name} — ${err.message}`);
     return;
   }
+  // Wake the cloud service while the user is getting ready to speak, not after the first utterance.
+  // This overlaps Render cold-start latency with local audio setup and keeps the first STT request faster.
+  if ($('backend').value === 'server-stt') void warmVoiceServer();
   // The context was already unlocked in the click handler; finish any pending resume before VAD starts.
   try {
     if (!ctx) throw new Error('This browser does not support AudioContext.');
