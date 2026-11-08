@@ -51,3 +51,15 @@ test('XOFT mobile web app has PWA metadata and responsive viewport settings', ()
   assert.ok(manifest.icons.length > 0);
   assert.match(sw, /xoft-shell-v\d+/);
 });
+
+test('server voice capture exposes microphone, VAD, recorder, and STT latency diagnostics', () => {
+  const companion = read('public/js/voice/companion.js');
+  const stt = read('public/js/voice/stt.js');
+  assert.match(companion, /microphone ready; AudioContext/);
+  assert.match(companion, /voice activity .*RMS/);
+  assert.match(companion, /audio segment captured:/);
+  assert.match(companion, /MediaRecorder error:/);
+  assert.match(companion, /MediaRecorder start failed:/);
+  assert.match(stt, /Transcribed by XOFT .* in /);
+  assert.match(stt, /ms: Number\.isFinite/);
+});
