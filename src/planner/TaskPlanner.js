@@ -471,9 +471,14 @@ export class TaskPlanner {
       return { status: 'completed', result: priorSuccess.result };
     }
 
-    this._patchStep(taskId, step.id, { status: 'running', forceRetryAfterAmbiguous: false });
     const attemptNumber = (step.attempts ?? 0) + 1;
+    // Write the durable execution intent BEFORE marking the task step as
+    // running. If the process crashes between these writes, startup recovery
+    // sees a dangling ledger record and treats the outcome conservatively.
+    // Reversing this order leaves a crash window where an external side effect
+    // could be retried without any evidence that an attempt had started.
     const record = this.executionRecordStore.begin({ taskId, stepId: step.id, toolName: tool.name, idempotencyKey, attemptNumber, input: step.input });
+    this._patchStep(taskId, step.id, { status: 'running', forceRetryAfterAmbiguous: false });
     try {
       const result = await this.toolRegistry.execute(tool.name, step.input, { memory: this.memory, providerRouter: this.router, deviceManager: this.deviceManager });
       this.eventBus?.emitEvent(EventType.TASK_VERIFYING, { taskId, stepId: step.id, toolName: tool.name });
