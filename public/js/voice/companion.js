@@ -5,6 +5,7 @@ import { VoicePipeline } from './wake.js';
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
+import { RollingAudioBuffer } from './segment-buffer.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -26,7 +27,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null; let micDiagnosticTimer = null;
+let recognizer = null; let recognizerWanted = false; let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -61,8 +62,27 @@ function stopRecognizer() {
   try { recognizer?.stop(); } catch { /* already stopped */ }
 }
 
-// ---- backend: server STT (records only VAD-detected segments) ----
-function startSegmentRecording() {
+// ---- backend: continuous capture with a bounded pre-roll for VAD segments ----
+async function transcribeCapturedChunks(chunks, type) {
+  const blob = new Blob(chunks, { type });
+  ui.log('audio segment captured: ' + blob.size + ' bytes (' + type + ')');
+  if (blob.size < 300) {
+    ui.log('audio segment was too small to transcribe; check microphone input and speech gate');
+    return;
+  }
+  try {
+    const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage());
+    if (transcript) {
+      $('transcript').textContent = transcript;
+      ui.log('heard: ' + transcript);
+      pipeline?.transcript(transcript, true);
+    } else ui.log('No speech was recognized in this segment.');
+  } catch (err) {
+    ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message);
+  }
+}
+
+function startAudioCapture() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
   const options = preferredRecorderOptions();
   let activeRecorder;
@@ -73,51 +93,48 @@ function startSegmentRecording() {
     return;
   }
 
-  const segmentChunks = [];
+  captureBuffer = new RollingAudioBuffer({ preRollMs: 500 });
   recorder = activeRecorder;
-  activeRecorder.ondataavailable = (e) => { if (e.data?.size) segmentChunks.push(e.data); };
+  activeRecorder.ondataavailable = (event) => {
+    if (event.data?.size) captureBuffer?.push(event.data);
+  };
   activeRecorder.onerror = (event) => {
     const error = event.error;
     ui.log('MediaRecorder error: ' + (error?.name || 'UnknownError') + ' — ' + (error?.message || 'audio capture failed'));
-    if (recorder === activeRecorder) recorder = null;
   };
-  activeRecorder.onstop = async () => {
+  activeRecorder.onstop = () => {
     const type = activeRecorder.mimeType || options?.mimeType || 'audio/webm';
-    const capturedChunks = segmentChunks;
+    const chunks = captureBuffer?.active ? captureBuffer.finish() : [];
+    captureBuffer?.discard();
+    captureBuffer = null;
     if (recorder === activeRecorder) recorder = null;
-    const blob = new Blob(capturedChunks, { type });
-    ui.log('audio segment captured: ' + blob.size + ' bytes (' + type + ')');
-    if (blob.size < 300) {
-      ui.log('audio segment was too small to transcribe; check microphone input and speech gate');
-      return; // reject only genuinely empty/tiny clips; short wake phrases must survive
-    }
-    try {
-      const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage());
-      if (transcript) {
-        $('transcript').textContent = transcript;
-        ui.log('heard: ' + transcript);
-        pipeline.transcript(transcript, true);
-      } else ui.log('No speech was recognized in this segment.');
-    } catch (err) { ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message); }
+    if (chunks.length) void transcribeCapturedChunks(chunks, type);
   };
 
   try {
-    activeRecorder.start();
-    ui.log('recording started: ' + (activeRecorder.mimeType || options?.mimeType || 'browser default'));
+    // Keep one recorder running so the first speech chunk is already in flight when VAD opens.
+    // 200 ms chunks bound pre-roll latency while retaining the opening syllable.
+    activeRecorder.start(200);
+    ui.log('continuous audio capture started: ' + (activeRecorder.mimeType || options?.mimeType || 'browser default'));
   } catch (error) {
     if (recorder === activeRecorder) recorder = null;
+    captureBuffer?.discard();
+    captureBuffer = null;
     ui.log('MediaRecorder start failed: ' + (error.name || 'Error') + ' — ' + error.message);
   }
 }
+
+function startSegmentRecording() {
+  if (!recorder || recorder.state !== 'recording' || !captureBuffer) return;
+  if (captureBuffer.begin()) ui.log('speech segment opened with 500 ms audio pre-roll');
+}
+
 function stopSegmentRecording() {
+  if (!captureBuffer?.active) return;
   const activeRecorder = recorder;
-  if (!activeRecorder || activeRecorder.state !== 'recording') return;
-  try {
-    activeRecorder.stop();
-    ui.log('recording stopped; final audio chunk is being prepared');
-  } catch (error) {
-    ui.log('MediaRecorder stop failed: ' + (error.name || 'Error') + ' — ' + error.message);
-  }
+  const type = activeRecorder?.mimeType || 'audio/webm';
+  const chunks = captureBuffer.finish();
+  if (chunks.length) void transcribeCapturedChunks(chunks, type);
 }
 
 function wantRecognizer(on) {
@@ -216,6 +233,7 @@ async function start() {
   // Mobile microphones can deliver normal speech below 0.008 RMS. Keep a low floor so quiet voices
   // are not discarded before server STT can hear them; the adaptive noise floor still rises in noisy rooms.
   vad = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS }); buildPipeline();
+  if ($('backend').value === 'server-stt') startAudioCapture();
   const buf = new Float32Array(analyser.fftSize);
   let peakMicRms = 0;
   let speechStartEvents = 0;
@@ -247,7 +265,10 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; stopRecognizer(); stopSegmentRecording();
+  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; stopRecognizer();
+  // Let MediaRecorder emit its final dataavailable chunk before its onstop handler flushes any active segment.
+  if (recorder?.state === 'recording') { try { recorder.stop(); } catch { /* already stopping */ } }
+  else { captureBuffer?.discard(); captureBuffer = null; }
   stream?.getTracks().forEach((t) => t.stop()); stream = null; try { ctx?.close(); } catch { /* ignore */ } ctx = null;
   $('level').style.width = '0'; $('confirm-box').style.display = 'none';
   ui.pill('mic', 'mic: off'); ui.pill('state', 'state: idle'); $('start').disabled = false; $('stop').disabled = true; ui.log('stopped — microphone released');
