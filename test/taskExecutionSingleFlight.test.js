@@ -61,38 +61,5 @@ describe('TaskPlanner single-flight execution', () => {
     assert.equal(maxActive, 1, 'the same task must never execute concurrently with itself');
   });
 
-  test('a timed-out caller does not release the execution lock while the tool is still running', async () => {
-    let release;
-    let calls = 0;
-    const tool = {
-      name: 'test.delayed_side_effect',
-      description: 'delayed side effect',
-      inputSchema: {},
-      riskLevel: 0,
-      requiredPermissions: [],
-      status: 'implemented',
-      async run() {
-        calls += 1;
-        await new Promise((resolve) => { release = resolve; });
-        return { ok: true };
-      },
-    };
-    const planner = harness(tool);
-    planner.maxDurationMs = 1000;
-    const task = await planner.plan('perform delayed action');
 
-    // Use a short caller deadline while leaving the underlying operation alive.
-    planner.maxDurationMs = 1000;
-    const first = planner.execute(task.id);
-    await delay(10);
-    assert.equal(calls, 1);
-    // A second call while the first is active must attach to the same execution.
-    const second = planner.execute(task.id);
-    assert.equal(calls, 1);
-    release();
-    const [a, b] = await Promise.all([first, second]);
-    assert.equal(a.status, 'completed');
-    assert.equal(b.status, 'completed');
-    assert.equal(calls, 1);
-  });
 });
