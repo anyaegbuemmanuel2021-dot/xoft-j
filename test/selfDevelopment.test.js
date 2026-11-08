@@ -106,8 +106,8 @@ test('apply restores every original file when a later file write fails partway t
   const p = eng.propose({
     title: 'partial write must roll back',
     files: {
-      'src/util.js': 'export const v = 2;\\n',
-      'blocked/child.js': 'export const child = true;\\n',
+      'src/util.js': 'export const v = 2;\n',
+      'blocked/child.js': 'export const child = true;\n',
     },
   });
   await eng.sandboxTest(p.id);
@@ -116,7 +116,7 @@ test('apply restores every original file when a later file write fails partway t
     () => eng.apply(p.id, { approvedBy: 'ikye' }),
     /original files were restored/,
   );
-  assert.equal(read(root, 'src/util.js'), 'export const v = 1;\\n');
+  assert.equal(read(root, 'src/util.js'), 'export const v = 1;\n');
   assert.equal(read(root, 'blocked'), 'not a directory');
   assert.equal(eng.get(p.id).status, 'rolled_back');
 });
