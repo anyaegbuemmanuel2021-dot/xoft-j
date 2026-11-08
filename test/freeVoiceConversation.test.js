@@ -24,7 +24,7 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 
-test('Every view transcribes through the shared XOFT server STT module only', () => {
+test('Web views use shared XOFT server STT while Android chat can use native on-device STT', () => {
   const chat = read('public/js/views/chat.js');
   const input = read('public/js/dashboard/CommandInput.js');
   const stt = read('public/js/voice/stt.js');
@@ -45,6 +45,9 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.doesNotMatch(chat, /SERVER UNAVAILABLE · LOCAL WHISPER/);
   assert.match(chat, /Gemini → OpenAI fallback/);
   assert.match(companion, /Gemini → OpenAI fallback/);
+  assert.match(chat, /hasNativeSpeechRecognition/);
+  assert.match(chat, /startNativeListening/);
+  assert.doesNotMatch(chat, /window\.SpeechRecognition|webkitSpeechRecognition/);
   assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
