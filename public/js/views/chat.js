@@ -384,7 +384,7 @@ async function startVoiceRecording(container, { autoSegment = false } = {}) {
     recorder.onstop = async () => {
       if (finished) return;
       finished = true;
-      const blob = new Blob(chunks, { type: recordedMimeType(recorder, preferredRecorderOptions()) });
+      const blob = new Blob(chunks, { type: recordedMimeType(recorder, options) });
       await cleanupAudio();
 
       if (conversationSegment && !voiceConversationActive) {
