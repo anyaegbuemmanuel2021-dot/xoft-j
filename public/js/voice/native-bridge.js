@@ -22,3 +22,15 @@ if (typeof window !== 'undefined' && !window.__xoftNativeBridgeBound) {
   window.addEventListener('xoft:voice-state', (e) => pushVoiceState(e.detail?.state || 'idle'));
   window.addEventListener('xoft:speech-state', (e) => { if (e.detail?.state === 'speaking') pushVoiceState('speaking'); });
 }
+
+/** Speak through Android's native TextToSpeech service when XOFT is inside the companion. */
+export function speakNative(text) {
+  const native = bridge();
+  if (!native || typeof native.speak !== 'function') return false;
+  try { return native.speak(String(text ?? '').slice(0, 4000)) === true; } catch { return false; }
+}
+
+export function stopNativeSpeech() {
+  const native = bridge();
+  try { native?.stopSpeaking?.(); } catch { /* best effort */ }
+}
