@@ -25,7 +25,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null;
+let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -122,8 +122,11 @@ async function speakReply(text) {
   if (!speechOutputEnabled() || !text) return;
   let audio = null;
   let objectUrl = null;
+  const controller = new AbortController();
+  activeSpeechRequestController?.abort();
+  activeSpeechRequestController = controller;
   try {
-    const result = await fetchSpeechAudio(text, { requestHeaders: headers() });
+    const result = await fetchSpeechAudio(text, { requestHeaders: headers(), signal: controller.signal });
     activeSpeechCancel?.();
     activeSpeechAudio?.pause();
     if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl);
@@ -150,6 +153,7 @@ async function speakReply(text) {
   } catch (error) {
     ui.log('XOFT server TTS failed: ' + error.message);
   } finally {
+    if (activeSpeechRequestController === controller) activeSpeechRequestController = null;
     if (audio) {
       if (activeSpeechAudio === audio) activeSpeechAudio = null;
       try { audio.pause(); } catch { /* already stopped */ }
@@ -263,6 +267,7 @@ async function start() {
 
 function stop() {
   clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
   if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
