@@ -198,6 +198,7 @@ async function start() {
   if ($('backend').value === 'native-android') {
     buildPipeline(true);
     pipeline.start();
+    if ($('backend').value !== 'native-android') return; // startup failed and fallback already restarted
     timer = setInterval(() => pipeline?.tick(Date.now()), 250);
     ui.pill('mic', 'mic: on-device Android', 'ok');
     $('start').disabled = true; $('stop').disabled = false;
