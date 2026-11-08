@@ -19,3 +19,15 @@ test('persistent path containment rejects sibling directories', () => {
   assert.equal(isPathWithin('/var/data', '/var/database/xoft.sqlite'), false);
   assert.equal(path.resolve('/var/data'), '/var/data');
 });
+
+
+test('durability requirement blocks readiness on ephemeral storage', async () => {
+  const { isStorageReady } = await import('../src/persistence/storageReadiness.js');
+  assert.equal(isStorageReady({ durable: false, required: true }), false);
+});
+
+test('durability requirement preserves readiness when disabled or durable', async () => {
+  const { isStorageReady } = await import('../src/persistence/storageReadiness.js');
+  assert.equal(isStorageReady({ durable: false, required: false }), true);
+  assert.equal(isStorageReady({ durable: true, required: true }), true);
+});

@@ -26,3 +26,13 @@ export function isOnMountedFilesystem(target, mountInfo) {
     return resolvedMount !== path.parse(resolvedMount).root && isPathWithin(resolvedMount, candidate);
   });
 }
+
+
+/**
+ * Whether the process may accept traffic under the configured persistence policy.
+ * Ephemeral storage remains usable by default for local development and free-tier
+ * deployments, but production operators can require a genuinely mounted disk.
+ */
+export function isStorageReady({ durable, required = false } = {}) {
+  return !required || durable === true;
+}

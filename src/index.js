@@ -92,7 +92,7 @@ import { RecoveryEngine } from './recovery/RecoveryEngine.js';
 import { ContextEngine } from './context/ContextEngine.js';
 import { VisionInterpreter } from './vision/VisionInterpreter.js';
 import { SqliteStore } from './persistence/SqliteStore.js';
-import { isPathWithin, isOnMountedFilesystem } from './persistence/storageReadiness.js';
+import { isPathWithin, isOnMountedFilesystem, isStorageReady } from './persistence/storageReadiness.js';
 import { IntelligenceDirector } from './intelligence/IntelligenceDirector.js';
 import { ConnectorManager } from './connectors/ConnectorManager.js';
 import { buildConnectorTools } from './tools/builtins/connectorTools.js';
@@ -278,12 +278,14 @@ app.get('/readyz', (_req, res) => {
     && isPathWithin(persistentRoot, dataRoot)
     && (config.storage.mode !== 'sqlite' || isPathWithin(persistentRoot, sqliteDir))
   );
-  res.status(200).json({
-    ok: true,
+  const ready = isStorageReady({ durable, required: config.storage.requireDurableStorage });
+  res.status(ready ? 200 : 503).json({
+    ok: ready,
     service: 'xoft-core',
     storage: config.storage.mode,
     persistence: {
       durable,
+      required: config.storage.requireDurableStorage,
       configured: Boolean(persistentRoot),
       mounted: Boolean(persistentRoot && isOnMountedFilesystem(persistentRoot, mountInfo)),
       warning: durable ? null : 'Data is on ephemeral storage. Files, memory, settings and SQLite records may be lost on restart, spin-down or redeploy.',
