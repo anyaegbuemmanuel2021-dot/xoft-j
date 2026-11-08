@@ -159,6 +159,57 @@ describe('TaskQueue', () => {
     }
   });
 
+  test('startup recovery continues after one task fails and retries only that task', () => {
+    const attempts = [];
+    const logs = [];
+    const planner = {
+      list: () => [
+        { id: 'bad-task', status: 'running' },
+        { id: 'good-task', status: 'queued' },
+      ],
+    };
+    const queue = new TaskQueue({
+      taskPlanner: planner,
+      eventBus: null,
+      activityLog: { log: (entry) => logs.push(entry) },
+    });
+    queue.enqueue = (taskId) => {
+      attempts.push(taskId);
+      if (taskId === 'bad-task' && attempts.filter((id) => id === 'bad-task').length === 1) {
+        throw new Error('temporary storage failure');
+      }
+      return { id: taskId };
+    };
+
+    assert.deepEqual(queue.recoverOnStartup(), [
+      { taskId: 'good-task', previousStatus: 'queued' },
+    ]);
+    assert.deepEqual(attempts, ['bad-task', 'good-task']);
+    assert.ok(logs.some((entry) => entry.type === 'task_recovery_failed' && entry.taskId === 'bad-task'));
+
+    assert.deepEqual(queue.recoverOnStartup(), [
+      { taskId: 'bad-task', previousStatus: 'running' },
+    ]);
+    assert.deepEqual(attempts, ['bad-task', 'good-task', 'bad-task']);
+    assert.deepEqual(queue.recoverOnStartup(), [], 'successful recovery is not repeated');
+  });
+
+  test('queue polling still starts when a task cannot be recovered', () => {
+    const planner = {
+      list: () => [{ id: 'broken-task', status: 'running' }],
+    };
+    const queue = new TaskQueue({
+      taskPlanner: planner,
+      eventBus: null,
+      activityLog: { log() {} },
+    });
+    queue.enqueue = () => { throw new Error('recovery unavailable'); };
+
+    assert.doesNotThrow(() => queue.start());
+    assert.ok(queue._timer, 'poll timer must start despite an individual recovery failure');
+    queue.stop();
+  });
+
   test('startup recovery leaves planned and approval-waiting tasks untouched', async () => {
     const { tool } = makeControlledTool('test.restart-safe', 5);
     const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 1 });
