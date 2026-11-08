@@ -31,6 +31,69 @@ function withTimeout(ms, signal) {
   return signal ? AbortSignal.any([AbortSignal.timeout(ms), signal]) : AbortSignal.timeout(ms);
 }
 
+/** Read provider errors without leaking credentials or unbounded response bodies. */
+async function providerResponseError(response, provider, operation) {
+  const raw = await response.text().catch(() => '');
+  let payload = null;
+  try { payload = raw ? JSON.parse(raw) : null; } catch { /* provider returned plain text */ }
+  const detail = payload?.error ?? payload;
+  const code = String(detail?.code ?? detail?.type ?? detail?.status ?? '').trim().toLowerCase();
+  const message = String(detail?.message ?? raw ?? response.statusText ?? 'Unknown provider error').slice(0, 240);
+  const error = new Error(`${provider} ${operation} error ${response.status}${code ? ` (${code})` : ''} - ${message}`);
+  error.status = response.status;
+  error.code = code;
+  const retryAfter = Number(response.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter >= 0) error.retryAfterMs = Math.min(retryAfter * 1000, 10000);
+  return error;
+}
+
+function waitForRetry(ms, signal) {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('Request aborted'));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(done, ms);
+    function done() { signal?.removeEventListener('abort', aborted); resolve(); }
+    function aborted() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', aborted);
+      reject(signal.reason ?? new Error('Request aborted'));
+    }
+    signal?.addEventListener('abort', aborted, { once: true });
+  });
+}
+
+function isTransientSttError(error, signal) {
+  if (signal?.aborted || error?.name === 'AbortError') return false;
+  if ([502, 503, 504].includes(Number(error?.status))) return true;
+  if (Number(error?.status) === 429) {
+    // A quota/billing 429 cannot be repaired by retrying. Retry only a short,
+    // explicit rate-limit window; otherwise immediately allow the other provider.
+    return error.code !== 'insufficient_quota'
+      && error.code !== 'billing_hard_limit_reached'
+      && Number.isFinite(error.retryAfterMs)
+      && error.retryAfterMs > 0
+      && error.retryAfterMs <= 2000;
+  }
+  return error instanceof TypeError || error?.name === 'TimeoutError';
+}
+
+/** One bounded retry for transient network/provider faults; the original audio bytes are reused. */
+async function retryTransientStt(run, signal) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try { return await run(); } catch (error) {
+      lastError = error;
+      if (attempt > 0 || !isTransientSttError(error, signal)) {
+        error.retryCount = attempt;
+        throw error;
+      }
+      const delay = Number.isFinite(error.retryAfterMs) ? error.retryAfterMs : 300;
+      await waitForRetry(delay, signal);
+    }
+  }
+  lastError.retryCount = 1;
+  throw lastError;
+}
+
 /** Wrap raw 16-bit little-endian mono PCM in a WAV container so any <audio> element can play it. */
 export function pcm16ToWav(pcm, sampleRate = 24000, channels = 1) {
   const data = Buffer.isBuffer(pcm) ? pcm : Buffer.from(pcm);
@@ -300,8 +363,7 @@ export class VoiceService {
       signal: withTimeout(config.voice.sttTimeoutMs, signal),
     });
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`OpenAI transcription error ${res.status} - ${errText.slice(0, 300)}`);
+      throw await providerResponseError(res, 'OpenAI', 'transcription');
     }
     const data = await res.json();
     return String(data?.text ?? '').trim();
@@ -328,8 +390,7 @@ export class VoiceService {
       }
     );
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Gemini transcription error ${res.status} - ${errText.slice(0, 300)}`);
+      throw await providerResponseError(res, 'Gemini', 'transcription');
     }
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts ?? [];
@@ -352,11 +413,17 @@ export class VoiceService {
       throw new Error('VoiceService: no speech-to-text provider configured. Set GEMINI_API_KEY and/or OPENAI_API_KEY.');
     }
     const requestedLanguage = ['auto', 'en', 'ig'].includes(language) ? language : null;
+    // Snapshot the recorder payload once. Every provider attempt gets the same
+    // bytes, so a timeout, hedge cancellation or retry can never consume audio.
+    const recordedAudio = Buffer.from(audioBuffer);
     const out = await runHedged(
       providers,
-      (provider, signal) => (provider === 'openai'
-        ? this._openaiTranscribe(audioBuffer, filename, signal, requestedLanguage ?? '', mime)
-        : this._geminiTranscribe(audioBuffer, mime, signal, requestedLanguage ?? 'auto')),
+      (provider, signal) => retryTransientStt(
+        () => (provider === 'openai'
+          ? this._openaiTranscribe(recordedAudio, filename, signal, requestedLanguage ?? '', mime)
+          : this._geminiTranscribe(recordedAudio, mime, signal, requestedLanguage ?? 'auto')),
+        signal
+      ),
       { hedgeMs: config.voice.sttHedgeMs, isUsable: (text) => typeof text === 'string' && text.length > 0, label: 'speech-to-text' }
     );
     return { text: out.value, provider: out.provider, ms: out.ms, attempts: out.attempts };
