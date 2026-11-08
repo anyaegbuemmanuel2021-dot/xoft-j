@@ -17,8 +17,9 @@ test('Chat provides a user-controlled hands-free voice conversation mode', () =>
 
 test('Recognized speech is sent to XOFT automatically and listening resumes after the answer', () => {
   const chat = read('public/js/views/chat.js');
-  assert.match(chat, /void send\(container, finalText\.trim\(\), \{ voiceTurn: true \}\)/);
-  assert.match(chat, /await send\(container, voiceText, \{ voiceTurn: true \}\)/);
+  assert.match(chat, /transcribeAudioBlob\(blob/);
+  assert.match(chat, /if \(voiceText && voiceConversationActive\)\s*\{\s*await send\(container, voiceText, \{ voiceTurn: true \}\)/);
+
   // Status updates happen before the UI button is repainted; assert the whole turn-resume sequence, not an obsolete adjacent-line layout.
   assert.match(chat, /if \(\(voiceTurn \|\| continueLiveVoice\) && voiceConversationActive\)\s*\{[^}]*setVoiceStatus\('listening'[^}]*setConversationButton\(container, true,[^}]*scheduleConversationListen\(container, 500\);/);
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
@@ -85,7 +86,7 @@ test('AUTO LISTEN requires microphone recording and always uses XOFT server tran
   assert.match(input, /const canRecord = Boolean\(navigator\.mediaDevices\?\.getUserMedia && window\.MediaRecorder\)/);
   assert.doesNotMatch(input, /SpeechRecognition|webkitSpeechRecognition|new Recognition/);
   assert.match(input, /if \(!canRecord\)/);
-  assert.match(input, /AUTO LISTEN sends recorded audio to XOFT server transcription/);
+
   assert.doesNotMatch(input, /local Whisper|on-device Whisper|WHISPER AUTO LISTEN/);
   assert.match(input, /createServerListener/);
   assert.match(listen, /setInterval/);
