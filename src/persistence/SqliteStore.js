@@ -23,6 +23,12 @@ export class SqliteStore {
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, sender TEXT, recipient TEXT, value TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_timestamp ON whatsapp_messages(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_sender ON whatsapp_messages(sender);
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_recipient ON whatsapp_messages(recipient);
       CREATE TABLE IF NOT EXISTS activity_logs (
         id TEXT PRIMARY KEY, ts TEXT NOT NULL, task_id TEXT, value TEXT NOT NULL
       );
@@ -47,9 +53,21 @@ export class SqliteStore {
   }
 
   get(key) { const row = this.db.prepare('SELECT value FROM kv WHERE key=?').get(key); return row ? JSON.parse(row.value) : null; }
+  delete(key) { this.db.prepare('DELETE FROM kv WHERE key=?').run(key); }
   set(key, value) {
     this.db.prepare('INSERT INTO kv(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, JSON.stringify(value));
     this._secureFiles();
+  }
+  countWhatsAppMessages() { return this.db.prepare('SELECT COUNT(*) AS count FROM whatsapp_messages').get().count; }
+  loadWhatsAppMessages() { return this.db.prepare('SELECT value FROM whatsapp_messages ORDER BY timestamp ASC, rowid ASC').all().map((row) => JSON.parse(row.value)); }
+  saveWhatsAppMessage(message) {
+    this.db.prepare('INSERT INTO whatsapp_messages(id,timestamp,sender,recipient,value) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET timestamp=excluded.timestamp,sender=excluded.sender,recipient=excluded.recipient,value=excluded.value')
+      .run(message.id, String(message.timestamp ?? ''), message.from ?? null, message.to ?? null, JSON.stringify(message));
+    this._secureFiles();
+  }
+  pruneWhatsAppMessages(maxMessages) {
+    const max = Math.max(1, Math.trunc(Number(maxMessages) || 5000));
+    this.db.prepare('DELETE FROM whatsapp_messages WHERE id IN (SELECT id FROM whatsapp_messages ORDER BY timestamp DESC, rowid DESC LIMIT -1 OFFSET ?)').run(max);
   }
   countActivityLogs() { return this.db.prepare('SELECT COUNT(*) AS count FROM activity_logs').get().count; }
   appendActivityLog(entry) {
