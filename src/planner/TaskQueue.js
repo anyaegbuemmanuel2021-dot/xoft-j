@@ -22,8 +22,14 @@ export class TaskQueue {
     this.taskPlanner = taskPlanner;
     this.eventBus = eventBus;
     this.activityLog = activityLog;
-    this.concurrency = concurrency;
-    this.pollIntervalMs = pollIntervalMs;
+    const requestedConcurrency = Number(concurrency);
+    this.concurrency = Number.isFinite(requestedConcurrency)
+      ? Math.max(1, Math.min(8, Math.floor(requestedConcurrency)))
+      : 2;
+    const requestedPollInterval = Number(pollIntervalMs);
+    this.pollIntervalMs = Number.isFinite(requestedPollInterval)
+      ? Math.max(250, Math.min(60_000, Math.floor(requestedPollInterval)))
+      : 5000;
     this._running = new Set(); // taskIds currently inside taskPlanner.execute()
     this._pending = []; // [{ taskId, priority }] waiting for a concurrency slot
     this._timer = null;

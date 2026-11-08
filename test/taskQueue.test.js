@@ -217,4 +217,17 @@ describe('TaskQueue', () => {
     assert.throws(() => taskQueue.scheduleAt(cancelled.id, new Date(Date.now() + 1000).toISOString()), /cannot schedule a task in 'cancelled' state/);
   });
 
+  test('concurrency and polling settings are clamped to safe operational bounds', () => {
+    const { tool } = makeControlledTool('test.queue-config', 1);
+    const zero = makeHarness({ tool, concurrency: 0 }).taskQueue;
+    assert.equal(zero.concurrency, 1, 'zero concurrency must not silently disable the queue');
+    assert.equal(zero.pollIntervalMs, 250, 'polling must not become a busy loop');
+
+    const excessive = makeHarness({ tool, concurrency: 100 }).taskQueue;
+    assert.equal(excessive.concurrency, 8, 'concurrency must be capped');
+
+    const invalid = makeHarness({ tool, concurrency: Number.NaN }).taskQueue;
+    assert.equal(invalid.concurrency, 2, 'invalid configuration must fall back to the default');
+  });
+
 });
