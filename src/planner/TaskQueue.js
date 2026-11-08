@@ -41,6 +41,18 @@ export class TaskQueue {
     this._recoveredTaskIds = new Set();
   }
 
+  _safeLog(entry) {
+    try { this.activityLog?.log(entry); } catch { /* diagnostics must never stop task execution */ }
+  }
+
+  _safeEmit(type, payload) {
+    try {
+      this.eventBus?.emitEvent(type, payload);
+    } catch (error) {
+      this._safeLog({ type: 'task_queue_event_emit_failed', detail: { eventType: type, error: error.message } });
+    }
+  }
+
   _priorityRank(p) {
     return { high: 0, normal: 1, low: 2 }[p] ?? 1;
   }
@@ -60,7 +72,7 @@ export class TaskQueue {
     const patched = this.taskPlanner.setStatus(taskId, 'queued');
     this._pending.push({ taskId, priority: patched.priority ?? 'normal' });
     this._pending.sort((a, b) => this._priorityRank(a.priority) - this._priorityRank(b.priority));
-    this.eventBus?.emitEvent(EventType.TASK_QUEUED, { taskId });
+    this._safeEmit(EventType.TASK_QUEUED, { taskId });
     this._drain();
     return this.taskPlanner.get(taskId);
   }
@@ -88,7 +100,7 @@ export class TaskQueue {
       tasks = this.taskPlanner.list();
     } catch (error) {
       try {
-        this.activityLog?.log({ type: 'task_queue_scan_failed', detail: { error: error.message } });
+        this._safeLog({ type: 'task_queue_scan_failed', detail: { error: error.message } });
       } catch { /* queue polling must remain alive when diagnostics fail */ }
       return [];
     }
@@ -100,13 +112,11 @@ export class TaskQueue {
         this.enqueue(task.id);
         enqueued.push(task.id);
       } catch (error) {
-        try {
-          this.activityLog?.log({
-            type: 'task_schedule_enqueue_failed',
-            taskId: task.id,
-            detail: { error: error.message },
-          });
-        } catch { /* one bad task must not stop other due tasks */ }
+        this._safeLog({
+          type: 'task_schedule_enqueue_failed',
+          taskId: task.id,
+          detail: { error: error.message },
+        });
       }
     }
     return enqueued;
@@ -126,10 +136,7 @@ export class TaskQueue {
       tasks = this.taskPlanner.list();
     } catch (error) {
       try {
-        this.activityLog?.log({
-          type: 'task_recovery_scan_failed',
-          detail: { error: error.message },
-        });
+        this._safeLog({ type: 'task_recovery_scan_failed', detail: { error: error.message } });
       } catch { /* diagnostics must never prevent queue startup */ }
       return [];
     }
@@ -141,11 +148,7 @@ export class TaskQueue {
     let hadFailures = false;
     for (const task of interrupted) {
       try {
-        this.activityLog?.log({
-          type: 'task_recovered_after_restart',
-          taskId: task.id,
-          detail: { previousStatus: task.status },
-        });
+        this._safeLog({ type: 'task_recovered_after_restart', taskId: task.id, detail: { previousStatus: task.status } });
         this.enqueue(task.id);
         this._recoveredTaskIds.add(task.id);
         recovered.push({ taskId: task.id, previousStatus: task.status });
@@ -154,11 +157,7 @@ export class TaskQueue {
         // recovering or stop the queue's polling loop from starting.
         hadFailures = true;
         try {
-          this.activityLog?.log({
-            type: 'task_recovery_failed',
-            taskId: task.id,
-            detail: { previousStatus: task.status, error: error.message },
-          });
+          this._safeLog({ type: 'task_recovery_failed', taskId: task.id, detail: { previousStatus: task.status, error: error.message } });
         } catch { /* diagnostics must never prevent other tasks from recovering */ }
       }
     }
@@ -195,7 +194,7 @@ export class TaskQueue {
       this.taskPlanner
         .execute(taskId)
         .catch((err) => {
-          this.activityLog?.log({ type: 'task_queue_execution_error', taskId, detail: { error: err.message } });
+          this._safeLog({ type: 'task_queue_execution_error', taskId, detail: { error: err.message } });
         })
         .finally(() => {
           this._running.delete(taskId);
