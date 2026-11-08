@@ -159,6 +159,21 @@ class LiveActivity : Activity() {
                 override fun onEndOfSpeech() { }
                 override fun onError(error: Int) {
                     if (!recognitionWanted) return
+                    // Silence/no-match is a normal outcome in an always-listening assistant,
+                    // not a broken recognizer. Restart without consuming the failure budget.
+                    if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
+                        recognitionFailures = 0
+                        speechHandler.postDelayed({ startRecognitionSession() }, 400)
+                        return
+                    }
+                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) {
+                        recognitionWanted = false
+                        dispatchNativeTranscript("", true, "On-device recognizer cannot use the selected language or microphone permission.")
+                        dispatchNativeSpeechState("idle")
+                        return
+                    }
                     recognitionFailures += 1
                     if (recognitionFailures >= 4) {
                         recognitionWanted = false
