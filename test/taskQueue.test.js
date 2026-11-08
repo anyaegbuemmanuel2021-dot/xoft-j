@@ -138,4 +138,38 @@ describe('TaskQueue', () => {
       taskQueue.scheduleAt(t.id, 'not-a-date');
     });
   });
+  test('startup recovery requeues interrupted queued, running, and timed-out tasks exactly once', async () => {
+    const { tool } = makeControlledTool('test.restart-recovery', 15);
+    const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 2 });
+    const queued = await taskPlanner.plan('queued before restart');
+    const running = await taskPlanner.plan('running before restart');
+    const timedOut = await taskPlanner.plan('timed out before restart');
+
+    taskPlanner.setStatus(queued.id, 'queued');
+    taskPlanner.setStatus(running.id, 'running', { startedAt: new Date().toISOString() });
+    taskPlanner.setStatus(timedOut.id, 'timed_out', { timedOutAt: new Date().toISOString() });
+
+    const recovered = taskQueue.recoverOnStartup();
+    assert.deepEqual(recovered.map((r) => r.taskId), [queued.id, running.id, timedOut.id]);
+    assert.deepEqual(taskQueue.recoverOnStartup(), [], 'recovery must be idempotent within one process');
+
+    await sleep(180);
+    for (const task of [queued, running, timedOut]) {
+      assert.equal(taskPlanner.get(task.id).status, 'completed', `task ${task.id} should resume to completion`);
+    }
+  });
+
+  test('startup recovery leaves planned and approval-waiting tasks untouched', async () => {
+    const { tool } = makeControlledTool('test.restart-safe', 5);
+    const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 1 });
+    const planned = await taskPlanner.plan('planned preview');
+    const approval = await taskPlanner.plan('approval required');
+    taskPlanner.setStatus(approval.id, 'waiting_approval');
+
+    assert.deepEqual(taskQueue.recoverOnStartup(), []);
+    assert.equal(taskPlanner.get(planned.id).status, 'planned');
+    assert.equal(taskPlanner.get(approval.id).status, 'waiting_approval');
+    assert.equal(taskQueue.status().pending.length, 0);
+  });
+
 });
