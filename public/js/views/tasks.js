@@ -106,7 +106,7 @@ function stepRows(steps = []) {
   }).join('');
 }
 
-function taskRow(t) {
+export function taskRow(t) {
   const steps = Array.isArray(t.steps) ? t.steps : [];
   const doneSteps = steps.filter((s) => s.status === 'completed').length;
   const percent = steps.length ? Math.round((doneSteps / steps.length) * 100) : 0;
