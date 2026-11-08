@@ -71,7 +71,7 @@ test('hedging off (0) keeps strictly sequential fallback', async () => {
     const svc = new VoiceService({
       fetchImpl: async (url) => {
         order.push(String(url).includes('generativelanguage') ? 'gemini' : 'openai');
-        if (String(url).includes('generativelanguage')) return new Response('down', { status: 503 });
+        if (String(url).includes('generativelanguage')) return new Response('invalid request', { status: 400 });
         return json({ text: 'fallback text' });
       },
     });
@@ -154,4 +154,52 @@ test('speech is split into short sentence chunks so the first audio starts quick
   assert.deepEqual(splitForSpeech('   '), []);
   const long = Array.from({ length: 40 }, (_, i) => 'Sentence number ' + i + ' is here.').join(' ');
   assert.ok(splitForSpeech(long).length <= 8, 'requests per reply are bounded');
+});
+
+
+test('Gemini 502 is retried once with the same captured audio before succeeding', async () => {
+  const restore = withVoiceConfig({ hedgeMs: 0 });
+  try {
+    let calls = 0;
+    const svc = new VoiceService({
+      fetchImpl: async (_url, init) => {
+        calls += 1;
+        assert.equal(JSON.parse(init.body).contents[0].parts[1].inline_data.data, Buffer.from('same-audio').toString('base64'));
+        return calls === 1 ? new Response('temporary gateway failure', { status: 502 }) : geminiOk('recovered transcript');
+      },
+    });
+    const out = await svc.transcribe(Buffer.from('same-audio'));
+    assert.equal(out.text, 'recovered transcript');
+    assert.equal(out.provider, 'gemini');
+    assert.equal(calls, 2);
+  } finally { restore(); }
+});
+
+test('OpenAI 429 is retried once without losing the original recorder bytes', async () => {
+  const restore = withVoiceConfig({ hedgeMs: 0 });
+  try {
+    let geminiCalls = 0;
+    let openaiCalls = 0;
+    const svc = new VoiceService({
+      fetchImpl: async (url, init) => {
+        if (String(url).includes('generativelanguage')) {
+          geminiCalls += 1;
+          return new Response('temporary gateway failure', { status: 502 });
+        }
+        openaiCalls += 1;
+        const file = init.body.get('file');
+        assert.equal(file.type, 'audio/ogg');
+        assert.equal(file.name, 'recording.ogg');
+        assert.equal(Buffer.from(await file.arrayBuffer()).toString(), 'preserved-audio');
+        return openaiCalls === 1
+          ? new Response('rate limited', { status: 429, headers: { 'retry-after': '0' } })
+          : json({ text: 'openai recovered' });
+      },
+    });
+    const out = await svc.transcribe(Buffer.from('preserved-audio'), { filename: 'recording.ogg', mime: 'audio/ogg' });
+    assert.equal(out.text, 'openai recovered');
+    assert.equal(out.provider, 'openai');
+    assert.equal(geminiCalls, 2);
+    assert.equal(openaiCalls, 2);
+  } finally { restore(); }
 });
