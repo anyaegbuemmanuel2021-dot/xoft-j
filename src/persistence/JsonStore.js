@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 /**
  * JsonStore — the same "read whole JSON blob / write whole JSON blob"
@@ -29,7 +30,7 @@ export class JsonStore {
     if (!this.sqliteStore) {
       fs.mkdirSync(dataDir, { recursive: true });
       if (!fs.existsSync(this.filePath)) {
-        fs.writeFileSync(this.filePath, JSON.stringify(defaultValue, null, 2));
+        this.save(defaultValue);
       }
     }
   }
@@ -54,6 +55,27 @@ export class JsonStore {
       this.sqliteStore.set(this.kvKey, value);
       return;
     }
-    fs.writeFileSync(this.filePath, JSON.stringify(value, null, 2));
+    const serialized = JSON.stringify(value, null, 2);
+    const tempPath = `${this.filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    const mode = fs.existsSync(this.filePath)
+      ? (fs.statSync(this.filePath).mode & 0o777)
+      : 0o600;
+    let fd = null;
+    try {
+      // Write beside the destination so rename stays on the same filesystem.
+      // A crash before rename leaves the previous complete file untouched.
+      fd = fs.openSync(tempPath, 'wx', mode);
+      fs.writeFileSync(fd, serialized, 'utf8');
+      fs.fsyncSync(fd);
+      fs.closeSync(fd);
+      fd = null;
+      fs.renameSync(tempPath, this.filePath);
+    } catch (error) {
+      if (fd !== null) {
+        try { fs.closeSync(fd); } catch {}
+      }
+      try { fs.unlinkSync(tempPath); } catch {}
+      throw error;
+    }
   }
 }
