@@ -66,11 +66,13 @@ test('Voice companion prefers native Android STT and retains server STT fallback
   assert.match(companion, /Gemini → OpenAI fallback/);
 });
 
-test('Speech output uses server-generated audio only and never falls back to browser TTS', () => {
+test('Speech output prefers native Android TTS, then server TTS, and never uses browser synthesis', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
   assert.doesNotMatch(tts, /speechSynthesis|browserSpeak|SpeechSynthesisUtterance/);
   assert.match(tts, /serverSpeak\(spoken, runId\)/);
+  assert.match(tts, /waitForNativeSpeech/);
+  assert.match(tts, /speakNative/);
   assert.match(tts, /XOFT server voice is unavailable/);
   assert.doesNotMatch(tts, /api\.elevenlabs\.io/, 'the browser must never hold or use the ElevenLabs key directly');
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);
