@@ -26,3 +26,15 @@ export function isOnMountedFilesystem(target, mountInfo) {
     return resolvedMount !== path.parse(resolvedMount).root && isPathWithin(resolvedMount, candidate);
   });
 }
+
+/** Build an explicit storage readiness result. Strict mode makes ephemeral storage a readiness failure. */
+export function assessStorageReadiness({ persistentRoot, dataRoot, sqlitePath, storageMode = 'sqlite', mountInfo = '' }) {
+  const configured = Boolean(persistentRoot);
+  const mounted = Boolean(configured && isOnMountedFilesystem(persistentRoot, mountInfo));
+  const durable = Boolean(
+    configured && mounted
+    && isPathWithin(persistentRoot, dataRoot)
+    && (storageMode !== 'sqlite' || isPathWithin(persistentRoot, path.dirname(sqlitePath)))
+  );
+  return { durable, configured, mounted };
+}
