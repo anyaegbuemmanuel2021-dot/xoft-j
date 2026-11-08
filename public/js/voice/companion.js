@@ -151,7 +151,7 @@ async function speakReply(text) {
       audio.play().catch(finish);
     });
   } catch (error) {
-    ui.log('XOFT server TTS failed: ' + error.message);
+    if (error?.name !== 'AbortError') ui.log('XOFT server TTS failed: ' + error.message);
   } finally {
     if (activeSpeechRequestController === controller) activeSpeechRequestController = null;
     if (audio) {
