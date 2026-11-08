@@ -335,6 +335,6 @@ test('status() reports Gemini → OpenAI for STT and TTS with browser fallback',
     assert.equal(s.tts.provider, 'gemini');
     assert.deepEqual(s.tts.providers, ['gemini', 'openai', 'elevenlabs']);
     assert.equal(s.tts.configured, true);
-    assert.equal(s.tts.fallback, 'browser');
+    assert.equal(s.tts.fallback, 'client-native');
   } finally { restore(); }
 });
