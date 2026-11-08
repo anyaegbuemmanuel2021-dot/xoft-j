@@ -602,11 +602,6 @@ function toggleVoiceConversation(container) {
     stopVoiceConversation(container);
     return;
   }
-  if (activeRecognition) {
-    const previous = activeRecognition;
-    activeRecognition = null;
-    try { previous.abort(); } catch {}
-  }
   // Voice conversation must have speech output enabled, and all Speak Out controls
   // must immediately reflect the same persisted setting.
   setSpeakOutEnabled(true);
