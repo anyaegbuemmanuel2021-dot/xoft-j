@@ -48,20 +48,22 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
-test('Voice companion defaults to server STT and uses shared fallback instead of browser speech first', () => {
+test('Voice companion uses only local capture/VAD with server STT and no browser speech-recognition fallback', () => {
   const companion = read('public/js/voice/companion.js');
-  assert.ok(companion.indexOf("'server-stt':") < companion.indexOf("'browser-speech':"), 'server STT must be the default backend');
+  assert.match(companion, /'server-stt':/);
+  assert.doesNotMatch(companion, /'browser-speech'|SpeechRecognition|webkitSpeechRecognition/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
   assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
   assert.match(companion, /Gemini → OpenAI fallback/);
 });
 
-test('Speech output uses the server voice (Gemini → OpenAI) by default and falls back to browser TTS', () => {
+test('Speech output uses server-generated audio only and never falls back to browser TTS', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
-  assert.match(tts, /speechSynthesis/);
-  assert.ok(tts.indexOf('serverSpeak(spoken, runId)') < tts.indexOf('browserSpeak(spoken, runId)'), 'the server voice must be tried before the browser voice');
+  assert.doesNotMatch(tts, /speechSynthesis|browserSpeak|SpeechSynthesisUtterance/);
+  assert.match(tts, /serverSpeak\(spoken, runId\)/);
+  assert.match(tts, /XOFT server voice is unavailable/);
   assert.doesNotMatch(tts, /api\.elevenlabs\.io/, 'the browser must never hold or use the ElevenLabs key directly');
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);
 });
