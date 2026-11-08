@@ -301,4 +301,5 @@ Files: `src/engines/{constants,Engine,EngineRegistry,TaskAnalyzer,EngineRouter,E
 * One Xoft user model: any admin key can control any engine task.
 * Hermes' own computer-use is not wired in; PC control goes through Xoft's device layer via the gateway.
 * Hermes working-directory confinement is by instruction + monitoring, not a chroot.
+* `engine detect` / engine health now reports `executionSandbox` separately from Git worktree safety. Docker daemon availability alone is not called isolation: XOFT still needs a per-task workspace bind/mount hand-off to the Hermes terminal container. Until that exists, health reports the sandbox as not isolated instead of implying that a worktree is a security boundary. The same explicit limitation is reported for configured remote backends until their task-specific workspace lifecycle is implemented.
 * Verification: in this repository's build sandbox `npm ci` could not reach the registry, so 27 older tests that need `express` could not run there (they were failing identically before these changes and are unrelated); run `npm test` locally for the full suite.
