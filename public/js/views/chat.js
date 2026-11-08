@@ -232,11 +232,48 @@ export function render(container) {
     toast(enabled ? 'Speak Out enabled — XOFT replies will be read aloud.' : 'Speak Out disabled.', 'info');
   });
   onDelegate(container, 'click', '#chat-speak-stop', () => stopSpeaking());
+  const onNativeTranscript = (event) => {
+    if (!nativeVoiceMode) return;
+    const modeAtStart = nativeVoiceMode;
+    const detail = event.detail || {};
+    if (detail.error) {
+      nativeVoiceMode = null;
+      nativeSpeechDisabledForSession = true;
+      stopNativeListening();
+      setMicButton(container, 'Voice Input');
+      toast('On-device speech recognition: ' + detail.error + ' Switching to XOFT server transcription.', 'warn');
+      if (modeAtStart === 'conversation' && voiceConversationActive) scheduleConversationListen(container, 700);
+      else if (modeAtStart === 'dictation') startVoiceRecording(container);
+      return;
+    }
+    const transcript = String(detail.text || '').trim();
+    if (!transcript) return;
+    nativeVoiceMode = null;
+    stopNativeListening();
+    if (modeAtStart === 'dictation') {
+      const input = container.querySelector('#chat-input');
+      if (input) { input.value = [input.value.trim(), transcript].filter(Boolean).join(' '); input.focus(); }
+      setMicButton(container, 'Voice Input');
+      setVoiceStatus('idle', 'TRANSCRIPTION READY · ANDROID');
+      toast('Recognized on device. Review your text and send it.', 'success');
+      return;
+    }
+    if (modeAtStart === 'conversation' && voiceConversationActive) {
+      setVoiceStatus('thinking', 'XOFT IS THINKING');
+      setConversationButton(container, true, 'XOFT is thinking…');
+      void send(container, transcript, { voiceTurn: true });
+    }
+  };
+  window.addEventListener('xoft:native-transcript', onNativeTranscript);
+
   container.querySelector('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(container); }
   });
 
   cleanup = () => {
+    window.removeEventListener('xoft:native-transcript', onNativeTranscript);
+    stopNativeListening();
+    nativeVoiceMode = null;
     stopLiveVideo(container, true);
     if (voiceConversationActive) stopVoiceConversation(container, true);
     cleanup = null;
@@ -279,7 +316,7 @@ function renderLog(container) {
 // STT: XOFT server transcription (Gemini primary, OpenAI fallback).
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from '../voice/stt.js';
 import { createLevelMeter, createSpeechGate, preferredRecorderOptions, unlockAudio } from '../voice/listen.js';
-let activeRecognition = null;
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from '../voice/native-bridge.js';
 let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
@@ -287,6 +324,8 @@ let voiceBusy = false;
 let voiceConversationActive = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
+let nativeVoiceMode = null;
+let nativeSpeechDisabledForSession = false;
 let liveVideoStream = null;
 
 function setVoiceStatus(state, label) {
@@ -496,71 +535,17 @@ function toggleVoiceInput(container) {
     voiceRecorder.stop();
     return;
   }
-  // Prefer the local voice engine over browser speech recognition. Browser
-  // recognition varies by browser/vendor, often requires a network service, and
-  // has been unreliable on mobile. Recording and transcription stay in this tab.
-  if (activeRecognition) {
-    try { activeRecognition.abort(); } catch {}
-    activeRecognition = null;
+  // Prefer the Android OS on-device recognizer; web-only sessions use recorded audio + XOFT server STT.
+  if (!nativeSpeechDisabledForSession && hasNativeSpeechRecognition()) {
+    nativeVoiceMode = 'dictation';
+    setVoiceStatus('listening', 'LISTENING · SPEAK NOW');
+    setMicButton(container, 'Listening… tap to stop', true);
+    if (startNativeListening('auto')) return;
+    nativeVoiceMode = null;
+    nativeSpeechDisabledForSession = true;
+    toast('Android on-device recognition could not start. Switching to XOFT server transcription.', 'warn');
   }
   startVoiceRecording(container);
-  return;
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    startVoiceRecording(container);
-    return;
-  }
-  const recognition = new SpeechRecognition();
-  activeRecognition = recognition;
-  recognition.lang = navigator.language || 'en-NG';
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  let finalText = '';
-  let fallbackToVoice = false;
-
-  setVoiceStatus('listening', 'LISTENING · SPEAK NOW');
-  setMicButton(container, 'Listening… tap to stop', true);
-  recognition.onresult = (event) => {
-    const finalParts = [];
-    const interimParts = [];
-    for (let i = 0; i < event.results.length; i += 1) {
-      const transcript = event.results[i][0]?.transcript || '';
-      if (event.results[i].isFinal) finalParts.push(transcript);
-      else interimParts.push(transcript);
-    }
-    finalText = finalParts.join(' ').trim();
-    const input = container.querySelector('#chat-input');
-    if (input) input.value = [finalText, interimParts.join(' ')].filter(Boolean).join(' ').trim();
-  };
-  recognition.onerror = (event) => {
-    if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
-      fallbackToVoice = true;
-      toast('Browser speech recognition is unavailable. Recording directly for XOFT transcription…', 'warn');
-    } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
-      toast('Microphone access is blocked. Allow microphone permission in your browser settings.', 'warn');
-    } else if (event.error === 'no-speech') {
-      toast('No speech detected. Tap Voice Input and try again.', 'info');
-    } else if (event.error !== 'aborted') {
-      fallbackToVoice = true;
-      toast('Browser speech recognition failed. Recording directly for XOFT transcription…', 'warn');
-    }
-  };
-  recognition.onend = () => {
-    if (activeRecognition === recognition) activeRecognition = null;
-    setMicButton(container, 'Voice Input');
-    const input = container.querySelector('#chat-input');
-    if (input && input.value.trim()) input.focus();
-    if (fallbackToVoice && !voiceConversationActive) startVoiceRecording(container);
-  };
-  try {
-    recognition.start();
-  } catch {
-    activeRecognition = null;
-    setMicButton(container, 'Voice Input');
-    toast('Browser recognition could not start. Recording directly for XOFT transcription…', 'warn');
-    startVoiceRecording(container);
-  }
 }
 
 function stopLiveVideo(container, silent = false) {
@@ -629,13 +614,10 @@ function setConversationButton(container, active, label = '') {
 
 function stopVoiceConversation(container, silent = false) {
   voiceConversationActive = false;
+  nativeVoiceMode = null;
+  stopNativeListening();
   if (voiceConversationTimer) clearTimeout(voiceConversationTimer);
   voiceConversationTimer = null;
-  if (activeRecognition) {
-    const recognition = activeRecognition;
-    activeRecognition = null;
-    try { recognition.abort(); } catch {}
-  }
   if (voiceRecorder && voiceRecorder.state !== 'inactive') {
     try { voiceRecorder.stop(); } catch {}
   }
@@ -655,98 +637,21 @@ function scheduleConversationListen(container, delay = 500) {
 
 function listenForConversationTurn(container) {
   if (!voiceConversationActive || voiceBusy || (voiceRecorder && voiceRecorder.state !== 'inactive')) return;
-  if (activeRecognition) return;
-
-  // Hands-free mode uses the same local voice path as push-to-talk.
-  // This avoids relying on vendor-specific browser recognition services.
+  if (!nativeSpeechDisabledForSession && hasNativeSpeechRecognition()) {
+    nativeVoiceMode = 'conversation';
+    setVoiceStatus('listening', 'LISTENING · SPEAK NATURALLY');
+    setConversationButton(container, true, 'Listening… speak naturally');
+    if (startNativeListening('auto')) return;
+    nativeVoiceMode = null;
+    nativeSpeechDisabledForSession = true;
+    toast('Android on-device recognition could not start. Switching to XOFT server transcription.', 'warn');
+  }
+  // Web-only sessions use locally captured audio and XOFT server STT. No browser speech API is called.
   if (!voiceFallbackNoticeShown) {
     voiceFallbackNoticeShown = true;
     toast('Voice conversation uses XOFT server transcription (Gemini → OpenAI fallback).', 'info');
   }
   startVoiceRecording(container, { autoSegment: true });
-  return;
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    startVoiceRecording(container, { autoSegment: true });
-    return;
-  }
-  const recognition = new SpeechRecognition();
-  activeRecognition = recognition;
-  recognition.lang = navigator.language || 'en-NG';
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  let finalText = '';
-  let fallbackToVoice = false;
-  let permissionDenied = false;
-  setVoiceStatus('listening', 'LISTENING · SPEAK NATURALLY');
-  setConversationButton(container, true, 'Listening… speak naturally');
-
-  recognition.onresult = (event) => {
-    const finalParts = [];
-    const interimParts = [];
-    for (let i = 0; i < event.results.length; i += 1) {
-      const transcript = event.results[i][0]?.transcript || '';
-      if (event.results[i].isFinal) finalParts.push(transcript);
-      else interimParts.push(transcript);
-    }
-    finalText = finalParts.join(' ').trim();
-    const input = container.querySelector('#chat-input');
-    if (input) input.value = [finalText, interimParts.join(' ')].filter(Boolean).join(' ').trim();
-    setVoiceStatus('listening', 'HEARING YOU');
-    setConversationButton(container, true, 'Hearing you…');
-  };
-
-  recognition.onerror = (event) => {
-    if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
-      fallbackToVoice = true;
-    } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
-      permissionDenied = true;
-      toast('Microphone access is blocked. Allow microphone permission, then start Voice Conversation again.', 'warn');
-    } else if (event.error === 'no-speech') {
-      // Normal in a conversation: a silent turn just starts a fresh listen.
-    } else if (event.error !== 'aborted') {
-      fallbackToVoice = true;
-    }
-  };
-
-  recognition.onend = () => {
-    if (activeRecognition === recognition) activeRecognition = null;
-    if (!voiceConversationActive) return;
-    if (permissionDenied) {
-      stopVoiceConversation(container, true);
-      return;
-    }
-    if (fallbackToVoice) {
-      if (!voiceFallbackNoticeShown) {
-        voiceFallbackNoticeShown = true;
-        toast('Browser speech service is unavailable. Switching to direct XOFT microphone capture.', 'warn');
-      }
-      startVoiceRecording(container, { autoSegment: true });
-      return;
-    }
-    if (finalText.trim()) {
-      const input = container.querySelector('#chat-input');
-      if (input) input.value = '';
-      setVoiceStatus('thinking', 'XOFT IS THINKING');
-      setConversationButton(container, true, 'XOFT is thinking…');
-      void send(container, finalText.trim(), { voiceTurn: true });
-      return;
-    }
-    setConversationButton(container, true, 'Listening… speak naturally');
-    scheduleConversationListen(container, 500);
-  };
-
-  try {
-    recognition.start();
-  } catch {
-    activeRecognition = null;
-    if (!voiceFallbackNoticeShown) {
-      voiceFallbackNoticeShown = true;
-      toast('Starting direct XOFT microphone capture because browser speech could not start.', 'warn');
-    }
-    startVoiceRecording(container, { autoSegment: true });
-  }
 }
 
 function toggleVoiceConversation(container) {
@@ -754,11 +659,6 @@ function toggleVoiceConversation(container) {
   if (voiceConversationActive) {
     stopVoiceConversation(container);
     return;
-  }
-  if (activeRecognition) {
-    const previous = activeRecognition;
-    activeRecognition = null;
-    try { previous.abort(); } catch {}
   }
   // Voice conversation must have speech output enabled, and all Speak Out controls
   // must immediately reflect the same persisted setting.
