@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { card, badge, rows, fmtTime, esc, toast, guarded, onDelegate, debounce } from '../dom.js';
 import { onEvent } from '../ws.js';
+import { taskRow } from './task-row.js';
 
 export const title = 'Tasks';
 export let cleanup = null;
@@ -81,26 +82,4 @@ function queueCard(queue) {
   `);
 }
 
-function statusBadge(status) {
-  const kind = { completed: 'ok', failed: 'err', running: 'ok', cancelled: '', blocked: 'warn', waiting_approval: 'warn', scheduled: 'warn', queued: 'warn' }[status] ?? '';
-  return badge(status, kind);
-}
 
-function taskRow(t) {
-  const doneSteps = t.steps.filter((s) => s.status === 'completed').length;
-  return `
-    <div class="row" style="flex-direction:column; align-items:stretch;">
-      <div style="display:flex; justify-content:space-between; gap:8px;">
-        <span class="main">${esc(t.goal)}</span>
-        ${statusBadge(t.status)}
-      </div>
-      <div class="muted" style="margin:4px 0;">${doneSteps}/${t.steps.length} steps · created ${fmtTime(t.createdAt)}${t.scheduledFor ? ' · scheduled for ' + fmtTime(t.scheduledFor) : ''}</div>
-      ${t.blockedReason ? `<div class="muted" style="margin:4px 0;">${esc(t.blockedReason)}</div>` : ''}
-      <div class="inline" style="gap:6px; flex-wrap:wrap;">
-        ${t.status === 'planned' || t.status === 'waiting_approval' ? `<button data-execute="${t.id}">Execute</button><button data-enqueue="${t.id}">Enqueue</button><button data-schedule="${t.id}">Schedule…</button>` : ''}
-        ${!['completed', 'cancelled', 'blocked', 'rolled_back'].includes(t.status) ? `<button data-cancel="${t.id}" class="danger">Cancel</button>` : ''}
-        <button data-executions="${t.id}">Executions</button>
-      </div>
-    </div>
-  `;
-}
