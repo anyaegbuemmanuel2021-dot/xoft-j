@@ -1,11 +1,9 @@
-// XOFT speech output: server voice (POST /api/voice/speak: Gemini first, OpenAI fallback) by default,
-// browser/device speechSynthesis as the last fallback.
-// The browser voice is used when no server voice is configured, fails, times out, or playback is blocked (e.g. mobile autoplay policy).
+// XOFT speech output uses server-generated audio (Gemini first, OpenAI fallback).
+// No browser SpeechSynthesis fallback: provider and device behavior varies too much for dependable voice output.
 import { apiHeaders, getVoiceStatus, peekVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
 const ENABLED_KEY = 'xoft_speak_out_enabled';
 let currentAudio = null;
 let currentAudioUrl = null;
-let currentUtterance = null;
 let speechRun = 0;
 
 function setSpeechState(state, detail = '') {
@@ -25,14 +23,10 @@ export function setSpeakOutEnabled(enabled) {
   return Boolean(enabled);
 }
 
-function canBrowserSpeak() {
-  return typeof window !== 'undefined'
-    && ('speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function');
-}
 
 export function canSpeakOut() {
-  // The server voice needs only an <audio> element; the browser voice needs speechSynthesis.
-  return typeof window !== 'undefined' && (canBrowserSpeak() || typeof Audio === 'function');
+  // Audio playback is only the output device; all speech generation happens on XOFT's server.
+  return typeof window !== 'undefined' && typeof Audio === 'function';
 }
 
 // Resolves the in-flight playback promise when audio is stopped from outside (user interrupts XOFT).
@@ -60,10 +54,6 @@ function releaseAudio() {
 export function stopSpeaking() {
   speechRun += 1;
   releaseAudio();
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    try { window.speechSynthesis.cancel(); } catch { /* browser TTS is best effort */ }
-  }
-  currentUtterance = null;
   setSpeechState('idle');
 }
 
@@ -79,75 +69,6 @@ function speechChunks(text, limit = 650) {
   }
   if (current) chunks.push(current);
   return chunks;
-}
-
-function browserSpeak(text, runId) {
-  if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance !== 'function') {
-    setSpeechState('error', 'Text-to-speech is not supported by this browser.');
-    return Promise.resolve(false);
-  }
-  const synth = window.speechSynthesis;
-  const chunks = speechChunks(text, 220);
-  return new Promise((resolve) => {
-    let index = 0;
-    let finished = false;
-    let watchdog = null;
-    const finish = (success) => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(watchdog);
-      if (runId === speechRun) {
-        currentUtterance = null;
-        setSpeechState(success ? 'idle' : 'error', success ? '' : 'Browser speech failed or timed out.');
-      }
-      resolve(success);
-    };
-    const next = () => {
-      if (runId !== speechRun) return finish(false);
-      if (index >= chunks.length) return finish(true);
-      const utterance = new SpeechSynthesisUtterance(chunks[index++]);
-      utterance.lang = 'en-NG';
-      utterance.rate = 1.04;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-      const voices = synth.getVoices?.() ?? [];
-      const preferred = voices.find((v) => /^en-NG$/i.test(v.lang))
-        ?? voices.find((v) => /^en-GB$/i.test(v.lang))
-        ?? voices.find((v) => /^en-US$/i.test(v.lang))
-        ?? voices.find((v) => /^en/i.test(v.lang));
-      if (preferred) { utterance.voice = preferred; utterance.lang = preferred.lang; }
-      currentUtterance = utterance;
-      // Some mobile browsers silently stall speechSynthesis without firing onstart/onend.
-      // Bound each chunk so browser/device speech cannot leave XOFT stuck forever.
-      clearTimeout(watchdog);
-      watchdog = setTimeout(() => {
-        try { synth.cancel(); } catch { /* best effort */ }
-        finish(false);
-      }, 20000);
-      utterance.onstart = () => { if (runId === speechRun) setSpeechState('speaking'); };
-      utterance.onend = () => {
-        clearTimeout(watchdog);
-        if (runId === speechRun) next();
-      };
-      utterance.onerror = (event) => {
-        clearTimeout(watchdog);
-        // A cancel caused by STOP is expected; don't report it as a failure.
-        if (runId !== speechRun || event.error === 'canceled' || event.error === 'interrupted') return finish(false);
-        finish(false);
-      };
-      try { synth.speak(utterance); }
-      catch { finish(false); }
-    };
-    // A few mobile browsers expose voices asynchronously.
-    if (!synth.getVoices?.().length) {
-      const onVoices = () => { synth.removeEventListener?.('voiceschanged', onVoices); next(); };
-      synth.addEventListener?.('voiceschanged', onVoices, { once: true });
-      setTimeout(() => {
-        synth.removeEventListener?.('voiceschanged', onVoices);
-        if (index === 0 && !finished) next();
-      }, 350);
-    } else next();
-  });
 }
 
 // --- Low-latency server-voice playback ------------------------------------------------------------
@@ -190,7 +111,7 @@ export function splitForSpeech(text) {
 
 async function fetchSpeechBlob(text) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
+  const timer = setTimeout(() => controller.abort(), 18000);
   try {
     const res = await fetch('/api/voice/speak', {
       method: 'POST',
@@ -232,7 +153,7 @@ function playSpeechBlob(blob, runId, final) {
     audio.onended = () => done(true);
     audio.onerror = () => done(false);
     audio.onplaying = () => { if (runId === speechRun) setSpeechState('speaking'); };
-    // play() rejects when the platform blocks autoplay; the caller then falls back to the browser voice.
+    // play() rejects when the platform blocks autoplay; report the failure instead of switching engines.
     audio.play().catch(() => done(false));
   });
 }
@@ -257,15 +178,14 @@ async function serverSpeak(text, runId) {
     const blob = await ensure(index);
     if (runId !== speechRun) return false;
     ensure(index + 2); // keep the pipeline two chunks ahead of playback
-    const rest = () => chunks.slice(index).join(' ');
-    if (!blob) {
-      // Nothing played yet: let the caller use the browser voice for the whole reply.
-      // Already speaking: finish the remainder with the device voice rather than going silent.
-      return index === 0 ? false : browserSpeak(rest(), runId);
+      if (!blob) {
+      // Keep one speech engine for the entire reply; never switch to browser TTS.
+      if (index > 0) setSpeechState('error', 'Server voice failed before the reply finished.');
+      return false;
     }
     const ok = await playSpeechBlob(blob, runId, index === chunks.length - 1);
     if (runId !== speechRun) return false;
-    if (!ok) return index === 0 ? false : browserSpeak(rest(), runId);
+    if (!ok) { setSpeechState('error', 'XOFT audio playback failed.'); return false; }
   }
   return true;
 }
@@ -286,13 +206,6 @@ export async function speakOut(text) {
   const served = await serverSpeak(spoken, runId);
   if (served || runId !== speechRun) return served;
 
-  // 2) Fallback: the device/browser voice (no network request).
-  if (!canBrowserSpeak()) {
-    setSpeechState('error', 'Server voice is unavailable and this browser has no text-to-speech.');
-    return false;
-  }
-  const browserPlayed = await browserSpeak(spoken, runId);
-  if (browserPlayed || runId !== speechRun) return browserPlayed;
-  setSpeechState('error', 'Speech output failed. Check GEMINI_API_KEY / OPENAI_API_KEY or enable text-to-speech in your browser or device settings.');
-  return false;
+  if (!served) setSpeechState('error', 'XOFT server voice is unavailable. Check the voice provider configuration and connection.');
+  return served;
 }
