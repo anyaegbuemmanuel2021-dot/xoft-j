@@ -30,6 +30,8 @@ jobs:
         run: npm ci
       - name: Run backend test suite
         run: npm test
+      - name: Run paired desktop-agent test suite
+        run: npm --prefix pc-agent test
 
   docker-build:
     name: Production Docker image
