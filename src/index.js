@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -91,6 +92,7 @@ import { RecoveryEngine } from './recovery/RecoveryEngine.js';
 import { ContextEngine } from './context/ContextEngine.js';
 import { VisionInterpreter } from './vision/VisionInterpreter.js';
 import { SqliteStore } from './persistence/SqliteStore.js';
+import { isPathWithin, isOnMountedFilesystem } from './persistence/storageReadiness.js';
 import { IntelligenceDirector } from './intelligence/IntelligenceDirector.js';
 import { ConnectorManager } from './connectors/ConnectorManager.js';
 import { buildConnectorTools } from './tools/builtins/connectorTools.js';
@@ -267,16 +269,15 @@ app.get('/readyz', (_req, res) => {
     ? path.resolve(config.storage.persistentDataDir)
     : null;
   const dataRoot = path.resolve(config.memory.dataDir);
-  const relativeDataPath = persistentRoot ? path.relative(persistentRoot, dataRoot) : null;
-  const dataDirOnPersistentStorage = Boolean(
-    persistentRoot && (relativeDataPath === '' || (!relativeDataPath.startsWith('..') && !path.isAbsolute(relativeDataPath)))
-  );
   const sqliteDir = path.resolve(path.dirname(config.storage.sqlitePath));
-  const relativeSqlitePath = persistentRoot ? path.relative(persistentRoot, sqliteDir) : null;
-  const sqliteOnPersistentStorage = Boolean(
-    persistentRoot && (relativeSqlitePath === '' || (!relativeSqlitePath.startsWith('..') && !path.isAbsolute(relativeSqlitePath)))
+  let mountInfo = '';
+  try { mountInfo = fs.readFileSync('/proc/self/mountinfo', 'utf8'); } catch { /* non-Linux or restricted runtime */ }
+  const durable = Boolean(
+    persistentRoot
+    && isOnMountedFilesystem(persistentRoot, mountInfo)
+    && isPathWithin(persistentRoot, dataRoot)
+    && (config.storage.mode !== 'sqlite' || isPathWithin(persistentRoot, sqliteDir))
   );
-  const durable = dataDirOnPersistentStorage && (config.storage.mode !== 'sqlite' || sqliteOnPersistentStorage);
   res.status(200).json({
     ok: true,
     service: 'xoft-core',
@@ -284,6 +285,7 @@ app.get('/readyz', (_req, res) => {
     persistence: {
       durable,
       configured: Boolean(persistentRoot),
+      mounted: Boolean(persistentRoot && isOnMountedFilesystem(persistentRoot, mountInfo)),
       warning: durable ? null : 'Data is on ephemeral storage. Files, memory, settings and SQLite records may be lost on restart, spin-down or redeploy.',
     },
     connectors: connectorManager.list().filter((c) => c.enabled).map((c) => c.id),
