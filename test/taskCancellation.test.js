@@ -87,4 +87,38 @@ describe('TaskPlanner — cooperative cancellation', () => {
     assert.equal(result.status, 'cancelled');
     assert.equal(calls, 0);
   });
+  test('a cancelled in-flight step is not retried after it fails', async () => {
+    let releaseFirst;
+    let signalStarted;
+    const started = new Promise((resolve) => { signalStarted = resolve; });
+    let calls = 0;
+    const tool = {
+      name: 'test.cancelled-failure', description: 'action', inputSchema: {}, riskLevel: 0,
+      requiredPermissions: [], status: 'implemented',
+      async run() {
+        calls += 1;
+        signalStarted();
+        await new Promise((resolve) => { releaseFirst = resolve; });
+        throw new Error('simulated failure after cancellation');
+      },
+    };
+    const router = {
+      async complete() {
+        return { text: JSON.stringify({ steps: [
+          { id: 'one', toolName: tool.name, input: {}, dependsOn: [], description: 'action' },
+        ], blockedReason: null }) };
+      },
+    };
+    const planner = makeHarness(router, [tool]);
+    const task = await planner.plan('cancel during failing action');
+    const execution = planner.execute(task.id);
+    await started;
+    planner.cancel(task.id);
+    releaseFirst();
+    const result = await execution;
+    assert.equal(result.status, 'cancelled');
+    assert.equal(calls, 1, 'cancellation must suppress automatic retries');
+    assert.equal(result.steps[0].status, 'cancelled');
+  });
+
 });
