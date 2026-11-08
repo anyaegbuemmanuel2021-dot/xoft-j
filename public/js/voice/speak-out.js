@@ -5,6 +5,7 @@ const ENABLED_KEY = 'xoft_speak_out_enabled';
 let currentAudio = null;
 let currentAudioUrl = null;
 let speechRun = 0;
+const activeTtsControllers = new Set();
 
 function setSpeechState(state, detail = '') {
   window.dispatchEvent(new CustomEvent('xoft:speech-state', { detail: { state, detail } }));
@@ -53,6 +54,8 @@ function releaseAudio() {
 
 export function stopSpeaking() {
   speechRun += 1;
+  for (const controller of activeTtsControllers) controller.abort();
+  activeTtsControllers.clear();
   releaseAudio();
   setSpeechState('idle');
 }
@@ -111,6 +114,7 @@ export function splitForSpeech(text) {
 
 async function fetchSpeechBlob(text) {
   const controller = new AbortController();
+  activeTtsControllers.add(controller);
   const timer = setTimeout(() => controller.abort(), 18000);
   try {
     const res = await fetch('/api/voice/speak', {
@@ -130,6 +134,7 @@ async function fetchSpeechBlob(text) {
     return null;
   } finally {
     clearTimeout(timer);
+    activeTtsControllers.delete(controller);
   }
 }
 
