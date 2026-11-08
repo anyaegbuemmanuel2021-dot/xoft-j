@@ -41,6 +41,26 @@ jobs:
         uses: actions/checkout@v4
       - name: Build production image
         run: docker build --tag xoft:ci .
+      - name: Start container and smoke-test health/readiness endpoints
+        shell: bash
+        run: |
+          docker run -d --name xoft-smoke -p 3000:3000 -e NODE_ENV=development xoft:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs xoft-smoke
+              exit 1
+            fi
+            sleep 2
+          done
+          readyz="$(curl -fsS http://127.0.0.1:3000/readyz)"
+          echo "$readyz"
+          echo "$readyz" | grep -q '"durable":false'
+      - name: Clean up smoke-test container
+        if: always()
+        run: docker rm -f xoft-smoke || true
 
   universal-apps:
     name: Shared protocol, mobile and desktop
