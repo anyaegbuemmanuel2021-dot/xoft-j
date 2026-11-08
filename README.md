@@ -150,26 +150,18 @@ See [`docs/WEB_RESEARCH.md`](docs/WEB_RESEARCH.md) for setup and security detail
 
 ### 4c. Voice (speak + transcribe)
 
-- **Text-to-speech**: sign up at [ElevenLabs](https://elevenlabs.io/), copy
-  your API key and (optionally) pick a voice ID from your account.
-  ```
-  ELEVENLABS_API_KEY=...
-  ELEVENLABS_VOICE_ID=21m00Tcm4TlvDq8ikWAM
-  ```
-  Test it:
-  ```bash
-  curl -X POST localhost:3000/api/voice/speak \
-    -H 'Content-Type: application/json' \
-    -d '{"text":"Hello, I am XOFT."}' --output hello.mp3
-  ```
-- **Speech-to-text**: OpenAI Whisper (`whisper-1`) is the default and rides on `OPENAI_API_KEY`; Gemini (`GEMINI_API_KEY`) is the server fallback; the browser then falls back to on-device Whisper. Order: `STT_PROVIDER_ORDER` (default `openai,gemini`). `GET /api/voice/status` shows what is configured.
+- **Android companion — local TTS**: XOFT prefers Android's native `TextToSpeech` engine. It needs no cloud API key; the phone must have an installed voice. Nigerian English is preferred when available.
+- **Android companion — on-device STT**: XOFT prefers Android's on-device `SpeechRecognizer` when the OS reports it is available and the selected language pack is installed. This does not call browser speech recognition or cloud STT.
+- **Web-only fallback**: a normal browser captures microphone audio and sends it to XOFT server STT (Gemini first, OpenAI fallback). Server TTS is optional when no native Android bridge is present. Browser `SpeechRecognition` and `speechSynthesis` are intentionally not used.
+- **Optional server speech providers**: Gemini/OpenAI for STT and TTS; ElevenLabs is an optional TTS provider. These are fallbacks, not requirements for native Android TTS or on-device Android STT.
+- `GET /api/voice/status` shows server providers configured. Test server STT with:
   ```bash
   curl -X POST localhost:3000/api/voice/transcribe \
     -H 'Content-Type: audio/webm' \
     --data-binary @your_recording.webm
   ```
-There's no mic/speaker here on purpose — a web page or mobile app records
-audio and POSTs it here, then plays back what `/api/voice/speak` returns.
+
+The browser still needs microphone access to capture audio in a web-only session. Speech recognition and synthesis are handled by XOFT/server or native OS services, not browser speech APIs. See `docs/NATIVE_INTELLIGENCE.md`.
 
 ### 4d. WhatsApp / Phone calls / Screen control
 
