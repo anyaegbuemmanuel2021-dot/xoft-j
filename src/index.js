@@ -1046,7 +1046,7 @@ app.get('/api/activity', (req, res) => {
 
 // --- Voice ---
 // GET  /api/voice/status      -> which STT providers / TTS are configured (lets the client pick a path without a failed call)
-// POST /api/voice/speak       { "text": "..." } -> audio bytes (Gemini first, OpenAI fallback, optional ElevenLabs)
+// POST /api/voice/speak       { "text": "..." } -> audio bytes (server-generated; Gemini first, OpenAI fallback, optional ElevenLabs)
 // POST /api/voice/transcribe  (raw audio body) -> { text, provider } (Gemini first, OpenAI fallback)
 app.get('/api/voice/status', (_req, res) => {
   res.json(voiceService.status());
