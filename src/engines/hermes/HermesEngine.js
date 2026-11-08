@@ -130,12 +130,13 @@ export class HermesEngine extends Engine {
     const now = () => new Date().toISOString();
     if (!this.settings.enabled) {
       this.capabilities = [];
-      return this._remember({ available: false, level: Availability.DISABLED, status: EngineStatus.DISABLED, reason: 'Hermes is disabled in settings', dependencies: { runtime: null, api: null, api_key: null, model: null, filesystem: null, terminal: null, browser: null, bridge: null }, capabilities: [], fallback: 'xoft-core', checkedAt: now() });
+      return this._remember({ available: false, level: Availability.DISABLED, status: EngineStatus.DISABLED, reason: 'Hermes is disabled in settings', dependencies: { runtime: null, api: null, api_key: null, model: null, filesystem: null, terminal: null, browser: null, bridge: null, execution_sandbox: null }, capabilities: [], fallback: 'xoft-core', checkedAt: now() });
     }
     const env = await this._environment();
     const probe = await this.client.health();
-    const deps = { runtime: env.hermes.installed || probe.ok, api: probe.ok, api_key: null, model: null, filesystem: null, terminal: null, browser: null, bridge: null, git: env.git.found };
+    const deps = { runtime: env.hermes.installed || probe.ok, api: probe.ok, api_key: null, model: null, filesystem: null, terminal: null, browser: null, bridge: null, git: env.git.found, execution_sandbox: Boolean(env.executionSandbox?.isolated) };
     const notes = [];
+    if (env.executionSandbox && !env.executionSandbox.isolated) notes.push(env.executionSandbox.reason);
 
     if (!probe.ok) {
       const starting = this.proc?.running;

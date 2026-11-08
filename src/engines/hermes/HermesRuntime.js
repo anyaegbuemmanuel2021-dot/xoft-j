@@ -77,11 +77,51 @@ export function readConfiguredProviders(hermesHome) {
 }
 
 /**
+ * Reports whether Hermes has an OS-level terminal sandbox available.
+ *
+ * This is deliberately separate from Git worktree isolation: a worktree protects the
+ * checkout, but it is not a kernel security boundary. Even when Docker is reachable,
+ * Xoft currently cannot bind each task's dynamically-created worktree into Hermes'
+ * long-lived terminal container, so "isolated" remains false until that hand-off exists.
+ */
+export async function detectExecutionSandbox({ settings = {}, env = process.env, platform = process.platform, execFileImpl = execFile } = {}) {
+  const configured = settings.environment ?? {};
+  const backend = String(configured.TERMINAL_ENV ?? env.TERMINAL_ENV ?? 'local').toLowerCase();
+  if (backend === 'local') {
+    return { backend, runtimeAvailable: false, taskWorkspaceBinding: false, isolated: false, reason: 'Hermes terminal is using the local host backend; Git worktrees are not an OS security boundary.' };
+  }
+  if (backend === 'docker') {
+    const binaryName = configured.HERMES_DOCKER_BINARY ?? env.HERMES_DOCKER_BINARY ?? 'docker';
+    const binary = findExecutable(binaryName, { env, platform })
+      ?? (binaryName === 'docker' ? findExecutable('podman', { env, platform }) : null);
+    if (!binary) return { backend, runtimeAvailable: false, taskWorkspaceBinding: false, isolated: false, reason: 'Docker/Podman executable was not found.' };
+    const result = await run(binary, ['info', '--format', '{{.ServerVersion}}'], { timeout: 5000, execFileImpl });
+    if (!result.ok || !result.stdout) return { backend, runtimeAvailable: false, taskWorkspaceBinding: false, isolated: false, reason: 'Docker/Podman CLI exists, but its daemon is not reachable.' };
+    return { backend, runtimeAvailable: true, taskWorkspaceBinding: false, isolated: false, runtimeVersion: result.stdout.slice(0, 80), reason: 'Container runtime is reachable, but XOFT does not yet mount each task worktree into its own Hermes execution container.' };
+  }
+  if (backend === 'daytona') {
+    const configuredKey = Boolean(configured.DAYTONA_API_KEY || env.DAYTONA_API_KEY);
+    return { backend, runtimeAvailable: configuredKey, taskWorkspaceBinding: false, isolated: false, reason: configuredKey ? 'Daytona credentials are present, but per-task XOFT workspace binding is not implemented.' : 'DAYTONA_API_KEY is not configured.' };
+  }
+  if (backend === 'modal') {
+    const configuredKey = Boolean((configured.MODAL_TOKEN_ID || env.MODAL_TOKEN_ID) && (configured.MODAL_TOKEN_SECRET || env.MODAL_TOKEN_SECRET));
+    return { backend, runtimeAvailable: configuredKey, taskWorkspaceBinding: false, isolated: false, reason: configuredKey ? 'Modal credentials are present, but per-task XOFT workspace binding is not implemented.' : 'Modal credentials are not configured.' };
+  }
+  if (backend === 'ssh') {
+    const configuredHost = Boolean(configured.TERMINAL_SSH_HOST || env.TERMINAL_SSH_HOST);
+    const configuredUser = Boolean(configured.TERMINAL_SSH_USER || env.TERMINAL_SSH_USER);
+    return { backend, runtimeAvailable: configuredHost && configuredUser, taskWorkspaceBinding: false, isolated: false, reason: 'SSH execution is not treated as isolated until XOFT can provision and bind a task-specific remote workspace.' };
+  }
+  return { backend, runtimeAvailable: false, taskWorkspaceBinding: false, isolated: false, reason: `Unsupported or unverified Hermes terminal backend '${backend}'.` };
+}
+
+/**
  * Read-only survey of the machine (spec section 6). Used by health checks, the UI and `xoft engine detect`.
  * @param {{settings?:object, env?:object, platform?:string, execFileImpl?:Function, apiKeySource?:string}} [opts]
  */
 export async function detectEnvironment({ settings = {}, env = process.env, platform = process.platform, execFileImpl = execFile, apiKeySource = 'none' } = {}) {
   const home = settings.hermesHome || hermesHomeDir({ env, platform });
+  const executionSandbox = await detectExecutionSandbox({ settings, env, platform, execFileImpl });
   const extraDirs = [path.join(os.homedir(), '.local', 'bin'), ...(isWin(platform) && env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'hermes'), path.join(env.LOCALAPPDATA, 'hermes', 'bin'), path.join(env.LOCALAPPDATA, 'hermes', 'Scripts')] : [])];
   const hermesPath = findExecutable(settings.runtimePath || 'hermes', { env, platform, extraDirs });
 
@@ -116,6 +156,7 @@ export async function detectEnvironment({ settings = {}, env = process.env, plat
       configuredProviders: readConfiguredProviders(home),
     },
     api: { baseUrl: settings.baseUrl ?? null, keyConfigured: apiKeySource !== 'none', keySource: apiKeySource },
+    executionSandbox,
   };
 }
 

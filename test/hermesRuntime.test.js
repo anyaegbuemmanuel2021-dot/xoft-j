@@ -6,7 +6,7 @@ import path from 'node:path';
 import { EngineStatus, ErrorCode } from '../src/engines/constants.js';
 import { HermesEngine } from '../src/engines/hermes/HermesEngine.js';
 import {
-  EngineSecretStore, HermesProcess, applyBridgeConfig, bridgeConfigSnippet, buildManagedEnv, detectEnvironment, findExecutable, hermesHomeDir, installGuidance, readConfiguredProviders,
+  EngineSecretStore, HermesProcess, applyBridgeConfig, bridgeConfigSnippet, buildManagedEnv, detectEnvironment, detectExecutionSandbox, findExecutable, hermesHomeDir, installGuidance, readConfiguredProviders,
 } from '../src/engines/hermes/HermesRuntime.js';
 import { HermesSettingsStore } from '../src/engines/hermes/HermesSettingsStore.js';
 import { HERMES_DEFAULTS, hermesSettingsFromEnv, publicHermesSettings, resolveHermesSettings, validateHermesSettings } from '../src/engines/hermes/hermesConfig.js';
@@ -85,6 +85,31 @@ test('detection: finds executables on PATH, reads Hermes home and provider NAMES
   assert.equal(hermesHomeDir({ env: {}, platform: 'win32', homedir: 'C:\\Users\\u' }).includes('.hermes'), true);
   assert.equal(hermesHomeDir({ env: { LOCALAPPDATA: 'C:\\L' }, platform: 'win32' }), path.join('C:\\L', 'hermes'));
   assert.equal(hermesHomeDir({ env: { HERMES_HOME: '/h' } }), '/h');
+});
+
+test('execution sandbox detection distinguishes worktree safety from a real per-task OS sandbox', async () => {
+  const local = await detectExecutionSandbox({ settings: {}, env: { PATH: '' } });
+  assert.equal(local.backend, 'local');
+  assert.equal(local.isolated, false);
+  assert.match(local.reason, /not an OS security boundary/);
+
+  const missing = await detectExecutionSandbox({ settings: { environment: { TERMINAL_ENV: 'docker' } }, env: { PATH: '' } });
+  assert.equal(missing.runtimeAvailable, false);
+  assert.equal(missing.isolated, false);
+
+  const bin = tmp();
+  const docker = path.join(bin, 'docker');
+  fs.writeFileSync(docker, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const available = await detectExecutionSandbox({
+    settings: { environment: { TERMINAL_ENV: 'docker' } },
+    env: { PATH: bin },
+    execFileImpl: (_file, _args, _opts, cb) => cb(null, '27.1.1', ''),
+  });
+  assert.equal(available.runtimeAvailable, true);
+  assert.equal(available.runtimeVersion, '27.1.1');
+  assert.equal(available.taskWorkspaceBinding, false);
+  assert.equal(available.isolated, false, 'Docker availability alone is not per-task isolation');
+  assert.match(available.reason, /task worktree/);
 });
 
 test('managed env passes only what Hermes needs — Xoft\'s own provider keys and secrets are NOT inherited', () => {
