@@ -125,7 +125,7 @@ killSwitch.start();
 const injectionGuard = new PromptInjectionGuard({ activityLog });
 const connectorManager = new ConnectorManager({ definitions: config.connectors.definitions, activityLog });
 const whatsappService = new WhatsAppService();
-const whatsappInbox = new WhatsAppInboxStore({ dataDir: config.memory.dataDir });
+const whatsappInbox = new WhatsAppInboxStore({ dataDir: config.memory.dataDir, sqliteStore: durableStore });
 const twilioService = new TwilioService();
 
 const personality = new PersonalityEngine({ router, dataDir: config.memory.dataDir, sqliteStore: durableStore });
@@ -1845,7 +1845,7 @@ const engineStore = new EngineTaskStore({ dataDir: config.memory.dataDir, sqlite
 const enginePublicUrl = `http://127.0.0.1:${config.port}`;
 const engineRegistry = new EngineRegistry({ eventBus, activityLog });
 let engineTaskManager = null;
-const hermesEngine = new HermesEngine({ settingsStore: new HermesSettingsStore({ dataDir: config.memory.dataDir }), secretStore: engineSecrets, activityLog, eventBus, dataDir: config.memory.dataDir });
+const hermesEngine = new HermesEngine({ settingsStore: new HermesSettingsStore({ dataDir: config.memory.dataDir, sqliteStore: durableStore }), secretStore: engineSecrets, activityLog, eventBus, dataDir: config.memory.dataDir });
 const toolGateway = new ToolGateway({
   toolRegistry, secretStore: engineSecrets, getTaskManager: () => engineTaskManager, getSettings: () => hermesEngine.settings,
   approvalSystem, emergencyStop, activityLog, deviceManager, ctxFactory: () => ({ memory, providerRouter: router, deviceManager }),

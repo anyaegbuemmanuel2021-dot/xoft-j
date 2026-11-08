@@ -3,31 +3,50 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 /**
- * Small durable inbox for WhatsApp Cloud API messages. This stores only messages
- * delivered to XOFT through its configured business number; it cannot read a
- * personal WhatsApp account's private chat database.
+ * WhatsApp Cloud API inbox. Stores only messages delivered to Xoft's configured
+ * business number; it cannot read a personal WhatsApp account's private chats.
+ * SQLite is authoritative when supplied; legacy JSON is imported once and kept
+ * as a recovery copy. The existing maxMessages retention policy is preserved.
  */
 export class WhatsAppInboxStore {
-  constructor({ dataDir = './data', maxMessages = 5000 } = {}) {
+  constructor({ dataDir = './data', maxMessages = 5000, sqliteStore = null } = {}) {
     this.filePath = path.join(dataDir, 'whatsapp_inbox.json');
-    this.maxMessages = maxMessages;
+    this.maxMessages = Math.max(1, Number(maxMessages) || 5000);
+    this.sqliteStore = sqliteStore;
     fs.mkdirSync(dataDir, { recursive: true });
-    if (!fs.existsSync(this.filePath)) fs.writeFileSync(this.filePath, JSON.stringify({ messages: [] }, null, 2));
-  }
-
-  _load() {
-    try {
-      const data = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
-      return { messages: Array.isArray(data.messages) ? data.messages : [] };
-    } catch {
-      return { messages: [] };
+    if (this.sqliteStore) {
+      if (this.sqliteStore.countWhatsAppMessages() === 0 && fs.existsSync(this.filePath)) {
+        const legacy = this._loadFile();
+        for (const message of legacy.messages) this.sqliteStore.saveWhatsAppMessage(message);
+        this.sqliteStore.pruneWhatsAppMessages(this.maxMessages);
+      }
+    } else if (!fs.existsSync(this.filePath)) {
+      fs.writeFileSync(this.filePath, JSON.stringify({ messages: [] }, null, 2), { mode: 0o600 });
     }
   }
 
+  _loadFile() {
+    try {
+      const data = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+      return { messages: Array.isArray(data.messages) ? data.messages : [] };
+    } catch { return { messages: [] }; }
+  }
+
+  _load() {
+    return { messages: this.sqliteStore ? this.sqliteStore.loadWhatsAppMessages() : this._loadFile().messages };
+  }
+
   _save(data) {
+    const messages = data.messages.slice(-this.maxMessages);
+    if (this.sqliteStore) {
+      for (const message of messages) this.sqliteStore.saveWhatsAppMessage(message);
+      this.sqliteStore.pruneWhatsAppMessages(this.maxMessages);
+      return;
+    }
     const tmp = this.filePath + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ messages: data.messages.slice(-this.maxMessages) }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify({ messages }, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, this.filePath);
+    try { fs.chmodSync(this.filePath, 0o600); } catch { /* Windows */ }
   }
 
   record(input) {
@@ -36,8 +55,7 @@ export class WhatsAppInboxStore {
     const id = input.id ?? crypto.randomUUID();
     const index = data.messages.findIndex((m) => m.id === id);
     const record = {
-      id,
-      channel: 'whatsapp',
+      id, channel: 'whatsapp',
       direction: input.direction === 'outbound' ? 'outbound' : 'inbound',
       from: input.from ? String(input.from) : null,
       to: input.to ? String(input.to) : null,
@@ -79,9 +97,7 @@ export class WhatsAppInboxStore {
     return data.sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp))).slice(-Math.max(1, Math.min(500, Number(limit) || 200)));
   }
 
-  get(messageId) {
-    return this._load().messages.find((m) => m.id === messageId) ?? null;
-  }
+  get(messageId) { return this._load().messages.find((m) => m.id === messageId) ?? null; }
 
   summary() {
     const messages = this._load().messages;
