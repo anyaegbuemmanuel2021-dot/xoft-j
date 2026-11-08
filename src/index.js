@@ -198,7 +198,7 @@ const taskPlanner = new TaskPlanner({
 });
 const voiceService = new VoiceService();
 const wakeWordService = new WakeWordService();
-const taskQueue = new TaskQueue({ taskPlanner, eventBus, activityLog, concurrency: Number(process.env.TASK_QUEUE_CONCURRENCY || 2) });
+const taskQueue = new TaskQueue({ taskPlanner, eventBus, activityLog, concurrency: Number(process.env.TASK_QUEUE_CONCURRENCY || 2), maxPending: Number(process.env.TASK_QUEUE_MAX_PENDING || 250) });
 taskQueue.start();
 const rulesEngine = new RulesEngine({ router, toolRegistry, approvalSystem, activityLog, memory, eventBus, dataDir: config.memory.dataDir, sqliteStore: durableStore });
 rulesEngine.loadAndSchedule();
