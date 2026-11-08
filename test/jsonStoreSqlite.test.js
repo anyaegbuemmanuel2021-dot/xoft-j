@@ -23,6 +23,32 @@ describe('JsonStore', () => {
     assert.deepEqual(onDisk, { items: [1, 2, 3] });
   });
 
+  test('flat-file saves replace complete JSON atomically and leave no temporary files', () => {
+    const dataDir = tmpDir();
+    const store = new JsonStore({ dataDir, fileName: 'atomic.json', defaultValue: { revision: 0 } });
+    const filePath = path.join(dataDir, 'atomic.json');
+    const originalMode = fs.statSync(filePath).mode & 0o777;
+
+    for (let revision = 1; revision <= 5; revision += 1) {
+      store.save({ revision, payload: 'complete-value' });
+      assert.deepEqual(store.load(), { revision, payload: 'complete-value' });
+    }
+
+    assert.equal(fs.statSync(filePath).mode & 0o777, originalMode, 'replacement must preserve file permissions');
+    assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith('.tmp')), []);
+  });
+
+  test('a serialization error leaves the last valid JSON snapshot readable', () => {
+    const dataDir = tmpDir();
+    const store = new JsonStore({ dataDir, fileName: 'safe.json', defaultValue: { stable: true } });
+    const circular = {};
+    circular.self = circular;
+
+    assert.throws(() => store.save(circular), /circular/i);
+    assert.deepEqual(store.load(), { stable: true });
+    assert.deepEqual(fs.readdirSync(dataDir).filter((name) => name.endsWith('.tmp')), []);
+  });
+
   test('with a real SqliteStore, reads and writes actually go through SQLite, not the flat file', () => {
     const dataDir = tmpDir();
     const sqliteStore = new SqliteStore(path.join(dataDir, 'test.sqlite'));
