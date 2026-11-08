@@ -21,4 +21,41 @@ if (typeof window !== 'undefined' && !window.__xoftNativeBridgeBound) {
   window.__xoftNativeBridgeBound = true;
   window.addEventListener('xoft:voice-state', (e) => pushVoiceState(e.detail?.state || 'idle'));
   window.addEventListener('xoft:speech-state', (e) => { if (e.detail?.state === 'speaking') pushVoiceState('speaking'); });
+  window.addEventListener('xoft:native-speech-state', (e) => {
+    const state = e.detail?.state || 'idle';
+    window.dispatchEvent(new CustomEvent('xoft:speech-state', { detail: { state } }));
+    pushVoiceState(state === 'speaking' ? 'speaking' : 'idle');
+  });
+}
+
+/** Speak through Android's native TextToSpeech service when XOFT is inside the companion. */
+export function speakNative(text) {
+  const native = bridge();
+  if (!native || typeof native.speak !== 'function') return false;
+  try { return native.speak(String(text ?? '').slice(0, 4000)) === true; } catch { return false; }
+}
+
+export function stopNativeSpeech() {
+  const native = bridge();
+  try { native?.stopSpeaking?.(); } catch { /* best effort */ }
+}
+
+export function hasNativeSpeech() { const native = bridge(); return Boolean(native && typeof native.speak === 'function'); }
+
+/** True only when Android exposes its on-device recognizer and microphone permission is granted. */
+export function hasNativeSpeechRecognition() {
+  const native = bridge();
+  try { return Boolean(native && typeof native.canListenOffline === 'function' && native.canListenOffline() === true); }
+  catch { return false; }
+}
+
+export function startNativeListening(language = 'auto') {
+  const native = bridge();
+  if (!native || typeof native.startListening !== 'function') return false;
+  try { return native.startListening(language) === true; } catch { return false; }
+}
+
+export function stopNativeListening() {
+  const native = bridge();
+  try { native?.stopListening?.(); } catch { /* best effort */ }
 }
