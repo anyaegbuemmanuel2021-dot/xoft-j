@@ -185,7 +185,8 @@ export class SelfDevelopmentEngine {
         // Write beside the destination and rename so a failed write cannot leave a truncated file.
         const temp = path.join(path.dirname(abs), `.xoft-${id}-${path.basename(abs)}.tmp`);
         try {
-          fs.writeFileSync(temp, content, { flag: 'wx', mode: 0o600 });
+          const mode = fs.existsSync(abs) ? (fs.statSync(abs).mode & 0o777) : 0o600;
+          fs.writeFileSync(temp, content, { flag: 'wx', mode });
           fs.renameSync(temp, abs);
         } finally {
           try { fs.rmSync(temp, { force: true }); } catch { /* best-effort temp cleanup */ }
@@ -213,7 +214,10 @@ export class SelfDevelopmentEngine {
     const manifest = JSON.parse(fs.readFileSync(path.join(backupDir, 'manifest.json'), 'utf8'));
     for (const { rel, existed } of manifest) {
       const abs = path.join(this.repoRoot, rel);
-      if (existed) fs.copyFileSync(path.join(backupDir, rel), abs); else fs.rmSync(abs, { force: true });
+      if (existed) {
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.copyFileSync(path.join(backupDir, rel), abs);
+      } else if (fs.existsSync(abs)) fs.rmSync(abs, { force: true });
     }
   }
 
