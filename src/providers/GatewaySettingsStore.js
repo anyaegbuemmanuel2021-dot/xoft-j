@@ -63,7 +63,7 @@ export class GatewaySettingsStore {
     if (input.apiKey !== undefined) {
       if (input.apiKey !== null && typeof input.apiKey !== 'string') throw new Error('apiKey must be a string');
       const k = (input.apiKey ?? '').trim();
-      if (k.length > 500 || /\\s/.test(k)) throw new Error('apiKey looks invalid (whitespace or too long)');
+      if (k.length > 500 || /\s/.test(k)) throw new Error('apiKey looks invalid (whitespace or too long)');
       out.apiKey = k || null;
     }
     for (const f of ['model', 'embeddingModel']) {
