@@ -54,14 +54,24 @@ export class GitWorkspace {
    */
   async prepare({ workingDirectory, mode = 'in-place', taskId }) {
     const base = { mode: 'in-place', requestedMode: mode, isRepo: false, cwd: workingDirectory, root: null, baseSha: null, cleanAtStart: null, backupRef: null, branch: null, worktreePath: null, notes: [] };
+    if (!['in-place', 'branch', 'worktree'].includes(mode)) throw new EngineError(ErrorCode.INVALID, `Unknown workspace mode '${mode}'. Supported modes: in-place, branch, worktree.`);
     if (!workingDirectory || !fs.existsSync(workingDirectory)) throw new EngineError(ErrorCode.INVALID, `Working directory does not exist: ${workingDirectory}`);
-    if (!(await this.isAvailable())) { base.notes.push('git is not installed — no versioned safety net for this task'); return base; }
+    if (!(await this.isAvailable())) {
+      if (mode === 'worktree') throw new EngineError(ErrorCode.NOT_SUPPORTED, 'Isolated worktree mode requires Git, but Git is not installed or not available on PATH. No files were changed.');
+      base.notes.push('git is not installed — no versioned safety net for this task'); return base;
+    }
     const root = await this.repoRoot(workingDirectory);
-    if (!root) { base.notes.push('working directory is not a git repository — no versioned safety net for this task'); return base; }
+    if (!root) {
+      if (mode === 'worktree') throw new EngineError(ErrorCode.NOT_SUPPORTED, 'Isolated worktree mode requires the selected working directory to be inside a Git repository. Initialize or clone a repository first; XOFT will not silently edit the original directory.');
+      base.notes.push('working directory is not a git repository — no versioned safety net for this task'); return base;
+    }
     base.isRepo = true; base.root = root;
 
     const head = await this._git(root, ['rev-parse', 'HEAD'], { allowFail: true });
-    if (!head.ok) { base.notes.push('repository has no commits yet — cannot create a baseline'); return base; }
+    if (!head.ok) {
+      if (mode === 'worktree') throw new EngineError(ErrorCode.NOT_SUPPORTED, 'Isolated worktree mode requires a repository with an initial commit. Commit the project baseline first; XOFT will not silently edit the original directory.');
+      base.notes.push('repository has no commits yet — cannot create a baseline'); return base;
+    }
     base.baseSha = head.out;
     const dirty = await this._status(root);
     base.cleanAtStart = dirty === '';
@@ -131,8 +141,15 @@ export class GitWorkspace {
   async rollback(ws, taskId) {
     if (!ws?.isRepo) throw new EngineError(ErrorCode.NOT_SUPPORTED, 'This task did not run in a git repository, so there is nothing to roll back to.');
     if (ws.mode === 'worktree') {
+      // A worktree can contain uncommitted tracked edits and untracked files that are NOT on its branch.
+      // Stash them (including untracked files) before removing the checkout; never destroy work during rollback.
+      const before = await this._git(ws.root, ['rev-parse', '--verify', 'refs/stash'], { allowFail: true });
+      await this._git(ws.worktreePath, ['stash', 'push', '--include-untracked', '-m', `xoft-rollback-${String(taskId).slice(0, 12)}`]);
+      const after = await this._git(ws.root, ['rev-parse', '--verify', 'refs/stash'], { allowFail: true });
+      const stashSha = after.ok && after.out && after.out !== before.out ? after.out : null;
       await this._git(ws.root, ['worktree', 'remove', '--force', ws.worktreePath]);
-      return { rolledBack: true, how: `removed worktree; branch ${ws.branch} still holds the work (delete it with: git branch -D ${ws.branch})` };
+      const saved = stashSha ? ` Uncommitted and untracked changes were preserved in stash ${stashSha} (recover with: git stash apply ${stashSha}).` : ' No uncommitted changes needed stashing.';
+      return { rolledBack: true, stashRef: stashSha, how: `removed the isolated worktree; branch ${ws.branch} still holds committed work.${saved} Review or delete the branch separately (git branch -D ${ws.branch}).` };
     }
     if (ws.mode === 'branch') {
       return { rolledBack: false, how: `The task's work is on branch ${ws.branch}. Review it, then merge it or run: git switch - && git branch -D ${ws.branch}` };

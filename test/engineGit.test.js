@@ -79,9 +79,16 @@ test('worktree mode: the agent works in an isolated checkout on its own branch; 
   assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'dirty in main checkout\n');
   assert.ok(!fs.existsSync(path.join(dir, 'b.txt')));
   assert.deepEqual((await g.summarize(ws)).files.map((f) => f.path), ['b.txt']);
+  fs.writeFileSync(path.join(ws.cwd, 'a.txt'), 'agent changed tracked file\n');
+  fs.writeFileSync(path.join(ws.cwd, 'tracked-edit.txt'), 'keep this too\n');
   const rb = await g.rollback(ws, 'wt-task-0001');
   assert.equal(rb.rolledBack, true); assert.ok(!fs.existsSync(ws.worktreePath));
   assert.match(git(dir, 'branch', '--list', ws.branch), /xoft\/task-wt-task-/);
+  assert.match(rb.how, /stash/);
+  const stash = git(dir, 'stash', 'list', '--format=%H %gs');
+  assert.match(stash, /xoft-rollback-wt-task/);
+  const saved = git(dir, 'stash', 'show', '--include-untracked', '--name-only', 'stash@{0}');
+  assert.match(saved, /a.txt/); assert.match(saved, /b.txt/); assert.match(saved, /tracked-edit.txt/);
 });
 
 test('branch mode: needs a clean tree (otherwise falls back to in-place and says so); on a clean tree it creates and switches to the task branch', { skip: !hasGit }, async () => {
@@ -95,4 +102,30 @@ test('branch mode: needs a clean tree (otherwise falls back to in-place and says
   assert.equal(w2.mode, 'branch'); assert.equal(git(clean, 'rev-parse', '--abbrev-ref', 'HEAD'), 'xoft/task-br-clean');
   const rb = await g.rollback(w2, 'br-clean-01');
   assert.equal(rb.rolledBack, false); assert.match(rb.how, /Review it, then merge/);
+});
+
+
+test('requested worktree isolation never silently falls back to editing the original directory', { skip: !hasGit }, async () => {
+  const g = new GitWorkspace({ dataDir: tmp() });
+  const plain = tmp();
+  await assert.rejects(
+    () => g.prepare({ workingDirectory: plain, mode: 'worktree', taskId: 'no-repo-task' }),
+    (err) => err.code === 'NOT_SUPPORTED' && /Git repository/.test(err.message),
+  );
+
+  const empty = fs.realpathSync(tmp());
+  git(empty, 'init', '-q');
+  await assert.rejects(
+    () => g.prepare({ workingDirectory: empty, mode: 'worktree', taskId: 'empty-repo-task' }),
+    (err) => err.code === 'NOT_SUPPORTED' && /initial commit/.test(err.message),
+  );
+});
+
+test('unknown workspace modes are rejected instead of silently running in-place', { skip: !hasGit }, async () => {
+  const dir = repo();
+  const g = new GitWorkspace({ dataDir: tmp() });
+  await assert.rejects(
+    () => g.prepare({ workingDirectory: dir, mode: 'worktree-ish', taskId: 'bad-mode-task' }),
+    (err) => err.code === 'INVALID_REQUEST' && /workspace mode/.test(err.message),
+  );
 });

@@ -23,7 +23,7 @@ destructive, keeps the audit trail, and keeps working when Hermes is missing, mi
 
 Read this first. It says exactly how far each claim has been tested.
 
-**Verified by automated tests in this repository (111 new tests, all passing — the suite went from 486 to 597 tests):**
+**Previously verified by automated tests in this repository (111 engine-layer tests passed in the earlier implementation):**
 - The engine interface, registry (health isolation, timeouts, events), task analyzer and router (capability matching, partial availability, fallback chains, explanations).
 - The task manager: queueing/concurrency/priority, permission clamping, native-tool policy enforcement, tool-call and time limits (waiting for a human does not count as time), approvals through Xoft's real `ApprovalSystem`, cancel/pause/resume, crash recovery with bounded retries, "paused with reason" when recovery is impossible, restart recovery (re-attach vs. restart), shutdown detach, secret redaction in logs, honest verification.
 - The Hermes adapter **against a faithful in-process fake of Hermes' documented HTTP API** (`test/_fakeHermes.js`): `/health`, `/health/detailed`, `/v1/capabilities`, `/v1/toolsets`, `POST /v1/runs` (+ `Idempotency-Key`), `GET /v1/runs/{id}`, SSE `/v1/runs/{id}/events`, `/stop`, `/approval`, including crashes, restarts, hangs and reconnects — over real sockets.
@@ -138,7 +138,7 @@ Precedence: built-in defaults < environment (`HERMES_*`, see `.env.example`) < s
 | `maxMemoryMb` | 0 | Enforced on a **Xoft-started** Hermes where RSS is readable (Linux/macOS): over the limit → process stopped, tasks enter recovery. |
 | `lowPriority` | true | Xoft-started Hermes runs at reduced OS scheduling priority (the only CPU control implemented — see §17). |
 | `nativeToolPolicy` | `monitor` | How Hermes' **own** tools are checked: `monitor` logs violations; `enforce` stops the task; `off`. |
-| `workspaceMode` | `in-place` | `in-place` · `branch` · `worktree` (§12). |
+| `workspaceMode` | `worktree` | `worktree` · `branch` · `in-place` (§12). Coding tasks use a separate Git worktree by default so the original checkout is not modified. If Git is missing, the directory is not a repository, or it has no initial commit, XOFT fails the task rather than silently falling back to in-place editing. Override only when you deliberately want another mode. |
 | `bridgeEnabled`, `bridgeDeviceId`, `bridgeApprovalWaitMs` | true, auto, 100 s | Tool Gateway (§9). |
 | `model`, `provider` | – | Optional per-run model override passed to Hermes. |
 | `environment` | {} | Extra env vars for a Xoft-started Hermes. Allow-listed names only (`HERMES_*`, `TERMINAL_*`, proxy, locale). |
@@ -243,10 +243,14 @@ and `XOFT_TOOL_TOKEN` in Hermes' environment (`xoft engine bridge --show-token`;
 
 ## 12. Git safety net
 
-Before an agent edits a repository (`ENGINES_GIT_SAFETY_NET=true`): `in-place` records HEAD and creates a backup ref `refs/xoft/backup/<task>` (a snapshot of the working tree via `git stash create` — your tree, index and stash list are untouched);
-`branch` switches to `xoft/task-<id>` (only on a clean tree, otherwise it says so and works in place); `worktree` gives the agent an isolated checkout. After the run Xoft stores git's own change summary and a patch (`data/engines/patches/<id>.patch`).
-**Rollback never destroys work:** in-place rollback (only if the tree was clean at start) *stashes* the changes; if you had uncommitted work it refuses and tells you where the snapshot is; worktree rollback removes the worktree but keeps the branch. Untracked files are not captured by the backup ref.
-Not a git repo → no safety net, and the task says so.
+Before a coding task runs (ENGINES_GIT_SAFETY_NET=true), XOFT prepares the requested workspace:
+- `in-place` records HEAD and creates a backup ref `refs/xoft/backup/<task>` (a snapshot via `git stash create`; it does not change the working tree, index or stash list).
+- `branch` switches to `xoft/task-<id>` only on a clean tree; otherwise it explicitly reports the fallback to in-place.
+- `worktree` gives the agent a separate checkout on its own branch. This is the Hermes default. If Git is missing, the folder is not in a Git repository, or there is no initial commit, XOFT refuses the task instead of silently running in-place.
+
+After the run XOFT stores Git's change summary and a patch (`data/engines/patches/<id>.patch`). **Rollback never silently destroys work:** in-place rollback (only if the tree was clean at start) stashes changes; if pre-existing work was present it refuses automatic rollback. Worktree rollback first stashes uncommitted tracked and untracked changes, then removes the checkout and keeps the task branch; the returned stash hash and recovery command let the user restore the uncommitted work. Untracked files are not captured by the initial backup ref used in in-place mode.
+
+For non-worktree modes, a non-Git folder has no Git safety net; XOFT records that limitation in the task workspace details.
 
 ## 13. Security
 

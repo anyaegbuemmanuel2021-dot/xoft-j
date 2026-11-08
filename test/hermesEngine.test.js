@@ -7,6 +7,7 @@ import { Availability, Capability, EngineEvent, EngineStatus, ErrorCode } from '
 import { PROFILES } from '../src/engines/EnginePermissions.js';
 import { HermesEngine, capabilitiesFromToolsets, readinessFlag } from '../src/engines/hermes/HermesEngine.js';
 import { HermesSettingsStore } from '../src/engines/hermes/HermesSettingsStore.js';
+import { resolveHermesSettings } from '../src/engines/hermes/hermesConfig.js';
 import { startFakeHermes } from './_fakeHermes.js';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-hermes-'));
@@ -16,6 +17,11 @@ function makeEngine(fake, env = {}, extra = {}) {
 }
 const baseTask = (over = {}) => ({ id: 't1', goal: 'fix the bug', autonomy: 3, permissions: PROFILES.standard, workingDirectory: '/work/p', workspace: { cwd: '/work/p' }, engineRef: null, ...over });
 const ctxFor = (events, extra = {}) => ({ signal: new AbortController().signal, onEvent: (e) => events.push(e), setEngineRef: (r) => { extra.ref = { ...(extra.ref ?? {}), ...r }; }, ...extra });
+
+test('Hermes defaults isolate coding work in a Git worktree unless explicitly overridden', () => {
+  assert.equal(resolveHermesSettings({ env: {} }).workspaceMode, 'worktree');
+  assert.equal(resolveHermesSettings({ env: { HERMES_WORKSPACE_MODE: 'in-place' } }).workspaceMode, 'in-place');
+});
 
 test('health: online Hermes → READY with discovered capabilities and dependency map', async () => {
   const fake = await startFakeHermes(); const e = makeEngine(fake);

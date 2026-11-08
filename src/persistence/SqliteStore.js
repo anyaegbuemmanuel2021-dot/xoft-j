@@ -40,6 +40,16 @@ export class SqliteStore {
         token_hash TEXT PRIMARY KEY, device_id TEXT NOT NULL, created_at TEXT NOT NULL, revoked_at TEXT
       );
       CREATE INDEX IF NOT EXISTS idx_device_tokens_device ON device_tokens(device_id);
+
+      -- Append-only task event journal for autonomous engine runs.
+      CREATE TABLE IF NOT EXISTS engine_events (
+        task_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        ts TEXT NOT NULL,
+        value TEXT NOT NULL,
+        PRIMARY KEY(task_id, seq)
+      );
+      CREATE INDEX IF NOT EXISTS idx_engine_events_task_seq ON engine_events(task_id, seq);
     `);
     this._secureFiles();
   }
@@ -103,5 +113,22 @@ export class SqliteStore {
     this.db.prepare("UPDATE device_tokens SET revoked_at=? WHERE device_id=? AND revoked_at IS NULL").run(new Date().toISOString(), deviceId);
     this._secureFiles();
   }
+  // --- Engine task event journal ---
+  saveEngineEvent(taskId, event) {
+    this.db.prepare('INSERT OR IGNORE INTO engine_events(task_id, seq, ts, value) VALUES(?,?,?,?)')
+      .run(taskId, event.seq, event.ts, JSON.stringify(event));
+    this._secureFiles();
+  }
+  loadEngineEvents(taskId) {
+    return this.db.prepare('SELECT value FROM engine_events WHERE task_id=? ORDER BY seq ASC').all(taskId).map((row) => JSON.parse(row.value));
+  }
+  engineEventBytes(taskId) {
+    return this.db.prepare('SELECT COALESCE(SUM(length(CAST(value AS BLOB))), 0) AS bytes FROM engine_events WHERE task_id=?').get(taskId).bytes;
+  }
+  deleteEngineEvents(taskId) {
+    this.db.prepare('DELETE FROM engine_events WHERE task_id=?').run(taskId);
+    this._secureFiles();
+  }
+
   close() { this.db.close(); }
 }
