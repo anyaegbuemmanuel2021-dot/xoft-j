@@ -46,3 +46,13 @@ test('chat and Command Center composers override the global oversized textarea h
   assert.ok(chatRule.includes('min-height: 40px !important'), 'chat composer must override the global 88px textarea');
   assert.ok(commandRule.includes('min-height: 42px !important'), 'command composer must override the global 88px textarea');
 });
+
+test('voice companion unlocks AudioContext before awaiting microphone permission', () => {
+  const companion = read('../public/js/voice/companion.js');
+  const start = companion.slice(companion.indexOf('async function start()'));
+  const unlock = start.indexOf('ctx = unlockAudio();');
+  const microphoneAwait = start.indexOf('await navigator.mediaDevices.getUserMedia');
+  assert.ok(unlock >= 0, 'Start must unlock the audio context');
+  assert.ok(microphoneAwait >= 0, 'Start must request microphone access');
+  assert.ok(unlock < microphoneAwait, 'audio unlock must happen before getUserMedia yields the user gesture');
+});
