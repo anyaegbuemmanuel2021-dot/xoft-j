@@ -18,7 +18,7 @@ function deterministicCalculation(message) {
     .replace(/\bminus\b/gi, '-')
     .replace(/\bx\b/gi, '*')
     .trim();
-  if (!/^[\d\s()+\-*/.]+$/.test(expression) || !/[+*/-]/.test(expression) || /\*\*|\/\//.test(expression)) return null;
+  if (!/^[0-9\s()+.*\/-]+$/.test(expression) || !/[+*/-]/.test(expression) || /\*\*|\/\//.test(expression)) return null;
   return expression;
 }
 
