@@ -18,6 +18,19 @@ describe('EnergyVad', () => {
     assert.equal(v.speaking, false);
   });
   test('mobile companion VAD detects a quiet voice with its lower configured threshold', () => { const v = new EnergyVad({ minThreshold: 0.008, floorMultiplier: 2.5, startFrames: 2, frameMs: 30 }); const r = feed(v, [0.010, 0.011, 0.012], 1000); assert.equal(r[1].event, 'start'); assert.equal(v.speaking, true); });
+  test('server voice gate detects quiet mobile speech below 0.008 RMS', () => {
+    const v = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: 30 });
+    const r = feed(v, [0.0034, 0.0036, 0.0038], 1000);
+    assert.equal(r[0].event, null);
+    assert.equal(r[1].event, 'start');
+    assert.equal(v.speaking, true);
+  });
+  test('quiet-room background noise below the gate does not start a recording', () => {
+    const v = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: 30 });
+    const r = feed(v, Array(80).fill(0.0012));
+    assert.ok(r.every((frame) => frame.event !== 'start'));
+    assert.equal(v.speaking, false);
+  });
   test('a single click/pop does not start speech', () => { const v = new EnergyVad(); assert.ok(feed(v, [0.001, 0.5, 0.001, 0.001, 0.001]).every((r) => r.event !== 'start')); });
   test('short pauses inside an utterance do not end it', () => {
     const v = new EnergyVad({ endSilenceMs: 700 });
