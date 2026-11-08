@@ -142,7 +142,10 @@ export class TaskQueue {
     if (this._timer) return;
     this.recoverOnStartup();
     this.tick(); // pick up anything already due, e.g. right after a restart
-    this._timer = setInterval(() => this.tick(), this.pollIntervalMs);
+    this._timer = setInterval(() => {
+      if (!this._recoveredOnStart) this.recoverOnStartup();
+      this.tick();
+    }, this.pollIntervalMs);
     this._timer.unref?.();
   }
 
