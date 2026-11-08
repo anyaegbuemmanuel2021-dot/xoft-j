@@ -25,7 +25,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null; let chunks = [];
+let recognizer = null; let recognizerWanted = false; let recorder = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -64,23 +64,61 @@ function stopRecognizer() {
 function startSegmentRecording() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
   void warmVoiceServer();
-  chunks = []; recorder = new MediaRecorder(stream, preferredRecorderOptions());
-  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
-  recorder.onstop = async () => {
-    const blob = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' }); recorder = null; chunks = [];
-    if (blob.size < 300) return; // reject only genuinely empty/tiny clips; short wake phrases must survive
+  const options = preferredRecorderOptions();
+  let activeRecorder;
+  try {
+    activeRecorder = new MediaRecorder(stream, options);
+  } catch (error) {
+    ui.log('MediaRecorder could not start: ' + (error.name || 'Error') + ' — ' + error.message);
+    return;
+  }
+
+  const segmentChunks = [];
+  recorder = activeRecorder;
+  activeRecorder.ondataavailable = (e) => { if (e.data?.size) segmentChunks.push(e.data); };
+  activeRecorder.onerror = (event) => {
+    const error = event.error;
+    ui.log('MediaRecorder error: ' + (error?.name || 'UnknownError') + ' — ' + (error?.message || 'audio capture failed'));
+    if (recorder === activeRecorder) recorder = null;
+  };
+  activeRecorder.onstop = async () => {
+    const type = activeRecorder.mimeType || options?.mimeType || 'audio/webm';
+    const capturedChunks = segmentChunks;
+    if (recorder === activeRecorder) recorder = null;
+    const blob = new Blob(capturedChunks, { type });
+    ui.log('audio segment captured: ' + blob.size + ' bytes (' + type + ')');
+    if (blob.size < 300) {
+      ui.log('audio segment was too small to transcribe; check microphone input and speech gate');
+      return; // reject only genuinely empty/tiny clips; short wake phrases must survive
+    }
     try {
       const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage());
       if (transcript) {
         $('transcript').textContent = transcript;
-        ui.log(`heard: ${transcript}`);
+        ui.log('heard: ' + transcript);
         pipeline.transcript(transcript, true);
       } else ui.log('No speech was recognized in this segment.');
-    } catch (err) { ui.log(`XOFT server STT failed (Gemini → OpenAI fallback): ${err.message}`); }
+    } catch (err) { ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message); }
   };
-  recorder.start();
+
+  try {
+    activeRecorder.start();
+    ui.log('recording started: ' + (activeRecorder.mimeType || options?.mimeType || 'browser default'));
+  } catch (error) {
+    if (recorder === activeRecorder) recorder = null;
+    ui.log('MediaRecorder start failed: ' + (error.name || 'Error') + ' — ' + error.message);
+  }
 }
-function stopSegmentRecording() { try { if (recorder?.state === 'recording') recorder.stop(); } catch { /* ignore */ } }
+function stopSegmentRecording() {
+  const activeRecorder = recorder;
+  if (!activeRecorder || activeRecorder.state !== 'recording') return;
+  try {
+    activeRecorder.stop();
+    ui.log('recording stopped; final audio chunk is being prepared');
+  } catch (error) {
+    ui.log('MediaRecorder stop failed: ' + (error.name || 'Error') + ' — ' + error.message);
+  }
+}
 
 function wantRecognizer(on) {
   recognizerWanted = on;
@@ -180,10 +218,16 @@ async function start() {
     }
     analyser.getFloatTimeDomainData(buf); const rms = rmsOf(buf); const r = vad.process(rms, performance.now());
     $('level').style.width = `${Math.min(100, Math.round((rms / 0.18) * 100))}%`;
-    if (r.event) pipeline.vad(r.event); pipeline.tick(Date.now());
+    if (r.event) {
+      ui.log('voice activity ' + r.event + ' (RMS ' + r.rms.toFixed(4) + ', gate ' + r.threshold.toFixed(4) + ')');
+      pipeline.vad(r.event);
+    }
+    pipeline.tick(Date.now());
   }, FRAME_MS);
   stream.getAudioTracks()[0].addEventListener('ended', () => { ui.log('microphone was disconnected or revoked'); stop(); });
   ui.pill('mic', 'mic: listening (local VAD)', 'ok'); $('start').disabled = true; $('stop').disabled = false;
+  const audioTrackSettings = stream.getAudioTracks()[0]?.getSettings?.() ?? {};
+  ui.log('microphone ready; AudioContext ' + ctx.state + '; sample rate ' + (audioTrackSettings.sampleRate ?? ctx.sampleRate ?? 'unknown') + ' Hz; channels ' + (audioTrackSettings.channelCount ?? 'unknown'));
   ui.log(`listening for "hey xoft" — backend: ${$('backend').value}; language: ${selectedLanguage()}; follow-up conversation: ${conversationEnabled() ? 'on' : 'off'}`);
 }
 
