@@ -279,9 +279,11 @@ export class VoiceService {
     return Buffer.from(await out.response.arrayBuffer());
   }
 
-  async _openaiTranscribe(audioBuffer, filename, signal, language = '') {
+  async _openaiTranscribe(audioBuffer, filename, signal, language = '', mime = 'audio/webm') {
     const form = new FormData();
-    form.append('file', new Blob([audioBuffer]), filename);
+    // Preserve the recorder's actual media type; OpenAI uses both the MIME and filename to decode uploads.
+    const contentType = String(mime || 'audio/webm').split(';', 1)[0].trim().toLowerCase();
+    form.append('file', new Blob([audioBuffer], { type: contentType }), filename);
     const model = config.voice.sttOpenAiModel;
     form.append('model', model);
     form.append('response_format', 'json');
@@ -353,7 +355,7 @@ export class VoiceService {
     const out = await runHedged(
       providers,
       (provider, signal) => (provider === 'openai'
-        ? this._openaiTranscribe(audioBuffer, filename, signal, requestedLanguage ?? '')
+        ? this._openaiTranscribe(audioBuffer, filename, signal, requestedLanguage ?? '', mime)
         : this._geminiTranscribe(audioBuffer, mime, signal, requestedLanguage ?? 'auto')),
       { hedgeMs: config.voice.sttHedgeMs, isUsable: (text) => typeof text === 'string' && text.length > 0, label: 'speech-to-text' }
     );
