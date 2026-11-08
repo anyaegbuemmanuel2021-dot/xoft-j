@@ -22,7 +22,7 @@ export class NativeCommandEngine {
     const calculation = text.match(/^(?:calculate|compute|solve|what is|what's)\s+(.+?)\??$/i);
     if (calculation) {
       const expression = calculation[1].trim().replace(/,/g, '');
-      if (/^[\d\s()+\-*/.]+$/.test(expression) && /\d/.test(expression)) {
+      if (/^[\d\s()+\-*\/.]+$/.test(expression) && /\d/.test(expression)) {
         return { tool: 'calculate', input: { expression } };
       }
     }
