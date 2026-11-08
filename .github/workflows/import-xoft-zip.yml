@@ -2,8 +2,7 @@ name: Import uploaded Xoft ZIP
 
 on:
   push:
-    paths:
-      - "xoft-v0.0.1.zip"
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -22,16 +21,16 @@ jobs:
           set -euo pipefail
           ARCHIVE="xoft-v0.0.1.zip"
           if [ ! -f "$ARCHIVE" ]; then
-            echo "Upload xoft-v0.0.1.zip to the repository root first."
-            exit 1
+            echo "No archive found; nothing to import."
+            exit 0
           fi
           mkdir -p /tmp/xoft-import
           unzip -q "$ARCHIVE" -d /tmp/xoft-import
           ROOT="$(find /tmp/xoft-import -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           if [ -n "$ROOT" ] && [ -d "$ROOT" ]; then
-            rsync -a --exclude='.git' "$ROOT/" ./
+            rsync -a --exclude='.git' --exclude='.github/workflows/***' "$ROOT/" ./
           else
-            rsync -a /tmp/xoft-import/ ./
+            rsync -a --exclude='.git' --exclude='.github/workflows/***' /tmp/xoft-import/ ./
           fi
           rm -rf /tmp/xoft-import "$ARCHIVE"
 
