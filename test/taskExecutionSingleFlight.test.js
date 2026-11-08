@@ -11,7 +11,7 @@ import { TaskPlanner } from '../src/planner/TaskPlanner.js';
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-function harness(tool) {
+function harness(tool, options = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xoft-task-single-flight-'));
   const activityLog = new ActivityLog({ dataDir });
   const eventBus = new EventBus({ activityLog });
@@ -23,11 +23,27 @@ function harness(tool) {
       return { text: JSON.stringify({ steps: [{ id: 'step1', toolName: tool.name, input: {}, dependsOn: [], description: 'slow action' }], blockedReason: null }) };
     },
   };
-  const planner = new TaskPlanner({ router, toolRegistry, approvalSystem, activityLog, memory: null, eventBus, dataDir });
+  const planner = new TaskPlanner({ router, toolRegistry, approvalSystem, activityLog, memory: null, eventBus, dataDir, ...options });
   return planner;
 }
 
 describe('TaskPlanner single-flight execution', () => {
+  test('invalid and excessive task timeout configuration is safely bounded', () => {
+    const tool = {
+      name: 'test.timeout_config',
+      description: 'timeout config test',
+      inputSchema: {},
+      riskLevel: 0,
+      requiredPermissions: [],
+      status: 'implemented',
+      async run() { return { ok: true }; },
+    };
+    assert.equal(harness(tool, { maxDurationMs: Number.NaN }).maxDurationMs, 15 * 60 * 1000);
+    assert.equal(harness(tool, { maxDurationMs: 'not-a-number' }).maxDurationMs, 15 * 60 * 1000);
+    assert.equal(harness(tool, { maxDurationMs: 500 }).maxDurationMs, 1000);
+    assert.equal(harness(tool, { maxDurationMs: 99 * 60 * 60 * 1000 }).maxDurationMs, 24 * 60 * 60 * 1000);
+  });
+
   test('concurrent execute calls for one task share one real tool execution', async () => {
     let calls = 0;
     let active = 0;
