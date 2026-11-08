@@ -71,7 +71,7 @@ test('hedging off (0) keeps strictly sequential fallback', async () => {
     const svc = new VoiceService({
       fetchImpl: async (url) => {
         order.push(String(url).includes('generativelanguage') ? 'gemini' : 'openai');
-        if (String(url).includes('generativelanguage')) return new Response('down', { status: 503 });
+        if (String(url).includes('generativelanguage')) return new Response('invalid request', { status: 400 });
         return json({ text: 'fallback text' });
       },
     });
