@@ -25,7 +25,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null;
+let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -124,6 +124,7 @@ async function speakReply(text) {
   let objectUrl = null;
   try {
     const result = await fetchSpeechAudio(text, { requestHeaders: headers() });
+    activeSpeechCancel?.();
     activeSpeechAudio?.pause();
     if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl);
     objectUrl = URL.createObjectURL(result.audio);
@@ -133,9 +134,18 @@ async function speakReply(text) {
     audio.preload = 'auto';
     ui.log('TTS audio ready (' + result.provider + ', ' + result.contentType + ')');
     await new Promise((resolve, reject) => {
-      audio.onended = resolve;
-      audio.onerror = () => reject(new Error('The device could not play XOFT audio.'));
-      audio.play().catch(reject);
+      let settled = false;
+      const finish = (error = null) => {
+        if (settled) return;
+        settled = true;
+        if (activeSpeechCancel === cancel) activeSpeechCancel = null;
+        if (error) reject(error); else resolve();
+      };
+      const cancel = () => finish();
+      activeSpeechCancel = cancel;
+      audio.onended = () => finish();
+      audio.onerror = () => finish(new Error('The device could not play XOFT audio.'));
+      audio.play().catch(finish);
     });
   } catch (error) {
     ui.log('XOFT server TTS failed: ' + error.message);
@@ -253,6 +263,7 @@ async function start() {
 
 function stop() {
   clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
   if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
   // Let MediaRecorder emit its final dataavailable chunk before its onstop handler flushes any active segment.
