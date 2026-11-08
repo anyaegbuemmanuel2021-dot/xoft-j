@@ -310,7 +310,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; stopNativeListening(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeListening(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
   activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
