@@ -60,6 +60,13 @@ export class VoicePipeline {
     return true;
   }
 
+  stop() {
+    this._pending = null;
+    this._recognitionDeadline = 0;
+    this.wantRecognizer(false);
+    this._set('idle');
+  }
+
   /** Stop recording at VAD end but keep recognition state briefly: STT completes asynchronously after MediaRecorder stops. */
   vad(event) {
     if (event === 'start' && this.state === 'idle') { this._recognitionDeadline = 0; this._set('wake_listening'); this.wantRecognizer(true); }
