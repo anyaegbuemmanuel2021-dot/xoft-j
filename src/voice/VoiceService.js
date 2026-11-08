@@ -7,7 +7,7 @@ import { config } from '../config/index.js';
  * STT: Gemini is primary and OpenAI is the fallback. A failed/empty primary hands over immediately; a slow
  *      primary is hedged: after STT_HEDGE_MS the fallback starts in parallel and the first usable transcript wins.
  * TTS: Gemini speech first, OpenAI speech as fallback, optional ElevenLabs last. Same hedging rule
- *      (TTS_HEDGE_MS). The browser client falls back to the device voice if every server voice fails.
+ *      (TTS_HEDGE_MS). Native Android clients prefer the installed OS voice; web-only clients use server-generated audio.
  *
  * Not here (needs a client with mic/speaker access): wake-word detection, VAD capture,
  * streaming playback, and the always-listening loop.
@@ -214,7 +214,7 @@ export class VoiceService {
   status() {
     return {
       stt: { default: 'gemini', fallback: 'openai', model: config.voice.sttGeminiModel || config.providers.gemini.model, fallbackModel: config.voice.sttOpenAiModel, providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
-      tts: { provider: this.ttsProviders()[0] ?? null, providers: this.ttsProviders(), configured: this.isTTSConfigured(), fallback: 'browser', streaming: true, hedgeMs: config.voice.ttsHedgeMs },
+      tts: { provider: this.ttsProviders()[0] ?? null, providers: this.ttsProviders(), configured: this.isTTSConfigured(), fallback: 'native-device-or-server', streaming: true, hedgeMs: config.voice.ttsHedgeMs },
     };
   }
 
