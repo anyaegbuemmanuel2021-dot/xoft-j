@@ -31,6 +31,10 @@ class CoreClient {
     return data;
   }
 
+  ready() {
+    return this._json('GET', '/readyz');
+  }
+
   getEmergencyStop() {
     return this._json('GET', '/api/emergency-stop');
   }

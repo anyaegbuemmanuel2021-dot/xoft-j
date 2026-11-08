@@ -9,6 +9,7 @@ const filesExec = require('./executors/files');
 const mediaExec = require('./executors/media');
 const screenExec = require('./executors/screen');
 const { DeviceRuntime } = require('./runtime/DeviceRuntime');
+const { waitForCore, createNonOverlappingTask } = require('./connection');
 
 // The only capabilities this agent will ever claim — must match what
 // dispatchCommand() actually handles below. Reported to core via
@@ -146,29 +147,33 @@ async function main() {
   const runtime = new DeviceRuntime({ config });
   process.on('SIGINT', () => { runtime.stop(); process.exit(0); });
   const client = new CoreClient(config.coreUrl, config.apiKey, config.deviceToken);
+  // Do not exit permanently just because the core is deploying, waking up, or
+  // temporarily unreachable when this desktop starts. Probe readiness first;
+  // only perform the potentially state-changing registration once core is up.
+  await waitForCore({ probe: () => client.ready() });
   const deviceId = await ensurePaired(config);
 
   await client.reportCapabilities(deviceId, CAPABILITIES);
   console.log(`Reported capabilities: ${CAPABILITIES.join(', ')}`);
   console.log(`Runtime state dir: ${runtime.stateDir} | workspaces: ${runtime.workspaces.list().map((w) => w.name).join(', ') || '(none — file/terminal work is disabled until you add one with --add-workspace <name> <path>)'}`);
 
-  const heartbeatTick = async () => {
+  const heartbeatTick = createNonOverlappingTask(async () => {
     try {
       await client.heartbeat(deviceId);
     } catch (err) {
       console.error(`[heartbeat] ${err.message}`);
     }
-  };
-  const stateTick = async () => {
+  }, { label: 'heartbeat' });
+  const stateTick = createNonOverlappingTask(async () => {
     try {
       await client.reportState(deviceId, await readReportableState(runtime));
     } catch (err) {
       console.error(`[state] ${err.message}`);
     }
-  };
-  const pollTick = () => pollLoop(client, deviceId, config, runtime);
+  }, { label: 'state report' });
+  const pollTick = createNonOverlappingTask(() => pollLoop(client, deviceId, config, runtime), { label: 'poll' });
   // Bounded browser self-healing: only if a browser was previously in use and is now unreachable; DeviceRuntime caps attempts.
-  const healTick = async () => { try { const h = await runtime.health(); if (!h.halted && runtime.browser.status().attachedTabId && !h.browser.ok) await runtime.recoverBrowser(); } catch { /* reported via state */ } };
+  const healTick = createNonOverlappingTask(async () => { const h = await runtime.health(); if (!h.halted && runtime.browser.status().attachedTabId && !h.browser.ok) await runtime.recoverBrowser(); }, { label: 'browser recovery' });
 
   await heartbeatTick();
   await stateTick();
