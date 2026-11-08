@@ -101,9 +101,15 @@ test('STT falls back to OpenAI immediately when Gemini fails', async () => {
   try {
     const started = Date.now();
     const svc = new VoiceService({
-      fetchImpl: async (url) => (isGemini(url) ? new Response('quota', { status: 429 }) : json({ text: 'from openai' })),
+      fetchImpl: async (url, init) => {
+        if (isGemini(url)) return new Response('quota', { status: 429 });
+        const upload = init.body.get('file');
+        assert.equal(upload.type, 'audio/ogg', 'OpenAI fallback must receive the recorder MIME type');
+        assert.equal(upload.name, 'audio.ogg', 'the filename extension matches the recorder format');
+        return json({ text: 'from openai' });
+      },
     });
-    const out = await svc.transcribe(Buffer.from('audio'), { mime: 'audio/ogg' });
+    const out = await svc.transcribe(Buffer.from('audio'), { filename: 'audio.ogg', mime: 'audio/ogg' });
     assert.equal(out.provider, 'openai');
     assert.equal(out.text, 'from openai');
     assert.deepEqual(out.attempts.map((a) => [a.provider, a.ok]), [['gemini', false], ['openai', true]]);
