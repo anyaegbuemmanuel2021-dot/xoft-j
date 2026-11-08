@@ -7,6 +7,9 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -25,6 +28,8 @@ class LiveActivity : Activity() {
     private lateinit var web: WebView
     @Volatile private var voiceState = "idle"
     @Volatile private var visible = false
+    @Volatile private var ttsReady = false
+    private var textToSpeech: TextToSpeech? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +37,23 @@ class LiveActivity : Activity() {
         if (base.isEmpty()) { finish(); return }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
+        }
+        textToSpeech = TextToSpeech(this) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) {
+                val languageResult = textToSpeech?.setLanguage(Locale("en", "NG"))
+                if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    textToSpeech?.setLanguage(Locale.US)
+                }
+                textToSpeech?.setSpeechRate(1.0f)
+                textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) { dispatchNativeSpeechState("speaking") }
+                    override fun onDone(utteranceId: String?) { dispatchNativeSpeechState("idle") }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) { dispatchNativeSpeechState("error") }
+                    override fun onError(utteranceId: String?, errorCode: Int) { dispatchNativeSpeechState("error") }
+                })
+            }
         }
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -88,6 +110,9 @@ class LiveActivity : Activity() {
     override fun onDestroy() {
         XoftBubbleService.hide(this)
         if (::web.isInitialized) web.destroy()
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
         super.onDestroy()
     }
 
