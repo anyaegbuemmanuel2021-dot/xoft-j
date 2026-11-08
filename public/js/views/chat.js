@@ -460,7 +460,7 @@ async function startVoiceRecording(container, { autoSegment = false } = {}) {
       // Uses the shared unlocked AudioContext and an adaptive noise-floor threshold (see voice/listen.js).
       unlockAudio();
       meter = createLevelMeter(stream);
-      const gate = createSpeechGate({ minThreshold: 0.005, floorMultiplier: 2.5 });
+      const gate = createSpeechGate({ minThreshold: 0.002, floorMultiplier: 2.5 });
       levelTimer = setInterval(() => {
         if (!voiceConversationActive || recorder.state === 'inactive') { clearInterval(levelTimer); return; }
         const now = Date.now();
