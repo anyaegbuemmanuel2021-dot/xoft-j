@@ -112,13 +112,11 @@ export class TaskQueue {
         this.enqueue(task.id);
         enqueued.push(task.id);
       } catch (error) {
-        try {
-          this.activityLog?.log({
-            type: 'task_schedule_enqueue_failed',
-            taskId: task.id,
-            detail: { error: error.message },
-          });
-        } catch { /* one bad task must not stop other due tasks */ }
+        this._safeLog({
+          type: 'task_schedule_enqueue_failed',
+          taskId: task.id,
+          detail: { error: error.message },
+        });
       }
     }
     return enqueued;
