@@ -44,6 +44,35 @@ describe('TaskPlanner single-flight execution', () => {
     assert.equal(harness(tool, { maxDurationMs: 99 * 60 * 60 * 1000 }).maxDurationMs, 24 * 60 * 60 * 1000);
   });
 
+  test('persists the execution intent before marking a step running', async () => {
+    const tool = {
+      name: 'test.ledger_first',
+      description: 'ledger ordering test',
+      inputSchema: {},
+      riskLevel: 0,
+      requiredPermissions: [],
+      status: 'implemented',
+      async run() { return { ok: true }; },
+    };
+    const planner = harness(tool);
+    const task = await planner.plan('persist intent before running');
+
+    const originalPatchStep = planner._patchStep.bind(planner);
+    let observedDurableIntent = false;
+    planner._patchStep = (taskId, stepId, patch) => {
+      if (patch.status === 'running') {
+        observedDurableIntent = planner.executions(taskId).some((record) =>
+          record.stepId === stepId && record.status === 'running'
+        );
+      }
+      return originalPatchStep(taskId, stepId, patch);
+    };
+
+    const result = await planner.execute(task.id);
+    assert.equal(result.status, 'completed');
+    assert.equal(observedDurableIntent, true, 'a crash after the running-state write must leave a durable ledger record');
+  });
+
   test('concurrent execute calls for one task share one real tool execution', async () => {
     let calls = 0;
     let active = 0;
