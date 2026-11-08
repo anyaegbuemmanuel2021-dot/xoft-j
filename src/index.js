@@ -1,5 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
@@ -90,6 +92,7 @@ import { RecoveryEngine } from './recovery/RecoveryEngine.js';
 import { ContextEngine } from './context/ContextEngine.js';
 import { VisionInterpreter } from './vision/VisionInterpreter.js';
 import { SqliteStore } from './persistence/SqliteStore.js';
+import { isPathWithin, isOnMountedFilesystem } from './persistence/storageReadiness.js';
 import { IntelligenceDirector } from './intelligence/IntelligenceDirector.js';
 import { ConnectorManager } from './connectors/ConnectorManager.js';
 import { buildConnectorTools } from './tools/builtins/connectorTools.js';
@@ -261,7 +264,33 @@ app.use((req, res, next) => {
   req.requestId = id; res.set('x-request-id', id); next();
 });
 app.get('/healthz', (_req, res) => res.status(200).json({ ok: true, service: 'xoft-core' }));
-app.get('/readyz', (_req, res) => res.status(200).json({ ok: true, service: 'xoft-core', storage: config.storage.mode, connectors: connectorManager.list().filter((c) => c.enabled).map((c) => c.id) }));
+app.get('/readyz', (_req, res) => {
+  const persistentRoot = config.storage.persistentDataDir
+    ? path.resolve(config.storage.persistentDataDir)
+    : null;
+  const dataRoot = path.resolve(config.memory.dataDir);
+  const sqliteDir = path.resolve(path.dirname(config.storage.sqlitePath));
+  let mountInfo = '';
+  try { mountInfo = fs.readFileSync('/proc/self/mountinfo', 'utf8'); } catch { /* non-Linux or restricted runtime */ }
+  const durable = Boolean(
+    persistentRoot
+    && isOnMountedFilesystem(persistentRoot, mountInfo)
+    && isPathWithin(persistentRoot, dataRoot)
+    && (config.storage.mode !== 'sqlite' || isPathWithin(persistentRoot, sqliteDir))
+  );
+  res.status(200).json({
+    ok: true,
+    service: 'xoft-core',
+    storage: config.storage.mode,
+    persistence: {
+      durable,
+      configured: Boolean(persistentRoot),
+      mounted: Boolean(persistentRoot && isOnMountedFilesystem(persistentRoot, mountInfo)),
+      warning: durable ? null : 'Data is on ephemeral storage. Files, memory, settings and SQLite records may be lost on restart, spin-down or redeploy.',
+    },
+    connectors: connectorManager.list().filter((c) => c.enabled).map((c) => c.id),
+  });
+});
 app.get('/webhooks/whatsapp', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];

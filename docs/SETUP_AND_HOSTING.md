@@ -34,6 +34,20 @@ Keys and where to get them: [API_KEYS.md](API_KEYS.md). Optional AI gateways: [A
 
 Prices and free tiers change — check the provider sites. (The Docker + Caddy route below is the one this project documents in full.)
 
+### Render free-tier warning — read before storing data
+
+XOFT writes SQLite and JSON state under `/app/data` by default. Render Free web services have an ephemeral filesystem: local files are lost when the service restarts, spins down or redeploys. Free web services cannot attach persistent disks. A free Render Postgres database is not a permanent workaround because it expires after 30 days. Do not treat a Render Free deployment as a safe home for long-term XOFT memory, settings, missions or user data.
+
+For a durable single-instance Render deployment, upgrade the web service to a paid compute plan, attach a persistent disk mounted at `/var/data`, and set all three environment variables:
+
+```env
+XOFT_PERSISTENT_DATA_DIR=/var/data
+MEMORY_DATA_DIR=/var/data
+SQLITE_PATH=/var/data/xoft.sqlite
+```
+
+XOFT will place its SQLite database and file-backed state under that mounted directory. The `/readyz` endpoint reports `persistence.durable`; if it is false, the response includes a warning that local data may be lost. A disk-backed deployment remains single-instance and should have a separate backup plan.
+
 ## 2. Prepare the server (one time)
 
 ```bash
