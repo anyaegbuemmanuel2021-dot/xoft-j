@@ -29,6 +29,8 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   const input = read('public/js/dashboard/CommandInput.js');
   const stt = read('public/js/voice/stt.js');
   const companion = read('public/js/voice/companion.js');
+  assert.doesNotMatch(chat, /SpeechRecognition|webkitSpeechRecognition/);
+  assert.doesNotMatch(input, /SpeechRecognition|webkitSpeechRecognition/);
   assert.match(chat, /from '\.\.\/voice\/stt\.js'/);
   assert.match(input, /from '\.\.\/voice\/stt\.js'/);
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
