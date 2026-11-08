@@ -66,6 +66,10 @@ test('Speech output uses server-generated audio only and never falls back to bro
   assert.match(tts, /\/api\/voice\/speak/);
   assert.doesNotMatch(tts, /speechSynthesis|browserSpeak|SpeechSynthesisUtterance/);
   assert.match(tts, /serverSpeak\(spoken, runId\)/);
+  assert.match(tts, /activeTtsControllers = new Set\(\)/);
+  assert.match(tts, /for \(const controller of activeTtsControllers\) controller\.abort\(\)/);
+  assert.match(tts, /activeTtsControllers\.add\(controller\)/);
+  assert.match(tts, /activeTtsControllers\.delete\(controller\)/);
   assert.match(tts, /XOFT server voice is unavailable/);
   assert.doesNotMatch(tts, /api\.elevenlabs\.io/, 'the browser must never hold or use the ElevenLabs key directly');
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);
