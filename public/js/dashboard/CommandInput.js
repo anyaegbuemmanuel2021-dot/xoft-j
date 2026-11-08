@@ -259,7 +259,7 @@ export function mountCommandInput(el, store, controller) {
   function stopRecognition() {
     if (serverListener) { serverListener.stop(); serverListener = null; }
   }
-  // Wake-word handling shared by browser Web Speech and server STT. Returns true when a command was submitted.
+  // Deterministic wake-word handling for transcripts returned by XOFT server STT.
   function handleHeard(heard) {
     heard = String(heard ?? '').trim();
     if (!heard) return false;
@@ -407,7 +407,7 @@ export function mountCommandInput(el, store, controller) {
 
   function toggleAutoListen() {
     if (!canRecord) {
-      toast('Automatic listening needs microphone access in a supported browser (HTTPS).', 'warn');
+      toast('Automatic listening requires microphone recording support and permission over HTTPS.', 'warn');
       return;
     }
     unlockAudio();
