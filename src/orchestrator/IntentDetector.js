@@ -12,9 +12,9 @@ export const Intent = {
 };
 
 function categoryFrom(text) {
-  const value = String(text ?? '').toLowerCase();
+  const words = new Set(String(text ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? []);
   for (const category of ['person', 'project', 'preference', 'rule', 'decision', 'task']) {
-    if (new RegExp('\b' + category + '(?:s)?\b').test(value)) return category;
+    if (words.has(category) || words.has(category + 's')) return category;
   }
   return 'fact';
 }
