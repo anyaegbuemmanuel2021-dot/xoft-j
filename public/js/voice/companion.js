@@ -113,14 +113,21 @@ function stopSegmentRecording() {
   }
 }
 
+function fallbackToServerStt(reason) {
+  if ($('backend').value !== 'native-android') return;
+  ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
+  $('backend').value = 'server-stt';
+  stop();
+  void start();
+}
+
 function wantRecognizer(on) {
   recognizerWanted = on;
   const b = $('backend').value;
   if (b === 'native-android') {
     if (on && !startNativeListening(selectedLanguage())) {
       ui.log('Android on-device speech recognition could not start. Check the installed offline language pack and microphone permission.');
-      pipeline?.stop();
-      ui.pill('mic', 'mic: native STT unavailable', 'err');
+      fallbackToServerStt('recognizer could not start');
     }
     if (!on) stopNativeListening();
     return;
@@ -132,9 +139,8 @@ window.addEventListener('xoft:native-transcript', (event) => {
   const detail = event.detail || {};
   if (detail.error) {
     ui.log('on-device STT: ' + detail.error);
-    if (/unavailable|stopped after repeated errors/i.test(detail.error)) {
-      pipeline?.stop();
-      ui.pill('mic', 'mic: native STT unavailable', 'err');
+    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) {
+      fallbackToServerStt(detail.error);
     }
     return;
   }
