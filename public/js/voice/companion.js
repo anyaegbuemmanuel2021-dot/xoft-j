@@ -5,6 +5,8 @@ import { VoicePipeline } from './wake.js';
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
+import { speakOut } from './speak-out.js';
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
 
 const $ = (id) => document.getElementById(id);
@@ -14,12 +16,19 @@ const selectedLanguage = () => $('language')?.value || 'auto';
 const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech segments are transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
-  'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
-  // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
-  // none is bundled because they require model files that are not part of this repository.
+  ...(hasNativeSpeechRecognition() ? {
+    'native-android': {
+      available: true,
+      label: 'On-device Android speech recognition',
+      note: 'Android on-device speech service. Requires an installed offline language pack and microphone permission.',
+    },
+  } : {}),
+  'server-stt': {
+    available: typeof MediaRecorder !== 'undefined',
+    label: 'XOFT server STT (Gemini → OpenAI fallback)',
+    note: 'Audio is captured locally and transcribed by XOFT server STT. No browser speech-recognition service is used.',
+  },
 };
 
 const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLocaleTimeString()}] ${t}\n`; el.scrollTop = el.scrollHeight; }, pill(id, text, cls = '') { const el = $(id); el.textContent = text; el.className = `pill ${cls}`; } };
@@ -27,7 +36,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null;
+let recognizerWanted = false; let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -39,27 +48,11 @@ function makeBackendControls() {
   note();
 }
 
-// ---- backend: browser SpeechRecognition (opened only while VAD says someone is speaking) ----
-function startBrowserSpeech() {
-  if (recognizer || !SR) return;
-  recognizer = new SR(); recognizer.continuous = true; recognizer.interimResults = true; recognizer.lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
-  recognizer.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const text = String(e.results[i][0]?.transcript || '').trim();
-      if (!text) continue;
-      $('transcript').textContent = text;
-      if (e.results[i].isFinal) ui.log(`heard: ${text}`);
-      pipeline.transcript(text, e.results[i].isFinal);
-    }
-  };
-  recognizer.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') ui.log(`recognizer error: ${e.error}`); };
-  recognizer.onend = () => { recognizer = null; if (recognizerWanted && $('backend').value === 'browser-speech') startBrowserSpeech(); }; // Chrome ends sessions on its own; restart only while wanted
-  try { recognizer.start(); } catch (err) { ui.log(`could not start recognizer: ${err.message}`); recognizer = null; }
-}
+// Browser speech recognition is intentionally not a backend. The native Android
+// recognizer is preferred; web-only sessions send captured audio to XOFT server STT.
 function stopRecognizer() {
   recognizerWanted = false;
-  // stop(), unlike abort(), allows the recognizer to deliver its final transcript.
-  try { recognizer?.stop(); } catch { /* already stopped */ }
+  stopNativeListening();
 }
 
 // ---- backend: continuous capture with a bounded pre-roll for VAD segments ----
@@ -137,31 +130,30 @@ function stopSegmentRecording() {
   if (chunks.length) void transcribeCapturedChunks(chunks, type);
 }
 
+function fallbackToServerStt(reason) {
+  if ($('backend').value !== 'native-android') return;
+  ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
+  $('backend').value = 'server-stt';
+  stop();
+  void start();
+}
+
 function wantRecognizer(on) {
   recognizerWanted = on;
   const b = $('backend').value;
-  if (b === 'browser-speech') on ? startBrowserSpeech() : stopRecognizer();
+  if (b === 'native-android') {
+    if (on && !startNativeListening(selectedLanguage())) fallbackToServerStt('recognizer could not start');
+    if (!on) stopNativeListening();
+    return;
+  }
   if (b === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
 }
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
 function speakReply(text) {
-  if (!speechOutputEnabled() || !('speechSynthesis' in window) || !text) return Promise.resolve();
-  return new Promise((resolve) => {
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(String(text).slice(0, 4000));
-      const lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
-      utterance.lang = lang;
-      const voices = window.speechSynthesis.getVoices();
-      utterance.voice = voices.find((v) => v.lang?.toLowerCase() === lang.toLowerCase())
-        || voices.find((v) => v.lang?.toLowerCase().startsWith(selectedLanguage() === 'ig' ? 'ig' : 'en-ng'))
-        || voices.find((v) => v.lang?.toLowerCase().startsWith('en'));
-      utterance.onend = resolve; utterance.onerror = resolve;
-      window.speechSynthesis.speak(utterance);
-    } catch { resolve(); }
-  });
+  if (!speechOutputEnabled() || !text) return Promise.resolve(false);
+  return speakOut(String(text).slice(0, 4000));
 }
 
 async function sendCommand({ text }) {
@@ -184,9 +176,10 @@ async function sendCommand({ text }) {
   }
 }
 
-function buildPipeline() {
+function buildPipeline(continuousRecognition = false) {
   pipeline = new VoicePipeline({
     conversationMode: conversationEnabled(),
+    continuousRecognition,
     onState: (s) => ui.pill('state', `state: ${s.replace('_', ' ')}`, s === 'idle' ? '' : 'ok'),
     onWake: (p) => ui.log(`wake phrase heard ("${p}")`),
     onCommand: sendCommand,
@@ -199,7 +192,34 @@ function buildPipeline() {
   const origSubmit = pipeline._submit.bind(pipeline); pipeline._submit = (c) => { hideConfirm(); origSubmit(c); };
 }
 
+window.addEventListener('xoft:native-transcript', (event) => {
+  const detail = event.detail || {};
+  if ($('backend').value !== 'native-android') return;
+  if (detail.error) {
+    ui.log('Android on-device STT: ' + detail.error);
+    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) {
+      fallbackToServerStt(detail.error);
+    }
+    return;
+  }
+  const transcript = String(detail.text || '').trim();
+  if (!transcript) return;
+  $('transcript').textContent = transcript;
+  ui.log('heard (Android on-device): ' + transcript);
+  pipeline?.transcript(transcript, detail.isFinal !== false);
+});
+
 async function start() {
+  if ($('backend').value === 'native-android') {
+    buildPipeline(true);
+    pipeline.start();
+    if ($('backend').value !== 'native-android') return;
+    timer = setInterval(() => pipeline?.tick(Date.now()), 250);
+    ui.pill('mic', 'mic: on-device Android', 'ok');
+    $('start').disabled = true; $('stop').disabled = false;
+    ui.log('Android on-device recognizer started; waiting for the wake phrase.');
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
   // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
   // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
@@ -265,7 +285,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; stopRecognizer();
+  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; pipeline?.stop(); stopRecognizer();
   // Let MediaRecorder emit its final dataavailable chunk before its onstop handler flushes any active segment.
   if (recorder?.state === 'recording') { try { recorder.stop(); } catch { /* already stopping */ } }
   else { captureBuffer?.discard(); captureBuffer = null; }
