@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import path from 'node:path';
 import { gatewayConfigFromEnv, gatewayConfigState } from '../providers/gatewayConfig.js';
 dotenv.config();
 
@@ -27,13 +28,17 @@ function configuredGeminiModel() {
   return model;
 }
 
+const persistentDataDir = String(required('XOFT_PERSISTENT_DATA_DIR', '')).trim();
+const dataDir = required('MEMORY_DATA_DIR', persistentDataDir || './data');
+
 export const config = {
   port: Number(required('PORT', 3000)),
   host: required('HOST', '0.0.0.0'),
   nodeEnv: required('NODE_ENV', 'development'),
   storage: {
     mode: required('STORAGE_MODE', 'sqlite'),
-    sqlitePath: required('SQLITE_PATH', './data/xoft.sqlite'),
+    sqlitePath: required('SQLITE_PATH', path.join(dataDir, 'xoft.sqlite')),
+    persistentDataDir,
   },
   production: {
     requireAuth: String(required('REQUIRE_AUTH_IN_PRODUCTION', 'true')).toLowerCase() === 'true',
@@ -59,7 +64,7 @@ export const config = {
   },
 
   memory: {
-    dataDir: required('MEMORY_DATA_DIR', './data'),
+    dataDir,
   },
 
   devices: {
