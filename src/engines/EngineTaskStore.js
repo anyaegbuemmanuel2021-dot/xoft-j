@@ -13,17 +13,37 @@ const MAX_EVENT_BYTES_PER_TASK = 4 * 1024 * 1024;
  *
  *  • Task records live in a JsonStore (`engine-tasks`), so they follow the project's STORAGE_MODE (JSON files or SQLite)
  *    exactly like tasks.json / approvals.json do, and survive restarts.
- *  • The event log is append-only JSON-lines, one file per task (data/engines/events/<id>.jsonl). Tool events arrive far
- *    faster than a whole-file JSON rewrite can keep up with, so they deliberately do not go through JsonStore/ActivityLog.
- *    Every event is passed through redactDeep() before it touches disk — secrets are never logged.
+ *  • The event log is append-only and one journal per task. JSON mode uses JSON-lines files under data/engines/events/;
+ *    SQLite mode writes rows into the same database as task state, so the journal survives process restarts with the DB.
+ *    Tool events avoid whole-file JsonStore rewrites. Every event is passed through redactDeep() before persistence.
  */
 export class EngineTaskStore {
   constructor({ dataDir = './data', sqliteStore = null } = {}) {
     this.dataDir = dataDir;
     this.eventsDir = path.join(dataDir, 'engines', 'events');
-    fs.mkdirSync(this.eventsDir, { recursive: true });
+    this.sqliteStore = sqliteStore;
+    if (!sqliteStore) fs.mkdirSync(this.eventsDir, { recursive: true });
     this._store = new JsonStore({ dataDir, fileName: 'engine-tasks.json', kvKey: 'engine_tasks', defaultValue: { tasks: [] }, sqliteStore });
     this._seq = new Map();
+    this._migrateLegacyEventFiles();
+  }
+
+  /** Import pre-existing JSONL journals when an installation switches to SQLite mode. */
+  _migrateLegacyEventFiles() {
+    if (!this.sqliteStore?.saveEngineEvent || !fs.existsSync(this.eventsDir)) return;
+    for (const name of fs.readdirSync(this.eventsDir)) {
+      if (!name.endsWith('.jsonl')) continue;
+      const taskId = name.slice(0, -'.jsonl'.length);
+      let lines = [];
+      try { lines = fs.readFileSync(path.join(this.eventsDir, name), 'utf8').split('\n'); } catch { continue; }
+      for (const line of lines) {
+        if (!line) continue;
+        try {
+          const event = JSON.parse(line);
+          if (Number.isInteger(event.seq) && typeof event.ts === 'string') this.sqliteStore.saveEngineEvent(taskId, event);
+        } catch { /* ignore a torn/corrupt legacy line; valid entries are still migrated */ }
+      }
+    }
   }
 
   _load() { return this._store.load(); }
@@ -66,12 +86,16 @@ export class EngineTaskStore {
   // ---- event log ----------------------------------------------------------------------------------------
 
   _eventFile(id) { return path.join(this.eventsDir, `${String(id).replace(/[^a-zA-Z0-9_-]/g, '')}.jsonl`); }
-  _removeEvents(id) { try { fs.unlinkSync(this._eventFile(id)); } catch { /* none */ } }
+  _removeEvents(id) {
+    if (this.sqliteStore?.deleteEngineEvents) { this.sqliteStore.deleteEngineEvents(id); return; }
+    try { fs.unlinkSync(this._eventFile(id)); } catch { /* none */ }
+  }
 
   _nextSeq(id) {
     if (!this._seq.has(id)) {
       let n = 0;
-      try { const text = fs.readFileSync(this._eventFile(id), 'utf8'); n = text ? text.split('\n').filter(Boolean).length : 0; } catch { /* new file */ }
+      if (this.sqliteStore?.loadEngineEvents) n = this.sqliteStore.loadEngineEvents(id).reduce((max, e) => Math.max(max, Number(e.seq) || 0), 0);
+      else { try { const text = fs.readFileSync(this._eventFile(id), 'utf8'); n = text ? text.split('\n').filter(Boolean).length : 0; } catch { /* new file */ } }
       this._seq.set(id, n);
     }
     const next = this._seq.get(id) + 1;
@@ -82,24 +106,32 @@ export class EngineTaskStore {
   /** Appends one event (redacted). Returns the stored envelope, or null if the per-task size cap was reached. */
   appendEvent(id, event) {
     const file = this._eventFile(id);
-    try { if (fs.existsSync(file) && fs.statSync(file).size > MAX_EVENT_BYTES_PER_TASK) return null; } catch { /* ignore */ }
+    try {
+      const bytes = this.sqliteStore?.engineEventBytes
+        ? this.sqliteStore.engineEventBytes(id)
+        : (fs.existsSync(file) ? fs.statSync(file).size : 0);
+      if (bytes > MAX_EVENT_BYTES_PER_TASK) return null;
+    } catch { /* a size-check failure must not prevent an auditable event from being written */ }
     const envelope = { seq: this._nextSeq(id), ts: new Date().toISOString(), ...redactDeep(event, { maxString: 2000 }) };
-    fs.appendFileSync(file, `${JSON.stringify(envelope)}\n`);
+    if (this.sqliteStore?.saveEngineEvent) this.sqliteStore.saveEngineEvent(id, envelope);
+    else fs.appendFileSync(file, `${JSON.stringify(envelope)}\n`);
     return envelope;
   }
 
   /** @param {{after?:number, limit?:number, types?:string[]}} [q] */
   events(id, { after = 0, limit = 500, types = null } = {}) {
-    let text = '';
-    try { text = fs.readFileSync(this._eventFile(id), 'utf8'); } catch { return []; }
-    const out = [];
-    for (const line of text.split('\n')) {
-      if (!line) continue;
-      let e; try { e = JSON.parse(line); } catch { continue; }
-      if (e.seq <= after) continue;
-      if (types && !types.includes(e.type)) continue;
-      out.push(e);
+    let out = [];
+    if (this.sqliteStore?.loadEngineEvents) out = this.sqliteStore.loadEngineEvents(id);
+    else {
+      let text = '';
+      try { text = fs.readFileSync(this._eventFile(id), 'utf8'); } catch { return []; }
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        let e; try { e = JSON.parse(line); } catch { continue; }
+        out.push(e);
+      }
     }
+    out = out.filter((e) => e.seq > after && (!types || types.includes(e.type)));
     return limit ? out.slice(-limit) : out;
   }
 }

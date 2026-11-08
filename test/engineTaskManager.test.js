@@ -432,3 +432,18 @@ test('bridge approvals show on the task, move it to WAITING, and clear when deci
   assert.equal(r.manager.get(t.id).state, 'running');
   await r.manager.cancel(t.id);
 });
+
+
+test('workspace preparation failure is fail-closed: the engine is never allowed to edit the requested project in-place', async () => {
+  const wd = tmp();
+  const engine = new ScriptEngine('script', async () => ({ status: 'completed', output: 'should never run' }));
+  const failure = new EngineError(ErrorCode.NOT_SUPPORTED, 'Isolated worktree mode requires a Git repository.');
+  const gitWorkspace = { prepare: async () => { throw failure; } };
+  const r = rig([engine], { managerOpts: { gitWorkspace } });
+  const task = await r.manager.createTask({ goal: GOAL, engine: 'script', workingDirectory: wd, workspaceMode: 'worktree' });
+  const done = await finalState(r, task.id);
+  assert.equal(done.state, TaskState.FAILED);
+  assert.equal(done.errorCode, 'workspace');
+  assert.match(done.error, /requires a Git repository/);
+  assert.deepEqual(engine.calls, [], 'the execution engine must not receive a task when isolation failed');
+});

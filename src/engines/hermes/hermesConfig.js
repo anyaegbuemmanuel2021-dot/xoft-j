@@ -27,7 +27,7 @@ export const HERMES_DEFAULTS = Object.freeze({
   lowPriority: true, // run a Xoft-managed Hermes at reduced OS scheduling priority
   bridgeApprovalWaitMs: 100000, // how long a Tool Gateway call waits for a human approval before telling the model to retry
   nativeToolPolicy: 'monitor',
-  workspaceMode: 'in-place',
+  workspaceMode: 'worktree', // isolate coding changes from the user's checkout by default
   bridgeEnabled: true,
   bridgeDeviceId: '',
   logLevel: 'info',
