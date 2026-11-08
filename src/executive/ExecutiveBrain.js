@@ -9,16 +9,16 @@ const CONFIDENCE_THRESHOLD = 55;
 function deterministicCalculation(message) {
   const text = String(message ?? '').trim();
   if (!text || text.length > 200) return null;
-  const match = text.match(/^(?:(?:hey\\s+)?xoft[,! ]*)?(?:please\\s+)?(?:calculate|compute|solve|what is|what's)\\s+(.+?)[?.!]*$/i);
+  const match = text.match(/^(?:(?:hey\s+)?xoft[,! ]*)?(?:please\s+)?(?:calculate|compute|solve|what is|what's)\s+(.+?)[?.!]*$/i);
   if (!match) return null;
   const expression = match[1]
-    .replace(/\\b(?:multiplied\\s+by|times)\\b/gi, '*')
-    .replace(/\\bdivided\\s+by\\b/gi, '/')
-    .replace(/\\bplus\\b/gi, '+')
-    .replace(/\\bminus\\b/gi, '-')
-    .replace(/\\bx\\b/gi, '*')
+    .replace(/\b(?:multiplied\s+by|times)\b/gi, '*')
+    .replace(/\bdivided\s+by\b/gi, '/')
+    .replace(/\bplus\b/gi, '+')
+    .replace(/\bminus\b/gi, '-')
+    .replace(/\bx\b/gi, '*')
     .trim();
-  if (!/^[\\d\\s()+\\-*/.]+$/.test(expression) || !/[+*/-]/.test(expression) || /\\*\\*|\\/\\//.test(expression)) return null;
+  if (!/^[\d\s()+\-*/.]+$/.test(expression) || !/[+*/-]/.test(expression) || /\*\*|\/\//.test(expression)) return null;
   return expression;
 }
 
