@@ -13,7 +13,7 @@ function makeBrain() {
       toolRegistry: {
         execute: async (name, input) => {
           calls.execute.push({ name, input });
-          const result = Function('"use strict"; return (' + input.expression + ')')();
+          const result = input.expression === '12 + 3' ? 15 : input.expression === '18 / 3' ? 6 : null;
           return { expression: input.expression, result };
         },
       },
