@@ -27,6 +27,7 @@ export class TaskQueue {
     this._running = new Set(); // taskIds currently inside taskPlanner.execute()
     this._pending = []; // [{ taskId, priority }] waiting for a concurrency slot
     this._timer = null;
+    this._recoveredOnStart = false;
   }
 
   _priorityRank(p) {
@@ -71,9 +72,36 @@ export class TaskQueue {
     }
   }
 
+  /**
+   * Re-queues work interrupted by a process restart. A task persisted as
+   * running/queued/timed_out did not reach a terminal state; TaskPlanner's
+   * execution ledger decides whether each interrupted side effect is safe
+   * to retry or needs explicit approval because its outcome is ambiguous.
+   * Planned tasks are intentionally left alone (they may be previews).
+   */
+  recoverOnStartup() {
+    if (this._recoveredOnStart) return [];
+    this._recoveredOnStart = true;
+    const interrupted = this.taskPlanner.list().filter((task) =>
+      ['queued', 'running', 'timed_out'].includes(task.status)
+    );
+    const recovered = [];
+    for (const task of interrupted) {
+      this.activityLog?.log({
+        type: 'task_recovered_after_restart',
+        taskId: task.id,
+        detail: { previousStatus: task.status },
+      });
+      this.enqueue(task.id);
+      recovered.push({ taskId: task.id, previousStatus: task.status });
+    }
+    return recovered;
+  }
+
   /** Starts the poll loop. Call once at server boot; the timer is unref'd so it never keeps the process alive by itself. */
   start() {
     if (this._timer) return;
+    this.recoverOnStartup();
     this.tick(); // pick up anything already due, e.g. right after a restart
     this._timer = setInterval(() => this.tick(), this.pollIntervalMs);
     this._timer.unref?.();
