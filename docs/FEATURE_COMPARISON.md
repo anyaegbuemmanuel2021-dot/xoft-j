@@ -146,7 +146,7 @@ with registry access is expected to resolve those 19.
 
 XOFT's direct OpenAI provider is configured with five model tiers: flagship `gpt-6-astra`, balanced `gpt-6.1-sol`, efficient `gpt-6-luna`, coding `gpt-5.6-sol`, and budget `gpt-5.6-terra`. Simple tasks use the efficient tier, coding tasks can select the coding tier, and long-context tasks can select the balanced tier; the flagship remains the standard OpenAI chat/reasoning model. Exact model access still depends on the OpenAI API account and is not proven by configuration alone.
 
-Chat replies now try the existing protected `POST /api/voice/speak` endpoint first, which uses Gemini first, then OpenAI (optional ElevenLabs last). If no server voice is configured or the endpoint cannot play audio, the browser's native speech synthesis is used as a fallback. This does not implement an always-listening wake word; the client still needs microphone permission and a user-initiated action for reliable playback.
+Chat replies in the Android companion use native Android TextToSpeech first. Web-only sessions can use the protected `POST /api/voice/speak` endpoint (Gemini first, then OpenAI, optional ElevenLabs last). Browser `speechSynthesis` is not used. The Android companion also prefers the on-device recognizer; web-only sessions use server STT.
 
 
 ## Native speech and deterministic routing (November 2026)
