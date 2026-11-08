@@ -19,6 +19,11 @@ function makePlanner(plannedSteps) {
     riskLevel: 0, requiredPermissions: [], status: 'implemented',
     async run() { return { ok: true }; },
   });
+  toolRegistry.register({
+    name: 'test.unavailable', description: 'requires a missing service', inputSchema: {},
+    riskLevel: 0, requiredPermissions: [], status: 'REQUIRES_API',
+    async run() { throw new Error('must never be invoked'); },
+  });
   const approvalSystem = new ApprovalSystem({ activityLog, eventBus, dataDir });
   const router = { async complete() { return { text: JSON.stringify({ steps: plannedSteps, blockedReason: null }) }; } };
   return new TaskPlanner({ router, toolRegistry, approvalSystem, activityLog, memory: null, eventBus, dataDir });
@@ -64,6 +69,13 @@ describe('TaskPlanner — dependency graph validation', () => {
     const missingDeps = await makePlanner([{ id: 'a', toolName: 'test.noop', input: {} }]).plan('missing dependsOn');
     assert.equal(missingDeps.status, 'blocked');
     assert.match(missingDeps.blockedReason, /dependsOn as an array/);
+  });
+
+  test('does not accept tools already marked unavailable in this environment', async () => {
+    const planner = makePlanner([{ ...step('unavailable'), toolName: 'test.unavailable' }]);
+    const task = await planner.plan('use an unavailable integration');
+    assert.equal(task.status, 'blocked');
+    assert.match(task.blockedReason, /unavailable tool 'test.unavailable'/);
   });
 
   test('normalizes valid steps into dependency order before execution', async () => {

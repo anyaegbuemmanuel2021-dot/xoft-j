@@ -172,7 +172,15 @@ export class TaskPlanner {
    * @returns {Promise<object>} the created task record
    */
   async plan(goal) {
-    const toolSchemas = this.toolRegistry.schemasForAI();
+    const runnableToolNames = new Set(this.toolRegistry.list()
+      .filter((tool) => {
+        const status = String(tool.status ?? 'IMPLEMENTED').toUpperCase();
+        return status === 'IMPLEMENTED' || status === 'PARTIALLY_IMPLEMENTED';
+      })
+      .map((tool) => tool.name));
+    // Do not ask the model to plan actions that the registry already knows
+    // cannot run in this environment (missing API/device/service).
+    const toolSchemas = this.toolRegistry.schemasForAI().filter((tool) => runnableToolNames.has(tool.name));
     const toolList = toolSchemas
       .map((t) => `- ${t.name}: ${t.description} | input: ${JSON.stringify(t.inputSchema)}`)
       .join('\n');
