@@ -1,5 +1,4 @@
 import { PendingPlanStore } from './PendingPlanStore.js';
-import { TaskType } from '../providers/ProviderRouter.js';
 import { RiskLevel } from '../tools/Tool.js';
 import { ExecutiveClassifier, ExecutiveAction } from './ExecutiveClassifier.js';
 
@@ -174,15 +173,10 @@ export class ExecutiveBrain {
   async _handleWorldState(sessionId, message) {
     this.memory.addTurn(sessionId, 'user', message);
     const worldStateText = this.worldState.describe();
-
-    const result = await this.router.complete(TaskType.REASONING, {
-      system: `${WORLD_STATE_SYSTEM_PROMPT}\n\nWORLD STATE:\n${worldStateText}${this._personalityFragment({}, sessionId)}`,
-      messages: [{ role: 'user', content: message }],
-      maxTokens: 400,
-    });
-
-    this.memory.addTurn(sessionId, 'assistant', result.text);
-    return { action: 'world_state', reply: result.text, meta: { worldState: this.worldState.snapshot() } };
+    const reply = worldStateText || 'No current XOFT activity is available.';
+    this.memory.addTurn(sessionId, 'assistant', reply);
+    this.activityLog.log({ type: 'world_state_reported', detail: { sessionId } });
+    return { action: 'world_state', reply, meta: { worldState: this.worldState.snapshot(), deterministic: true } };
   }
 
   // PLAN + CONFIDENCE + RISK ASSESSMENT
@@ -290,18 +284,20 @@ export class ExecutiveBrain {
 
   // VERIFY + RESPOND
   async _verifyAndRespond(sessionId, task) {
-    const stepSummary = task.steps
-      .map((s) => `${s.description}: ${s.status}${s.error ? ` (${s.error})` : ''}`)
-      .join('\n');
-
-    const result = await this.router.complete(TaskType.SIMPLE, {
-      system: SUMMARY_SYSTEM_PROMPT + this._personalityFragment({}, sessionId),
-      messages: [{ role: 'user', content: `Task: ${task.goal}\nOverall status: ${task.status}\nSteps:\n${stepSummary}` }],
-      maxTokens: 200,
-    });
-
-    this.memory.addTurn(sessionId, 'assistant', result.text);
+    const completed = task.steps.filter((step) => step.status === 'completed').length;
+    const failed = task.steps.filter((step) => step.status === 'failed').length;
+    const total = task.steps.length;
+    let reply;
+    if (task.status === 'completed' && failed === 0) {
+      reply = `Completed: ${task.goal}. ${completed} of ${total} step(s) finished successfully.`;
+    } else if (failed > 0) {
+      const failures = task.steps.filter((step) => step.status === 'failed').map((step) => step.description + (step.error ? ': ' + step.error : ''));
+      reply = `The task was not fully completed: ${task.goal}. ${completed} step(s) succeeded and ${failed} failed. ${failures.join('; ')}`;
+    } else {
+      reply = `Task status: ${task.status}. ${task.goal}. ${completed} of ${total} step(s) completed.`;
+    }
+    this.memory.addTurn(sessionId, 'assistant', reply);
     this.activityLog.log({ type: 'executive_verified', detail: { taskId: task.id, status: task.status } });
-    return { action: 'goal', reply: result.text, meta: { task } };
+    return { action: 'goal', reply, meta: { task, deterministic: true } };
   }
 }
