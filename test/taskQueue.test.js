@@ -194,6 +194,18 @@ describe('TaskQueue', () => {
     assert.deepEqual(queue.recoverOnStartup(), [], 'successful recovery is not repeated');
   });
 
+  test('queue polling starts even when the recovery scan and its logging fail', () => {
+    const queue = new TaskQueue({
+      taskPlanner: { list() { throw new Error('temporary storage read failure'); } },
+      eventBus: null,
+      activityLog: { log() { throw new Error('logging unavailable'); } },
+    });
+
+    assert.doesNotThrow(() => queue.start());
+    assert.ok(queue._timer, 'poll timer must start after a failed recovery scan');
+    queue.stop();
+  });
+
   test('queue polling still starts when a task cannot be recovered', () => {
     const planner = {
       list: () => [{ id: 'broken-task', status: 'running' }],
