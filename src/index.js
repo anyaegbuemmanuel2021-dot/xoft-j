@@ -92,7 +92,7 @@ import { RecoveryEngine } from './recovery/RecoveryEngine.js';
 import { ContextEngine } from './context/ContextEngine.js';
 import { VisionInterpreter } from './vision/VisionInterpreter.js';
 import { SqliteStore } from './persistence/SqliteStore.js';
-import { assessStorageReadiness } from './persistence/storageReadiness.js';
+import { assessStorageReadiness, isStorageReady } from './persistence/storageReadiness.js';
 import { IntelligenceDirector } from './intelligence/IntelligenceDirector.js';
 import { ConnectorManager } from './connectors/ConnectorManager.js';
 import { buildConnectorTools } from './tools/builtins/connectorTools.js';
@@ -278,7 +278,7 @@ app.get('/readyz', (_req, res) => {
     storageMode: config.storage.mode,
     mountInfo,
   });
-  const ready = !config.storage.requireDurableStorage || persistence.durable;
+  const ready = isStorageReady({ durable: persistence.durable, required: config.storage.requireDurableStorage });
   res.status(ready ? 200 : 503).json({
     ok: ready,
     service: 'xoft-core',
