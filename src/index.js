@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import helmet from 'helmet';
@@ -261,7 +262,33 @@ app.use((req, res, next) => {
   req.requestId = id; res.set('x-request-id', id); next();
 });
 app.get('/healthz', (_req, res) => res.status(200).json({ ok: true, service: 'xoft-core' }));
-app.get('/readyz', (_req, res) => res.status(200).json({ ok: true, service: 'xoft-core', storage: config.storage.mode, connectors: connectorManager.list().filter((c) => c.enabled).map((c) => c.id) }));
+app.get('/readyz', (_req, res) => {
+  const persistentRoot = config.storage.persistentDataDir
+    ? path.resolve(config.storage.persistentDataDir)
+    : null;
+  const dataRoot = path.resolve(config.memory.dataDir);
+  const relativeDataPath = persistentRoot ? path.relative(persistentRoot, dataRoot) : null;
+  const dataDirOnPersistentStorage = Boolean(
+    persistentRoot && (relativeDataPath === '' || (!relativeDataPath.startsWith('..') && !path.isAbsolute(relativeDataPath)))
+  );
+  const sqliteDir = path.resolve(path.dirname(config.storage.sqlitePath));
+  const relativeSqlitePath = persistentRoot ? path.relative(persistentRoot, sqliteDir) : null;
+  const sqliteOnPersistentStorage = Boolean(
+    persistentRoot && (relativeSqlitePath === '' || (!relativeSqlitePath.startsWith('..') && !path.isAbsolute(relativeSqlitePath)))
+  );
+  const durable = dataDirOnPersistentStorage && (config.storage.mode !== 'sqlite' || sqliteOnPersistentStorage);
+  res.status(200).json({
+    ok: true,
+    service: 'xoft-core',
+    storage: config.storage.mode,
+    persistence: {
+      durable,
+      configured: Boolean(persistentRoot),
+      warning: durable ? null : 'Data is on ephemeral storage. Files, memory, settings and SQLite records may be lost on restart, spin-down or redeploy.',
+    },
+    connectors: connectorManager.list().filter((c) => c.enabled).map((c) => c.id),
+  });
+});
 app.get('/webhooks/whatsapp', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
