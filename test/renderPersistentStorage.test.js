@@ -17,9 +17,3 @@ test('XOFT uses the mounted persistent directory for file-backed state', () => {
 test('XOFT places SQLite inside the mounted persistent directory by default', () => {
   assert.equal(config.storage.sqlitePath, path.join('/var/data', 'xoft.sqlite'));
 });
-
-test('an explicit SQLITE_PATH override is preserved', async () => {
-  // The config module is intentionally evaluated once; verify the documented
-  // default contract here rather than mutating an already-resolved config.
-  assert.equal(path.dirname(config.storage.sqlitePath), config.storage.persistentDataDir);
-});
