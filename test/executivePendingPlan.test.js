@@ -34,7 +34,7 @@ describe('ExecutiveBrain pending plan lifecycle', () => {
     assert.deepEqual(cancelled, ['old-plan']);
 
     const confirmation = await brain._handleConfirm('session-a');
-    assert.match(confirmation.reply, /no active plan/i);
+    assert.match(confirmation.reply, /active plan waiting on your confirmation/i);
     assert.equal(executions, 0, 'the superseded high-risk plan must never execute');
   });
 });
