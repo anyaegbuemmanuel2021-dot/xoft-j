@@ -21,7 +21,7 @@ test('task rows expose step status, attempts, dependencies and errors', () => {
   assert.match(html, /running/);
   assert.match(html, /2 attempts/);
   assert.match(html, /Depends on: step-1/);
-  assert.match(html, /<details open\\b/);
+  assert.ok(html.includes('<details open style='));
 });
 
 test('task row escapes untrusted step descriptions and error text', () => {
