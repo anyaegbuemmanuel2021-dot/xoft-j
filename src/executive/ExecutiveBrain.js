@@ -5,23 +5,6 @@ import { ExecutiveClassifier, ExecutiveAction } from './ExecutiveClassifier.js';
 
 const CONFIDENCE_THRESHOLD = 55;
 
-/** Parse only explicit arithmetic requests. Anything conversational stays on the normal route. */
-function deterministicCalculation(message) {
-  const text = String(message ?? '').trim();
-  if (!text || text.length > 200) return null;
-  const match = text.match(/^(?:(?:hey\s+)?xoft[,! ]*)?(?:please\s+)?(?:calculate|compute|solve|what is|what's)\s+(.+?)[?.!]*$/i);
-  if (!match) return null;
-  const expression = match[1]
-    .replace(/\b(?:multiplied\s+by|times)\b/gi, '*')
-    .replace(/\bdivided\s+by\b/gi, '/')
-    .replace(/\bplus\b/gi, '+')
-    .replace(/\bminus\b/gi, '-')
-    .replace(/\bx\b/gi, '*')
-    .trim();
-  if (!/^[\d\s()+\-*/.]+$/.test(expression) || !/[+*/-]/.test(expression) || /\*\*|\/\//.test(expression)) return null;
-  return expression;
-}
-
 const WORLD_STATE_SYSTEM_PROMPT = `You are XOFT, a personal AI assistant. Answer the user's question about their
 current situation using ONLY the WORLD STATE data below — don't invent tasks, approvals, or deadlines that
 aren't listed. Be concise and direct, like a briefing, not a report.`;
@@ -57,8 +40,9 @@ export class ExecutiveBrain {
    * @param {import('../advisor/AdvisorAgent.js').AdvisorAgent} [deps.advisorAgent]
    * @param {import('../intelligence/IntelligenceDirector.js').IntelligenceDirector} [deps.intelligenceDirector]
    */
-  constructor({ router, memory, orchestrator, taskPlanner, approvalSystem, worldState, activityLog, confidenceEngine, personality, advisorAgent, intelligenceDirector, address }) {
+  constructor({ router, memory, orchestrator, taskPlanner, approvalSystem, worldState, activityLog, confidenceEngine, personality, advisorAgent, intelligenceDirector, address, nativeCommandEngine }) {
     this.address = address ?? null;
+    this.nativeCommandEngine = nativeCommandEngine ?? null;
     this.router = router;
     this.memory = memory;
     this.orchestrator = orchestrator;
@@ -91,23 +75,9 @@ export class ExecutiveBrain {
    * @returns {Promise<{action:string, reply:string, meta?:object}>}
    */
   async handle(sessionId, message) {
-    // Exact arithmetic is a deterministic local operation; don't pay for an intent
-    // classifier or planner model when the request is unambiguous.
-    const expression = deterministicCalculation(message);
-    if (expression) {
-      this.memory.addTurn(sessionId, 'user', message);
-      try {
-        const result = await this.taskPlanner.toolRegistry.execute('calculate', { expression }, { memory: this.memory });
-        const reply = `${expression} = ${result.result}`;
-        this.memory.addTurn(sessionId, 'assistant', reply);
-        this.activityLog.log({ type: 'deterministic_command_executed', detail: { sessionId, toolName: 'calculate' } });
-        return { action: 'tool', reply, meta: { toolName: 'calculate', result, deterministic: true } };
-      } catch (error) {
-        const reply = `I couldn't calculate that expression: ${error.message}`;
-        this.memory.addTurn(sessionId, 'assistant', reply);
-        return { action: 'tool', reply, meta: { toolName: 'calculate', deterministic: true, error: error.message } };
-      }
-    }
+    // Deterministic built-ins run before any classifier or model call.
+    const nativeResult = await this.nativeCommandEngine?.handle(message, { sessionId });
+    if (nativeResult) return nativeResult;
 
     // UNDERSTAND
     const classification = await this.classifier.classify(message);
