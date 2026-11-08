@@ -279,7 +279,6 @@ function renderLog(container) {
 // STT: XOFT server transcription (Gemini primary, OpenAI fallback).
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from '../voice/stt.js';
 import { createLevelMeter, createSpeechGate, preferredRecorderOptions, unlockAudio } from '../voice/listen.js';
-let activeRecognition = null;
 let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
@@ -496,71 +495,8 @@ function toggleVoiceInput(container) {
     voiceRecorder.stop();
     return;
   }
-  // Prefer the local voice engine over browser speech recognition. Browser
-  // recognition varies by browser/vendor, often requires a network service, and
-  // has been unreliable on mobile. Recording and transcription stay in this tab.
-  if (activeRecognition) {
-    try { activeRecognition.abort(); } catch {}
-    activeRecognition = null;
-  }
+  // Use only local microphone capture and XOFT server transcription.
   startVoiceRecording(container);
-  return;
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    startVoiceRecording(container);
-    return;
-  }
-  const recognition = new SpeechRecognition();
-  activeRecognition = recognition;
-  recognition.lang = navigator.language || 'en-NG';
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  let finalText = '';
-  let fallbackToVoice = false;
-
-  setVoiceStatus('listening', 'LISTENING · SPEAK NOW');
-  setMicButton(container, 'Listening… tap to stop', true);
-  recognition.onresult = (event) => {
-    const finalParts = [];
-    const interimParts = [];
-    for (let i = 0; i < event.results.length; i += 1) {
-      const transcript = event.results[i][0]?.transcript || '';
-      if (event.results[i].isFinal) finalParts.push(transcript);
-      else interimParts.push(transcript);
-    }
-    finalText = finalParts.join(' ').trim();
-    const input = container.querySelector('#chat-input');
-    if (input) input.value = [finalText, interimParts.join(' ')].filter(Boolean).join(' ').trim();
-  };
-  recognition.onerror = (event) => {
-    if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
-      fallbackToVoice = true;
-      toast('Browser speech recognition is unavailable. Recording directly for XOFT transcription…', 'warn');
-    } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
-      toast('Microphone access is blocked. Allow microphone permission in your browser settings.', 'warn');
-    } else if (event.error === 'no-speech') {
-      toast('No speech detected. Tap Voice Input and try again.', 'info');
-    } else if (event.error !== 'aborted') {
-      fallbackToVoice = true;
-      toast('Browser speech recognition failed. Recording directly for XOFT transcription…', 'warn');
-    }
-  };
-  recognition.onend = () => {
-    if (activeRecognition === recognition) activeRecognition = null;
-    setMicButton(container, 'Voice Input');
-    const input = container.querySelector('#chat-input');
-    if (input && input.value.trim()) input.focus();
-    if (fallbackToVoice && !voiceConversationActive) startVoiceRecording(container);
-  };
-  try {
-    recognition.start();
-  } catch {
-    activeRecognition = null;
-    setMicButton(container, 'Voice Input');
-    toast('Browser recognition could not start. Recording directly for XOFT transcription…', 'warn');
-    startVoiceRecording(container);
-  }
 }
 
 function stopLiveVideo(container, silent = false) {
@@ -591,7 +527,7 @@ async function startLiveVideo(container) {
   if (button) { button.disabled = true; button.textContent = 'Opening camera…'; }
   try {
     // Keep camera capture separate from microphone capture so the existing STT pipeline
-    // can apply its Gemini → OpenAI → local voice fallback without recording video.
+    // can apply its Gemini → OpenAI server transcription fallback without recording video.
     liveVideoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
     const panel = container.querySelector('#xoft-live-video');
     const video = container.querySelector('#xoft-live-camera');
