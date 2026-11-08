@@ -28,6 +28,59 @@ Respond with ONLY JSON, no markdown fences:
   "blockedReason": null
 }`;
 
+/**
+ * Reject malformed or unsafe step graphs before they are persisted. The
+ * executor assumes unique step IDs, known tools, object inputs, and a
+ * complete acyclic dependency graph; validate those assumptions at the
+ * model boundary instead of letting malformed plans fail mid-execution.
+ */
+function validateStepGraph(steps, availableToolNames) {
+  if (!Array.isArray(steps)) return 'Planner response must contain a steps array.';
+  const ids = new Set();
+  for (let i = 0; i < steps.length; i += 1) {
+    const step = steps[i];
+    if (!step || typeof step !== 'object' || Array.isArray(step)) return `Step ${i + 1} must be an object.`;
+    if (typeof step.id !== 'string' || !step.id.trim()) return `Step ${i + 1} is missing a valid id.`;
+    if (ids.has(step.id)) return `Duplicate step id '${step.id}'.`;
+    ids.add(step.id);
+    if (typeof step.toolName !== 'string' || !availableToolNames.has(step.toolName)) {
+      return `Step '${step.id}' references an unavailable tool '${step.toolName ?? ''}'.`;
+    }
+    if (!step.input || typeof step.input !== 'object' || Array.isArray(step.input)) {
+      return `Step '${step.id}' must have an object input.`;
+    }
+    if (!Array.isArray(step.dependsOn)) return `Step '${step.id}' must declare dependsOn as an array.`;
+  }
+
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  for (const step of steps) {
+    for (const dependency of step.dependsOn) {
+      if (typeof dependency !== 'string' || !byId.has(dependency)) {
+        return `Step '${step.id}' depends on unknown step '${dependency}'.`;
+      }
+      if (dependency === step.id) return `Step '${step.id}' cannot depend on itself.`;
+    }
+  }
+
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (id) => {
+    if (visiting.has(id)) return false;
+    if (visited.has(id)) return true;
+    visiting.add(id);
+    for (const dependency of byId.get(id).dependsOn) {
+      if (!visit(dependency)) return false;
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return true;
+  };
+  for (const id of byId.keys()) {
+    if (!visit(id)) return 'The task plan contains a dependency cycle.';
+  }
+  return null;
+}
+
 const MAX_RETRIES_PER_STEP = 2;
 // Agent loop limit (spec: "every autonomous task should have a maximum
 // number of steps... prevent infinite/runaway plans"). This is a ceiling on
@@ -135,6 +188,28 @@ export class TaskPlanner {
 
     const taskId = crypto.randomUUID();
     const rawSteps = parsed.steps ?? [];
+    const availableToolNames = new Set(toolSchemas.map((tool) => tool.name));
+    const invalidPlanReason = validateStepGraph(rawSteps, availableToolNames);
+    if (invalidPlanReason) {
+      const task = {
+        id: taskId,
+        goal,
+        status: 'blocked',
+        blockedReason: invalidPlanReason,
+        steps: [],
+        priority: 'normal',
+        createdBy: 'user',
+        createdAt: new Date().toISOString(),
+        scheduledFor: null,
+        startedAt: null,
+        completedAt: null,
+      };
+      const data = this._load();
+      data.tasks.push(task);
+      this._save(data);
+      this.activityLog.log({ type: 'task_blocked_invalid_plan', taskId, detail: { goal, reason: invalidPlanReason } });
+      return task;
+    }
     // Guard against a runaway/malformed plan (spec section 67, "agent loop
     // limits" — a plan is rejected outright rather than silently truncated,
     // since executing an arbitrary prefix of an oversized plan could leave a
