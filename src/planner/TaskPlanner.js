@@ -471,6 +471,13 @@ export class TaskPlanner {
       const attempts = (step.attempts ?? 0) + 1;
       this.activityLog.log({ type: 'tool_failed', taskId, toolName: tool.name, detail: { attempt: attempts, error: err.message } });
 
+      // A cancelled task must not launch recovery actions or automatic
+      // retries after its currently-running tool call has settled.
+      if (this._getTask(taskId).status === 'cancelled') {
+        this._patchStep(taskId, step.id, { status: 'cancelled', attempts, error: err.message });
+        return { status: 'cancelled', error: err.message };
+      }
+
       if (attempts <= MAX_RETRIES_PER_STEP) {
         this.eventBus?.emitEvent(EventType.TASK_RETRYING, { taskId, stepId: step.id, toolName: tool.name, attempt: attempts });
         // Adaptive recovery: diagnose the failure and choose a bounded strategy.
