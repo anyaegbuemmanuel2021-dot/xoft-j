@@ -96,6 +96,97 @@ export function buildDeviceTools({ deviceManager, visionInterpreter, activityLog
         deviceManager.execute({ deviceId, capability: 'browser', action: 'open_url', parameters: { url }, riskLevel: DeviceRiskLevel.LOW }),
     }),
 
+    // BrowserController already implements CDP tab management, safe navigation,
+    // DOM inspection, verified interaction and screenshots on the paired PC agent.
+    // These tools expose that real capability to XOFT's planner/model layer.
+    new Tool({
+      name: 'device_browser_list_tabs',
+      description: 'List open browser tabs on a paired device, including each tab title, URL and attached state.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp }, required: ['deviceId'] },
+      requiredPermissions: ['browser.read'], riskLevel: RiskLevel.SAFE, status,
+      execute: async ({ deviceId }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'list_tabs', riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_get_page',
+      description: 'Read the current browser tab URL, title, ready state and element counts.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp }, required: ['deviceId'] },
+      requiredPermissions: ['browser.read'], riskLevel: RiskLevel.SAFE, status,
+      execute: async ({ deviceId }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'get_page', riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_get_dom',
+      description: 'Inspect a structured, secret-redacted snapshot of links, buttons, inputs and forms on the current browser page.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, limit: { type: 'integer', minimum: 1, maximum: 400 } }, required: ['deviceId'] },
+      requiredPermissions: ['browser.read'], riskLevel: RiskLevel.SAFE, status,
+      execute: async ({ deviceId, limit = 150 }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'get_dom', parameters: { limit }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_get_text',
+      description: 'Read visible page text or the text of one element. Password and other secret fields are redacted by the browser agent.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, locator: { type: 'object', properties: { selector: { type: 'string' }, text: { type: 'string' }, index: { type: 'integer', minimum: 0 } } }, maxChars: { type: 'integer', minimum: 1, maximum: 20000 } }, required: ['deviceId'] },
+      requiredPermissions: ['browser.read'], riskLevel: RiskLevel.SAFE, status,
+      execute: async ({ deviceId, locator, maxChars = 12000 }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'get_text', parameters: { locator: locator ?? null, maxChars }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_navigate',
+      description: 'Navigate the paired device browser to a normal HTTP(S) website. URL policy and browser security checks are enforced on the device.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, url: { type: 'string', maxLength: 2048 } }, required: ['deviceId', 'url'] },
+      requiredPermissions: ['browser.navigate'], riskLevel: RiskLevel.LOW, status,
+      execute: async ({ deviceId, url }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'navigate', parameters: { url }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_click',
+      description: 'Click one visible browser element by CSS selector or exact visible text. Covered or disabled elements are refused unless a human acts directly.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, locator: { type: 'object', properties: { selector: { type: 'string', maxLength: 500 }, text: { type: 'string', maxLength: 200 }, index: { type: 'integer', minimum: 0 } } } }, required: ['deviceId', 'locator'] },
+      requiredPermissions: ['browser.interact'], riskLevel: RiskLevel.LOW, status,
+      execute: async ({ deviceId, locator }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'click', parameters: { locator }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_fill',
+      description: 'Fill a browser input identified by CSS selector or visible text, then read its value back to verify the fill. Secret fields remain redacted.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, locator: { type: 'object', properties: { selector: { type: 'string', maxLength: 500 }, text: { type: 'string', maxLength: 200 }, index: { type: 'integer', minimum: 0 } } }, text: { type: 'string', maxLength: 5000 } }, required: ['deviceId', 'locator', 'text'] },
+      requiredPermissions: ['browser.interact'], riskLevel: RiskLevel.LOW, status,
+      execute: async ({ deviceId, locator, text }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'fill', parameters: { locator, text }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_wait_for',
+      description: 'Wait for a browser element to become attached, visible, hidden or detached before continuing.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, locator: { type: 'object', properties: { selector: { type: 'string', maxLength: 500 }, text: { type: 'string', maxLength: 200 }, index: { type: 'integer', minimum: 0 } } }, state: { type: 'string', enum: ['attached', 'visible', 'hidden', 'detached'] }, timeoutMs: { type: 'integer', minimum: 100, maximum: 30000 } }, required: ['deviceId', 'locator'] },
+      requiredPermissions: ['browser.read'], riskLevel: RiskLevel.SAFE, status,
+      execute: async ({ deviceId, locator, state = 'visible', timeoutMs = 10000 }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'wait_for', parameters: { locator, state, timeoutMs }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_screenshot',
+      description: 'Capture the current browser tab or full page as an image for visual inspection.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, fullPage: { type: 'boolean' } }, required: ['deviceId'] },
+      requiredPermissions: ['browser.read'], riskLevel: RiskLevel.SAFE, status,
+      execute: async ({ deviceId, fullPage = false }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'screenshot', parameters: { fullPage }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_new_tab',
+      description: 'Open a new browser tab at a supplied HTTP(S) URL or about:blank.',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, url: { type: 'string', maxLength: 2048 } }, required: ['deviceId'] },
+      requiredPermissions: ['browser.navigate'], riskLevel: RiskLevel.LOW, status,
+      execute: async ({ deviceId, url = 'about:blank' }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'new_tab', parameters: { url }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
+    new Tool({
+      name: 'device_browser_press',
+      description: 'Press a supported keyboard key in the current browser tab (for example Enter, Tab, Escape or an arrow key).',
+      inputSchema: { type: 'object', properties: { ...deviceIdProp, key: { type: 'string', enum: ['Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'] } }, required: ['deviceId', 'key'] },
+      requiredPermissions: ['browser.interact'], riskLevel: RiskLevel.LOW, status,
+      execute: async ({ deviceId, key }) => deviceManager.execute({ deviceId, capability: 'browser', action: 'press', parameters: { key }, riskLevel: DeviceRiskLevel.LOW }),
+    }),
+
     new Tool({
       name: 'device_list_files',
       description: 'List files in a permitted directory on a connected device. Never reaches outside permitted/allowlisted paths.',

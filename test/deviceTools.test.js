@@ -97,3 +97,38 @@ describe('Device tools — real permission enforcement, no bypass', () => {
     assert.equal(deviceManager.pullPending(phone.id).length, 0);
   });
 });
+
+describe('Browser automation tools — core to paired PC agent', () => {
+  test('device_browser_navigate queues the real CDP navigation command after permission and capability checks', async () => {
+    const { deviceManager, permissionSystem, toolRegistry } = makeHarness();
+    const device = deviceManager.registerDevice('Laptop', 'desktop');
+    deviceManager.trustDevice(device.id);
+    deviceManager.setCapabilities(device.id, ['browser']);
+    deviceManager.heartbeat(device.id);
+    permissionSystem.grant(device.id, 'browser.navigate');
+
+    const promise = toolRegistry.execute('device_browser_navigate', { deviceId: device.id, url: 'https://example.com' }, { deviceId: device.id });
+    const [command] = deviceManager.pullPending(device.id);
+    assert.equal(command.capability, 'browser');
+    assert.equal(command.action, 'navigate');
+    assert.deepEqual(command.parameters, { url: 'https://example.com' });
+    deviceManager.submitResult(device.id, command.id, { success: true, data: { url: 'https://example.com', title: 'Example' }, verification: { verified: true } });
+    const result = await promise;
+    assert.equal(result.success, true);
+    assert.equal(result.verification.verified, true);
+  });
+
+  test('device_browser_click is denied without browser.interact permission', async () => {
+    const { deviceManager, toolRegistry } = makeHarness();
+    const device = deviceManager.registerDevice('Laptop', 'desktop');
+    deviceManager.trustDevice(device.id);
+    deviceManager.setCapabilities(device.id, ['browser']);
+    deviceManager.heartbeat(device.id);
+
+    await assert.rejects(
+      () => toolRegistry.execute('device_browser_click', { deviceId: device.id, locator: { selector: '#submit' } }, { deviceId: device.id }),
+      /requires permission/
+    );
+    assert.equal(deviceManager.pullPending(device.id).length, 0, 'denied browser actions must never reach the device');
+  });
+});
