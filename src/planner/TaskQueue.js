@@ -92,7 +92,19 @@ export class TaskQueue {
    */
   recoverOnStartup() {
     if (this._recoveredOnStart) return [];
-    const interrupted = this.taskPlanner.list().filter((task) =>
+    let tasks;
+    try {
+      tasks = this.taskPlanner.list();
+    } catch (error) {
+      try {
+        this.activityLog?.log({
+          type: 'task_recovery_scan_failed',
+          detail: { error: error.message },
+        });
+      } catch { /* diagnostics must never prevent queue startup */ }
+      return [];
+    }
+    const interrupted = tasks.filter((task) =>
       ['queued', 'running', 'timed_out'].includes(task.status) &&
       !this._recoveredTaskIds.has(task.id)
     );
@@ -112,11 +124,13 @@ export class TaskQueue {
         // One corrupt/unavailable task must not prevent healthy tasks from
         // recovering or stop the queue's polling loop from starting.
         hadFailures = true;
-        this.activityLog?.log({
-          type: 'task_recovery_failed',
-          taskId: task.id,
-          detail: { previousStatus: task.status, error: error.message },
-        });
+        try {
+          this.activityLog?.log({
+            type: 'task_recovery_failed',
+            taskId: task.id,
+            detail: { previousStatus: task.status, error: error.message },
+          });
+        } catch { /* diagnostics must never prevent other tasks from recovering */ }
       }
     }
     this._recoveredOnStart = !hadFailures;
