@@ -567,11 +567,6 @@ function stopVoiceConversation(container, silent = false) {
   voiceConversationActive = false;
   if (voiceConversationTimer) clearTimeout(voiceConversationTimer);
   voiceConversationTimer = null;
-  if (activeRecognition) {
-    const recognition = activeRecognition;
-    activeRecognition = null;
-    try { recognition.abort(); } catch {}
-  }
   if (voiceRecorder && voiceRecorder.state !== 'inactive') {
     try { voiceRecorder.stop(); } catch {}
   }
@@ -591,7 +586,6 @@ function scheduleConversationListen(container, delay = 500) {
 
 function listenForConversationTurn(container) {
   if (!voiceConversationActive || voiceBusy || (voiceRecorder && voiceRecorder.state !== 'inactive')) return;
-  if (activeRecognition) return;
 
   // Hands-free mode uses the same local voice path as push-to-talk.
   // This avoids relying on vendor-specific browser recognition services.
@@ -602,87 +596,7 @@ function listenForConversationTurn(container) {
   startVoiceRecording(container, { autoSegment: true });
   return;
 
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    startVoiceRecording(container, { autoSegment: true });
-    return;
-  }
-  const recognition = new SpeechRecognition();
-  activeRecognition = recognition;
-  recognition.lang = navigator.language || 'en-NG';
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  let finalText = '';
-  let fallbackToVoice = false;
-  let permissionDenied = false;
-  setVoiceStatus('listening', 'LISTENING · SPEAK NATURALLY');
-  setConversationButton(container, true, 'Listening… speak naturally');
 
-  recognition.onresult = (event) => {
-    const finalParts = [];
-    const interimParts = [];
-    for (let i = 0; i < event.results.length; i += 1) {
-      const transcript = event.results[i][0]?.transcript || '';
-      if (event.results[i].isFinal) finalParts.push(transcript);
-      else interimParts.push(transcript);
-    }
-    finalText = finalParts.join(' ').trim();
-    const input = container.querySelector('#chat-input');
-    if (input) input.value = [finalText, interimParts.join(' ')].filter(Boolean).join(' ').trim();
-    setVoiceStatus('listening', 'HEARING YOU');
-    setConversationButton(container, true, 'Hearing you…');
-  };
-
-  recognition.onerror = (event) => {
-    if (['network', 'service-not-allowed', 'language-not-supported'].includes(event.error)) {
-      fallbackToVoice = true;
-    } else if (['not-allowed', 'audio-capture'].includes(event.error)) {
-      permissionDenied = true;
-      toast('Microphone access is blocked. Allow microphone permission, then start Voice Conversation again.', 'warn');
-    } else if (event.error === 'no-speech') {
-      // Normal in a conversation: a silent turn just starts a fresh listen.
-    } else if (event.error !== 'aborted') {
-      fallbackToVoice = true;
-    }
-  };
-
-  recognition.onend = () => {
-    if (activeRecognition === recognition) activeRecognition = null;
-    if (!voiceConversationActive) return;
-    if (permissionDenied) {
-      stopVoiceConversation(container, true);
-      return;
-    }
-    if (fallbackToVoice) {
-      if (!voiceFallbackNoticeShown) {
-        voiceFallbackNoticeShown = true;
-        toast('Browser speech service is unavailable. Switching to direct XOFT microphone capture.', 'warn');
-      }
-      startVoiceRecording(container, { autoSegment: true });
-      return;
-    }
-    if (finalText.trim()) {
-      const input = container.querySelector('#chat-input');
-      if (input) input.value = '';
-      setVoiceStatus('thinking', 'XOFT IS THINKING');
-      setConversationButton(container, true, 'XOFT is thinking…');
-      void send(container, finalText.trim(), { voiceTurn: true });
-      return;
-    }
-    setConversationButton(container, true, 'Listening… speak naturally');
-    scheduleConversationListen(container, 500);
-  };
-
-  try {
-    recognition.start();
-  } catch {
-    activeRecognition = null;
-    if (!voiceFallbackNoticeShown) {
-      voiceFallbackNoticeShown = true;
-      toast('Starting direct XOFT microphone capture because browser speech could not start.', 'warn');
-    }
-    startVoiceRecording(container, { autoSegment: true });
-  }
 }
 
 function toggleVoiceConversation(container) {
@@ -690,11 +604,6 @@ function toggleVoiceConversation(container) {
   if (voiceConversationActive) {
     stopVoiceConversation(container);
     return;
-  }
-  if (activeRecognition) {
-    const previous = activeRecognition;
-    activeRecognition = null;
-    try { previous.abort(); } catch {}
   }
   // Voice conversation must have speech output enabled, and all Speak Out controls
   // must immediately reflect the same persisted setting.
