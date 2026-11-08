@@ -77,13 +77,14 @@ test('The service worker cache uses server-only transcription and has a new cach
   assert.match(read('public/js/app.js'), /sw\.js\?v=\d{8}-\d+/);
 });
 
-test('AUTO LISTEN uses XOFT server transcription by default and only uses browser Web Speech when recording is unavailable', () => {
+test('AUTO LISTEN requires microphone recording and always uses XOFT server transcription', () => {
   const input = read('public/js/dashboard/CommandInput.js');
   const listen = read('public/js/voice/listen.js');
-  assert.match(input, /let serverMode = canRecord \|\| !Recognition/);
+  assert.match(input, /const canRecord = Boolean\(navigator\.mediaDevices\?\.getUserMedia && window\.MediaRecorder\)/);
+  assert.doesNotMatch(input, /SpeechRecognition|webkitSpeechRecognition|new Recognition/);
+  assert.match(input, /if \(!canRecord\)/);
   assert.match(input, /AUTO LISTEN sends recorded audio to XOFT server transcription/);
   assert.doesNotMatch(input, /local Whisper|on-device Whisper|WHISPER AUTO LISTEN/);
-  assert.match(input, /event\.error === 'network' \|\| event\.error === 'service-not-allowed'/);
   assert.match(input, /createServerListener/);
   assert.match(listen, /setInterval/);
   assert.doesNotMatch(listen, /requestAnimationFrame/);
