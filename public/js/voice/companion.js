@@ -117,7 +117,11 @@ function wantRecognizer(on) {
   recognizerWanted = on;
   const b = $('backend').value;
   if (b === 'native-android') {
-    if (on && !startNativeListening(selectedLanguage())) ui.log('Android on-device speech recognition could not start. Check the installed offline language pack and microphone permission.');
+    if (on && !startNativeListening(selectedLanguage())) {
+      ui.log('Android on-device speech recognition could not start. Check the installed offline language pack and microphone permission.');
+      pipeline?.stop();
+      ui.pill('mic', 'mic: native STT unavailable', 'err');
+    }
     if (!on) stopNativeListening();
     return;
   }
@@ -126,7 +130,14 @@ function wantRecognizer(on) {
 
 window.addEventListener('xoft:native-transcript', (event) => {
   const detail = event.detail || {};
-  if (detail.error) { ui.log('on-device STT: ' + detail.error); return; }
+  if (detail.error) {
+    ui.log('on-device STT: ' + detail.error);
+    if (/unavailable|stopped after repeated errors/i.test(detail.error)) {
+      pipeline?.stop();
+      ui.pill('mic', 'mic: native STT unavailable', 'err');
+    }
+    return;
+  }
   const text = String(detail.text || '').trim();
   if (!text) return;
   $('transcript').textContent = text;
@@ -251,7 +262,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; stopRecognizer(); stopSegmentRecording();
+  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; pipeline?.stop(); stopRecognizer(); stopSegmentRecording();
   stream?.getTracks().forEach((t) => t.stop()); stream = null; try { ctx?.close(); } catch { /* ignore */ } ctx = null;
   $('level').style.width = '0'; $('confirm-box').style.display = 'none';
   ui.pill('mic', 'mic: off'); ui.pill('state', 'state: idle'); $('start').disabled = false; $('stop').disabled = true; ui.log('stopped — microphone released');
