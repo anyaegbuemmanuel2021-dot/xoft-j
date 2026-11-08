@@ -6,20 +6,27 @@
  * server restart. The associated task remains governed by TaskPlanner.
  */
 export class PendingPlanStore {
-  constructor({ ttlMs = 15 * 60_000, maxEntries = 500, now = Date.now } = {}) {
+  constructor({ ttlMs = 15 * 60_000, maxEntries = 500, now = Date.now, onExpire = null } = {}) {
     this.ttlMs = Number.isFinite(Number(ttlMs)) ? Math.max(1_000, Number(ttlMs)) : 15 * 60_000;
     this.maxEntries = Number.isFinite(Number(maxEntries)) ? Math.max(1, Math.floor(maxEntries)) : 500;
     this.now = now;
+    this.onExpire = typeof onExpire === 'function' ? onExpire : null;
     this.entries = new Map();
   }
 
   _prune() {
     const now = this.now();
     for (const [sessionId, entry] of this.entries) {
-      if (entry.expiresAt <= now) this.entries.delete(sessionId);
+      if (entry.expiresAt <= now) {
+        this.entries.delete(sessionId);
+        this.onExpire?.(entry.plan, 'expired');
+      }
     }
     while (this.entries.size > this.maxEntries) {
-      this.entries.delete(this.entries.keys().next().value);
+      const oldestSession = this.entries.keys().next().value;
+      const oldest = this.entries.get(oldestSession);
+      this.entries.delete(oldestSession);
+      this.onExpire?.(oldest.plan, 'capacity');
     }
   }
 
