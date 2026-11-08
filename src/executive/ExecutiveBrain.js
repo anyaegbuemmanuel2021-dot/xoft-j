@@ -26,7 +26,7 @@ function deterministicCalculation(message) {
 function deterministicDateTime(message) {
   const text = String(message ?? '').trim();
   if (text.length > 120) return false;
-  return /^(?:(?:hey\\s+)?xoft[,! ]*)?(?:please\\s+)?(?:what(?:'s| is) the (?:current )?time|what time is it|tell me the time|what(?:'s| is) today's date|what day is it|today's date|current date|date today)[?.!]*$/i.test(text);
+  return /^(?:(?:hey\s+)?xoft[,! ]*)?(?:please\s+)?(?:what(?:'s| is) the (?:current )?time|what time is it|tell me the time|what(?:'s| is) today's date|what day is it|today's date|current date|date today)[?.!]*$/i.test(text);
 }
 
 const WORLD_STATE_SYSTEM_PROMPT = `You are XOFT, a personal AI assistant. Answer the user's question about their
