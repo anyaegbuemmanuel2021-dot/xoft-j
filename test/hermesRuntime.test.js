@@ -109,7 +109,7 @@ test('execution sandbox detection distinguishes worktree safety from a real per-
   assert.equal(available.runtimeVersion, '27.1.1');
   assert.equal(available.taskWorkspaceBinding, false);
   assert.equal(available.isolated, false, 'Docker availability alone is not per-task isolation');
-  assert.match(available.reason, /per-task XOFT workspace/);
+  assert.match(available.reason, /task worktree/);
 });
 
 test('managed env passes only what Hermes needs — Xoft\'s own provider keys and secrets are NOT inherited', () => {
