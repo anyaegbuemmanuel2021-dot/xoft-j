@@ -194,6 +194,28 @@ describe('TaskQueue', () => {
     assert.deepEqual(queue.recoverOnStartup(), [], 'successful recovery is not repeated');
   });
 
+  test('scheduler tick continues past one due task that cannot be enqueued', () => {
+    const attempts = [];
+    const planner = {
+      list: () => [
+        { id: 'bad-due-task', status: 'scheduled', scheduledFor: new Date(0).toISOString() },
+        { id: 'good-due-task', status: 'scheduled', scheduledFor: new Date(0).toISOString() },
+      ],
+    };
+    const queue = new TaskQueue({
+      taskPlanner: planner,
+      eventBus: null,
+      activityLog: { log() {} },
+    });
+    queue.enqueue = (taskId) => {
+      attempts.push(taskId);
+      if (taskId === 'bad-due-task') throw new Error('task record unavailable');
+    };
+
+    assert.deepEqual(queue.tick(), ['good-due-task']);
+    assert.deepEqual(attempts, ['bad-due-task', 'good-due-task']);
+  });
+
   test('queue polling starts even when the recovery scan and its logging fail', () => {
     const queue = new TaskQueue({
       taskPlanner: { list() { throw new Error('temporary storage read failure'); } },
