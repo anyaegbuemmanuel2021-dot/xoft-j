@@ -178,18 +178,31 @@ export class SelfDevelopmentEngine {
       manifest.push({ rel, existed });
     }
     fs.writeFileSync(path.join(backupDir, 'manifest.json'), JSON.stringify(manifest));
-    for (const [rel, content] of Object.entries(p.files)) {
-      const abs = path.join(this.repoRoot, rel); fs.mkdirSync(path.dirname(abs), { recursive: true }); fs.writeFileSync(abs, content);
-    }
-    // post-apply verification on the LIVE files; any failure restores the backup
-    for (const rel of Object.keys(p.files).filter((f) => /\.(m?js|cjs)$/.test(f))) {
-      const r = await run('node', ['--check', rel], { cwd: this.repoRoot, timeoutMs: 20_000 });
-      if (r.code !== 0) {
-        this._restore(id);
-        this._write({ ...p, status: 'rolled_back', applied: { approvedBy, at: new Date().toISOString(), rolledBackBecause: `post-apply check failed: ${rel}` } });
-        this._log('selfdev_rolled_back', { id, reason: 'post-apply syntax check failed', file: rel });
-        throw new Error(`Post-apply check failed for ${rel}; changes were rolled back.`);
+    try {
+      for (const [rel, content] of Object.entries(p.files)) {
+        const abs = path.join(this.repoRoot, rel);
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        // Write beside the destination and rename so a failed write cannot leave a truncated file.
+        const temp = path.join(path.dirname(abs), `.xoft-${id}-${path.basename(abs)}.tmp`);
+        try {
+          const mode = fs.existsSync(abs) ? (fs.statSync(abs).mode & 0o777) : 0o600;
+          fs.writeFileSync(temp, content, { flag: 'wx', mode });
+          fs.renameSync(temp, abs);
+        } finally {
+          try { fs.rmSync(temp, { force: true }); } catch { /* best-effort temp cleanup */ }
+        }
       }
+      // Verify the complete applied set. Any write or verification failure restores every original.
+      for (const rel of Object.keys(p.files).filter((f) => /\.(m?js|cjs)$/.test(f))) {
+        const r = await run('node', ['--check', rel], { cwd: this.repoRoot, timeoutMs: 20_000 });
+        if (r.code !== 0) throw new Error(`post-apply syntax check failed: ${rel}: ${r.output.slice(-500)}`);
+      }
+    } catch (error) {
+      this._restore(id);
+      const reason = String(error?.message || error).slice(0, 1000);
+      this._write({ ...p, status: 'rolled_back', applied: { approvedBy, at: new Date().toISOString(), rolledBackBecause: reason } });
+      this._log('selfdev_rolled_back', { id, reason: 'apply failed; original files restored', error: reason });
+      throw new Error(`Self-development apply failed; original files were restored. ${reason}`);
     }
     this._write({ ...p, status: 'applied', applied: { approvedBy, at: new Date().toISOString() } });
     this._log('selfdev_applied', { id, approvedBy, files: Object.keys(p.files) });
@@ -201,7 +214,10 @@ export class SelfDevelopmentEngine {
     const manifest = JSON.parse(fs.readFileSync(path.join(backupDir, 'manifest.json'), 'utf8'));
     for (const { rel, existed } of manifest) {
       const abs = path.join(this.repoRoot, rel);
-      if (existed) fs.copyFileSync(path.join(backupDir, rel), abs); else fs.rmSync(abs, { force: true });
+      if (existed) {
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        fs.copyFileSync(path.join(backupDir, rel), abs);
+      } else if (fs.existsSync(abs)) fs.rmSync(abs, { force: true });
     }
   }
 
