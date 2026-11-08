@@ -6,6 +6,7 @@ import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { speakOut } from './speak-out.js';
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -15,10 +16,17 @@ const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const BACKENDS = {
+  ...(hasNativeSpeechRecognition() ? {
+    'native-android': {
+      available: true,
+      label: 'On-device Android speech recognition',
+      note: 'Speech is recognized by Android on-device services. No browser speech-recognition service or cloud transcription API is used.',
+    },
+  } : {}),
   'server-stt': {
     available: typeof MediaRecorder !== 'undefined',
     label: 'XOFT server STT (Gemini → OpenAI fallback)',
-    note: 'Audio is captured locally and transcribed by XOFT server STT. No browser speech-recognition service is used.',
+    note: 'Audio is captured locally and transcribed by XOFT server STT. This fallback requires a configured provider and network access.',
   },
 };
 
@@ -43,6 +51,7 @@ function makeBackendControls() {
 // to XOFT's provider-managed STT endpoint; browser-vendor speech services are never invoked.
 function stopRecognizer() {
   recognizerWanted = false;
+  stopNativeListening();
 }
 
 // ---- backend: server STT (records only VAD-detected segments) ----
@@ -107,8 +116,23 @@ function stopSegmentRecording() {
 function wantRecognizer(on) {
   recognizerWanted = on;
   const b = $('backend').value;
+  if (b === 'native-android') {
+    if (on && !startNativeListening(selectedLanguage())) ui.log('Android on-device speech recognition could not start. Check the installed offline language pack and microphone permission.');
+    if (!on) stopNativeListening();
+    return;
+  }
   if (b === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
 }
+
+window.addEventListener('xoft:native-transcript', (event) => {
+  const detail = event.detail || {};
+  if (detail.error) { ui.log('on-device STT: ' + detail.error); return; }
+  const text = String(detail.text || '').trim();
+  if (!text) return;
+  $('transcript').textContent = text;
+  ui.log('heard (Android on-device): ' + text);
+  pipeline?.transcript(text, detail.isFinal !== false);
+});
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
@@ -137,9 +161,10 @@ async function sendCommand({ text }) {
   }
 }
 
-function buildPipeline() {
+function buildPipeline(continuousRecognition = false) {
   pipeline = new VoicePipeline({
     conversationMode: conversationEnabled(),
+    continuousRecognition,
     onState: (s) => ui.pill('state', `state: ${s.replace('_', ' ')}`, s === 'idle' ? '' : 'ok'),
     onWake: (p) => ui.log(`wake phrase heard ("${p}")`),
     onCommand: sendCommand,
@@ -153,6 +178,15 @@ function buildPipeline() {
 }
 
 async function start() {
+  if ($('backend').value === 'native-android') {
+    buildPipeline(true);
+    pipeline.start();
+    timer = setInterval(() => pipeline?.tick(Date.now()), 250);
+    ui.pill('mic', 'mic: on-device Android', 'ok');
+    $('start').disabled = true; $('stop').disabled = false;
+    ui.log('Android on-device recognizer started; waiting for the wake phrase.');
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
   // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
   // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
