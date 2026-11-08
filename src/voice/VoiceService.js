@@ -154,12 +154,12 @@ function runHedged(providers, run, { hedgeMs = 0, isUsable = Boolean, label = 'r
         if (!error && isUsable(value)) {
           settled = true;
           clearHedge();
-          attempts.push({ provider, ok: true, ms });
+          attempts.push({ provider, ok: true, ms, retryCount: Number(value?.retryCount) || 0 });
           for (const [name, c] of controllers) if (name !== provider) c.abort();
           resolve({ value, provider, ms: Date.now() - startedAt, attempts: ordered() });
           return;
         }
-        attempts.push({ provider, ok: false, error: error ? error.message : 'empty result', ms });
+        attempts.push({ provider, ok: false, error: error ? error.message : 'empty result', status: Number(error?.status) || null, code: error?.code || null, retryCount: Number(error?.retryCount) || 0, ms });
         if (nextIndex < providers.length) { startNext(); return; }
         if (pending === 0) {
           settled = true;
