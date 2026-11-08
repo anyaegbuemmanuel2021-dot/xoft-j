@@ -116,7 +116,30 @@ class LiveActivity : Activity() {
         super.onDestroy()
     }
 
+    private fun dispatchNativeSpeechState(state: String) {
+        if (!::web.isInitialized) return
+        runOnUiThread {
+            if (!::web.isInitialized) return@runOnUiThread
+            val safe = JSONObject.quote(state)
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-speech-state',{detail:{state:$safe}}))", null)
+        }
+    }
+
     inner class Bridge {
+        @JavascriptInterface
+        fun speak(text: String): Boolean {
+            if (!ttsReady || text.isBlank()) return false
+            val clean = text.take(4000)
+            val utteranceId = "xoft-" + System.currentTimeMillis().toString()
+            return textToSpeech?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.SUCCESS
+        }
+
+        @JavascriptInterface
+        fun stopSpeaking() {
+            textToSpeech?.stop()
+            dispatchNativeSpeechState("idle")
+        }
+
         @JavascriptInterface
         fun onVoiceState(state: String) {
             voiceState = if (state == "listening" || state == "thinking" || state == "speaking") state else "idle"
