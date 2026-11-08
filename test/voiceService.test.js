@@ -166,6 +166,50 @@ test('STT hedge is a true race: a slow Gemini that answers before OpenAI still w
   } finally { restore(); }
 });
 
+test('STT retries one transient Gemini 503 using the original captured audio bytes', async () => {
+  const restore = withKeys({ hedge: 500 });
+  try {
+    let calls = 0;
+    const payload = Buffer.from('original-mobile-audio');
+    const svc = new VoiceService({
+      fetchImpl: async (url, init) => {
+        if (isGemini(url)) {
+          calls += 1;
+          const sent = Buffer.from(JSON.parse(init.body).contents[0].parts[1].inline_data.data, 'base64');
+          assert.deepEqual(sent, payload, 'every retry must receive the original audio bytes');
+          if (calls === 1) return new Response('temporary upstream failure', { status: 503 });
+          return geminiText('recovered transcript');
+        }
+        throw new Error('OpenAI should not be needed after Gemini recovers');
+      },
+    });
+    const out = await svc.transcribe(payload, { mime: 'audio/webm' });
+    assert.equal(out.provider, 'gemini');
+    assert.equal(out.text, 'recovered transcript');
+    assert.equal(calls, 2);
+  } finally { restore(); }
+});
+
+test('STT does not retry OpenAI insufficient_quota 429 and preserves the actionable reason', async () => {
+  const restore = withKeys({ gemini: null });
+  try {
+    let calls = 0;
+    const svc = new VoiceService({
+      fetchImpl: async () => {
+        calls += 1;
+        return json({ error: { message: 'You exceeded your current quota', type: 'insufficient_quota', code: 'insufficient_quota' } }, 429);
+      },
+    });
+    await assert.rejects(() => svc.transcribe(Buffer.from('audio')), (error) => {
+      assert.match(error.message, /insufficient_quota/);
+      assert.match(error.message, /exceeded your current quota/);
+      assert.equal(error.attempts[0].provider, 'openai');
+      return true;
+    });
+    assert.equal(calls, 1, 'billing/quota failures must not be retried');
+  } finally { restore(); }
+});
+
 test('STT falls through on an empty transcript and reports every attempt when all providers fail', async () => {
   const restore = withKeys();
   try {
