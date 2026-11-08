@@ -13,7 +13,7 @@ test('pre-roll includes audio captured immediately before VAD starts', () => {
   assert.equal(buffer.begin(), true);
   buffer.push(chunk('speech-continuation'), 1250);
   assert.deepEqual(buffer.finish().map((item) => item.label), [
-    'before-250ms', 'speech-start', 'speech-continuation',
+    'before-500ms', 'before-250ms', 'speech-start', 'speech-continuation',
   ]);
 });
 
