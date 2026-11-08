@@ -47,9 +47,9 @@ export function stopSpeaking() {
 }
 
 export function splitForSpeech(text) {
-  const clean = String(text ?? '').replace(/\\s+/g, ' ').trim();
+  const clean = String(text ?? '').replace(/\s+/g, ' ').trim();
   if (!clean) return [];
-  const sentences = (clean.match(/[^.!?\\u2026]+(?:[.!?\\u2026]+["')\\]]*|$)\\s*/g) ?? [clean]).map((x) => x.trim()).filter(Boolean);
+  const sentences = (clean.match(/[^.!?\u2026]+(?:[.!?\u2026]+["')\]]*|$)\s*/g) ?? [clean]).map((x) => x.trim()).filter(Boolean);
   const chunks = [];
   let current = '';
   for (const sentence of sentences) {
@@ -141,7 +141,7 @@ async function serverSpeak(text, runId) {
 export async function speakOut(text) {
   const message = String(text ?? '').trim();
   if (!message || !isSpeakOutEnabled() || !canSpeakOut()) return false;
-  const spoken = message.replace(/https?:\\/\\/\\S+/g, 'link').replace(/\\s+/g, ' ').slice(0, 4000);
+  const spoken = message.replace(/https?:\/\/\S+/g, 'link').replace(/\s+/g, ' ').slice(0, 4000);
   if (!spoken) return false;
   stopSpeaking();
   const runId = speechRun;
