@@ -66,7 +66,7 @@ function friendlyProviderError(rawMessage) {
 }
 function sessionId() { return currentSessionId(); }
 async function transcribe(blob, onStatus = () => {}) {
-  // One shared path: XOFT server transcription (OpenAI primary, Gemini fallback).
+  // One shared path: XOFT server transcription (Gemini primary, OpenAI fallback).
   return transcribeAudio(blob, onStatus);
 }
 
