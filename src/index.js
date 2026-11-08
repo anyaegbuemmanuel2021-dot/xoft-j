@@ -1117,7 +1117,22 @@ app.post('/api/voice/transcribe', voiceLimit, async (req, res) => {
     const { text, provider, ms } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime, language });
     res.json({ text, provider, ms });
   } catch (err) {
-    res.status(502).json({ error: err.message, attempts: err.attempts ?? [] });
+    const attempts = Array.isArray(err.attempts) ? err.attempts : [];
+    const quotaBlocked = attempts.some((attempt) => (
+      attempt.code === 'insufficient_quota'
+      || attempt.code === 'billing_hard_limit_reached'
+      || /insufficient_quota|billing_hard_limit|exceeded your current quota/i.test(attempt.error || '')
+    ));
+    // A quota/billing rejection is not a transient gateway fault. Return a
+    // clear service-unavailable response so the client can preserve the
+    // recording and avoid hammering a provider that cannot accept requests.
+    res.status(quotaBlocked ? 503 : 502).json({
+      error: err.message,
+      code: quotaBlocked ? 'STT_PROVIDER_QUOTA_EXHAUSTED' : 'STT_PROVIDER_FAILURE',
+      retryable: !quotaBlocked,
+      requestId: req.requestId,
+      attempts,
+    });
   }
 });
 
