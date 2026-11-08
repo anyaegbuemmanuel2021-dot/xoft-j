@@ -40,6 +40,7 @@ class LiveActivity : Activity() {
     @Volatile private var recognitionWanted = false
     private val speechHandler = Handler(Looper.getMainLooper())
     private var recognitionLanguage = "en-NG"
+    private var recognitionFailures = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -158,10 +159,17 @@ class LiveActivity : Activity() {
                 override fun onEndOfSpeech() { }
                 override fun onError(error: Int) {
                     if (!recognitionWanted) return
-                    dispatchNativeTranscript("", true, "Native recognizer error: " + error)
-                    speechHandler.postDelayed({ startRecognitionSession() }, 700)
+                    recognitionFailures += 1
+                    if (recognitionFailures >= 4) {
+                        recognitionWanted = false
+                        dispatchNativeTranscript("", true, "On-device speech recognition stopped after repeated errors: " + error)
+                        dispatchNativeSpeechState("idle")
+                    } else {
+                        speechHandler.postDelayed({ startRecognitionSession() }, 500L * recognitionFailures)
+                    }
                 }
                 override fun onResults(results: Bundle?) {
+                    recognitionFailures = 0
                     val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (text.isNotBlank()) dispatchNativeTranscript(text, true)
                     if (recognitionWanted) speechHandler.postDelayed({ startRecognitionSession() }, 250)
@@ -217,6 +225,7 @@ class LiveActivity : Activity() {
             }
         }
 
+        @JavascriptInterface
         fun speak(text: String): Boolean {
             if (!ttsReady || text.isBlank()) return false
             val clean = text.take(4000)
