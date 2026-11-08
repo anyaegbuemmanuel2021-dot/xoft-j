@@ -210,7 +210,9 @@ async function start() {
   }
   // Lower adaptive threshold helps quiet speech, while two frames reduce the chance of clipping
   // the start of short wake phrases. Ambient-noise adaptation remains enabled.
-  vad = new EnergyVad({ minThreshold: 0.008, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS }); buildPipeline();
+  // Mobile microphones can deliver normal speech below 0.008 RMS. Keep a low floor so quiet voices
+  // are not discarded before server STT can hear them; the adaptive noise floor still rises in noisy rooms.
+  vad = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS }); buildPipeline();
   const buf = new Float32Array(analyser.fftSize);
   timer = setInterval(() => {
     if (ctx?.state === 'suspended') {
