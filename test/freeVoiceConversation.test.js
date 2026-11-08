@@ -48,20 +48,25 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
-test('Voice companion defaults to server STT and uses shared fallback instead of browser speech first', () => {
+test('Voice companion prefers native Android STT and keeps server STT as an explicit web fallback', () => {
   const companion = read('public/js/voice/companion.js');
-  assert.ok(companion.indexOf("'server-stt':") < companion.indexOf("'browser-speech':"), 'server STT must be the default backend');
+  assert.match(companion, /'native-android':/);
+  assert.match(companion, /hasNativeSpeechRecognition/);
+  assert.match(companion, /'server-stt':/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
   assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
   assert.match(companion, /Gemini → OpenAI fallback/);
+  assert.doesNotMatch(companion, /window\.SpeechRecognition|webkitSpeechRecognition|browser-speech/);
 });
 
-test('Speech output uses the server voice (Gemini → OpenAI) by default and falls back to browser TTS', () => {
+test('Speech output prefers native Android TTS, then server TTS; browser speech synthesis is not used', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
-  assert.match(tts, /speechSynthesis/);
-  assert.ok(tts.indexOf('serverSpeak(spoken, runId)') < tts.indexOf('browserSpeak(spoken, runId)'), 'the server voice must be tried before the browser voice');
+  assert.match(tts, /waitForNativeSpeech/);
+  assert.match(tts, /speakNative/);
+  assert.ok(tts.indexOf('waitForNativeSpeech(spoken, runId)') < tts.indexOf('serverSpeak(spoken, runId)'), 'native local voice must be tried before server TTS');
+  assert.doesNotMatch(tts, /speechSynthesis|SpeechSynthesisUtterance|browserSpeak/);
   assert.doesNotMatch(tts, /api\.elevenlabs\.io/, 'the browser must never hold or use the ElevenLabs key directly');
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);
 });
@@ -75,14 +80,13 @@ test('The service worker cache uses server-only transcription and has a new cach
   assert.match(read('public/js/app.js'), /sw\.js\?v=\d{8}-\d+/);
 });
 
-test('AUTO LISTEN uses XOFT server transcription by default and only uses browser Web Speech when recording is unavailable', () => {
+test('AUTO LISTEN uses XOFT server transcription only and never invokes browser speech recognition', () => {
   const input = read('public/js/dashboard/CommandInput.js');
   const listen = read('public/js/voice/listen.js');
-  assert.match(input, /let serverMode = canRecord \|\| !Recognition/);
-  assert.match(input, /AUTO LISTEN sends recorded audio to XOFT server transcription/);
-  assert.doesNotMatch(input, /local Whisper|on-device Whisper|WHISPER AUTO LISTEN/);
-  assert.match(input, /event\.error === 'network' \|\| event\.error === 'service-not-allowed'/);
+  assert.match(input, /AUTO LISTEN always uses captured audio and XOFT server transcription/);
+  assert.match(input, /function startRecognition\(\) \{\s*startServerListening\(\);/);
   assert.match(input, /createServerListener/);
+  assert.doesNotMatch(input, /window\.SpeechRecognition|webkitSpeechRecognition|new Recognition\(/);
   assert.match(listen, /setInterval/);
   assert.doesNotMatch(listen, /requestAnimationFrame/);
 });
