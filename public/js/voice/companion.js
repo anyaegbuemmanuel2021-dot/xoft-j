@@ -6,7 +6,8 @@ import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
-import { fetchSpeechAudio } from './tts.js';
+import { speakOut, stopSpeaking } from './speak-out.js';
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -16,8 +17,18 @@ const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech is captured locally, detected with local VAD, then transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Auto supports mixed Nigerian English/Pidgin/Igbo.' },
-
+  ...(hasNativeSpeechRecognition() ? {
+    'native-android': {
+      available: true,
+      label: 'On-device Android speech recognition',
+      note: 'Android on-device recognizer; requires an installed offline language pack and microphone permission.',
+    },
+  } : {}),
+  'server-stt': {
+    available: typeof MediaRecorder !== 'undefined',
+    label: 'XOFT server STT (Gemini → OpenAI)',
+    note: 'Web-only fallback: local microphone capture, VAD, and XOFT server transcription. No browser speech API is used.',
+  },
 };
 
 const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLocaleTimeString()}] ${t}\n`; el.scrollTop = el.scrollHeight; }, pill(id, text, cls = '') { const el = $(id); el.textContent = text; el.className = `pill ${cls}`; } };
@@ -25,7 +36,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
+let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -112,57 +123,30 @@ function stopSegmentRecording() {
   if (chunks.length) void transcribeCapturedChunks(chunks, type);
 }
 
+function fallbackToServerStt(reason) {
+  if ($('backend').value !== 'native-android') return;
+  ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
+  $('backend').value = 'server-stt';
+  stop();
+  void start();
+}
+
 function wantRecognizer(on) {
+  if ($('backend').value === 'native-android') {
+    if (on && !startNativeListening(selectedLanguage())) fallbackToServerStt('recognizer could not start');
+    if (!on) stopNativeListening();
+    return;
+  }
   if ($('backend').value === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
 }
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
 async function speakReply(text) {
-  if (!speechOutputEnabled() || !text) return;
-  let audio = null;
-  let objectUrl = null;
-  const controller = new AbortController();
-  activeSpeechRequestController?.abort();
-  activeSpeechRequestController = controller;
-  try {
-    const result = await fetchSpeechAudio(text, { requestHeaders: headers(), signal: controller.signal });
-    activeSpeechCancel?.();
-    activeSpeechAudio?.pause();
-    if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl);
-    objectUrl = URL.createObjectURL(result.audio);
-    activeSpeechUrl = objectUrl;
-    audio = new Audio(objectUrl);
-    activeSpeechAudio = audio;
-    audio.preload = 'auto';
-    ui.log('TTS audio ready (' + result.provider + ', ' + result.contentType + ')');
-    await new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (error = null) => {
-        if (settled) return;
-        settled = true;
-        if (activeSpeechCancel === cancel) activeSpeechCancel = null;
-        if (error) reject(error); else resolve();
-      };
-      const cancel = () => finish();
-      activeSpeechCancel = cancel;
-      audio.onended = () => finish();
-      audio.onerror = () => finish(new Error('The device could not play XOFT audio.'));
-      audio.play().catch(finish);
-    });
-  } catch (error) {
-    if (error?.name !== 'AbortError') ui.log('XOFT server TTS failed: ' + error.message);
-  } finally {
-    if (activeSpeechRequestController === controller) activeSpeechRequestController = null;
-    if (audio) {
-      if (activeSpeechAudio === audio) activeSpeechAudio = null;
-      try { audio.pause(); } catch { /* already stopped */ }
-    }
-    if (objectUrl) {
-      if (activeSpeechUrl === objectUrl) activeSpeechUrl = null;
-      URL.revokeObjectURL(objectUrl);
-    }
-  }
+  if (!speechOutputEnabled() || !text) return false;
+  const ok = await speakOut(String(text).slice(0, 4000));
+  if (!ok) ui.log('speech output unavailable; reply remains available as text');
+  return ok;
 }
 
 async function sendCommand({ text }) {
@@ -185,9 +169,10 @@ async function sendCommand({ text }) {
   }
 }
 
-function buildPipeline() {
+function buildPipeline(continuousRecognition = false) {
   pipeline = new VoicePipeline({
     conversationMode: conversationEnabled(),
+    continuousRecognition,
     onState: (s) => ui.pill('state', `state: ${s.replace('_', ' ')}`, s === 'idle' ? '' : 'ok'),
     onWake: (p) => ui.log(`wake phrase heard ("${p}")`),
     onCommand: sendCommand,
@@ -200,7 +185,32 @@ function buildPipeline() {
   const origSubmit = pipeline._submit.bind(pipeline); pipeline._submit = (c) => { hideConfirm(); origSubmit(c); };
 }
 
+window.addEventListener('xoft:native-transcript', (event) => {
+  const detail = event.detail || {};
+  if ($('backend').value !== 'native-android') return;
+  if (detail.error) {
+    ui.log('Android on-device STT: ' + detail.error);
+    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) fallbackToServerStt(detail.error);
+    return;
+  }
+  const transcript = String(detail.text || '').trim();
+  if (!transcript) return;
+  $('transcript').textContent = transcript;
+  ui.log('heard (Android on-device): ' + transcript);
+  pipeline?.transcript(transcript, detail.isFinal !== false);
+});
+
 async function start() {
+  if ($('backend').value === 'native-android') {
+    buildPipeline(true);
+    pipeline.start();
+    if ($('backend').value !== 'native-android') return;
+    timer = setInterval(() => pipeline?.tick(Date.now()), 250);
+    ui.pill('mic', 'mic: on-device Android', 'ok');
+    $('start').disabled = true; $('stop').disabled = false;
+    ui.log('Android on-device recognizer started; waiting for the wake phrase.');
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
   // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
   // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
@@ -267,10 +277,9 @@ async function start() {
 
 function stop() {
   clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
-  activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
-  activeSpeechCancel?.(); activeSpeechCancel = null;
-  activeSpeechAudio?.pause(); activeSpeechAudio = null;
-  if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
+  pipeline?.stop();
+  stopNativeListening();
+  stopSpeaking();
   // Let MediaRecorder emit its final dataavailable chunk before its onstop handler flushes any active segment.
   if (recorder?.state === 'recording') { try { recorder.stop(); } catch { /* already stopping */ } }
   else { captureBuffer?.discard(); captureBuffer = null; }
