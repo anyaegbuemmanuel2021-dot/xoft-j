@@ -19,3 +19,15 @@ test('persistent path containment rejects sibling directories', () => {
   assert.equal(isPathWithin('/var/data', '/var/database/xoft.sqlite'), false);
   assert.equal(path.resolve('/var/data'), '/var/data');
 });
+
+test('storage readiness reports ephemeral storage as not durable', async () => {
+  const { assessStorageReadiness } = await import('../src/persistence/storageReadiness.js');
+  assert.deepEqual(assessStorageReadiness({ persistentRoot: '/var/data', dataRoot: '/app/data', sqlitePath: '/app/data/xoft.sqlite', mountInfo: '29 22 0:26 / / rw,relatime - overlay overlay rw' }), { durable: false, configured: true, mounted: false });
+});
+
+test('storage readiness requires both memory and SQLite paths inside the mounted disk', async () => {
+  const { assessStorageReadiness } = await import('../src/persistence/storageReadiness.js');
+  const mountInfo = '29 22 0:26 / /var/data rw,nosuid - ext4 /dev/sdb rw';
+  assert.deepEqual(assessStorageReadiness({ persistentRoot: '/var/data', dataRoot: '/var/data', sqlitePath: '/var/data/xoft.sqlite', mountInfo }), { durable: true, configured: true, mounted: true });
+  assert.equal(assessStorageReadiness({ persistentRoot: '/var/data', dataRoot: '/app/data', sqlitePath: '/var/data/xoft.sqlite', mountInfo }).durable, false);
+});
