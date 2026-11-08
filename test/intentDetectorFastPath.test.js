@@ -46,11 +46,11 @@ test('ambiguous memory-related language still uses the classifier', async () => 
   const detector = new IntentDetector({
     complete: async (_task, request) => {
       calls += 1;
-      assert.match(request.messages[0].content, /I keep forgetting where I put my notes/i);
+      assert.match(request.messages[0].content, /I have a memory question/i);
       return { text: JSON.stringify({ intent: 'conversation', category: null, subject: null }) };
     },
   });
-  const result = await detector.detect('I keep forgetting where I put my notes.');
+  const result = await detector.detect('I have a memory question but cannot explain it clearly.');
   assert.equal(result.intent, Intent.CONVERSATION);
   assert.equal(calls, 1);
 });
