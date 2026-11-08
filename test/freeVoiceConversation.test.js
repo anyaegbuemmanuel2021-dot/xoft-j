@@ -13,6 +13,9 @@ test('Chat provides a user-controlled hands-free voice conversation mode', () =>
   assert.match(chat, /function toggleVoiceConversation\(container\)/);
   assert.match(chat, /function stopVoiceConversation\(container/);
   assert.match(chat, /voiceConversationActive = true/);
+  assert.match(chat, /hasNativeSpeechRecognition/);
+  assert.match(chat, /startNativeListening/);
+  assert.match(chat, /xoft:native-transcript/);
 });
 
 test('Recognized speech is sent to XOFT automatically and listening resumes after the answer', () => {
@@ -54,6 +57,8 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
 test('Voice companion uses only local capture/VAD with server STT and no browser speech-recognition fallback', () => {
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /'server-stt':/);
+  assert.match(companion, /'native-android':/);
+  assert.match(companion, /startNativeListening/);
   assert.doesNotMatch(companion, /'browser-speech'|SpeechRecognition|webkitSpeechRecognition/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
