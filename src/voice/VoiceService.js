@@ -33,6 +33,13 @@ function withTimeout(ms, signal) {
 
 const RETRYABLE_STT_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
+/** Distinguish exhausted provider billing/quota from transient provider/network failures. */
+export function isSttQuotaError(error) {
+  return (Array.isArray(error?.attempts) ? error.attempts : []).some((attempt) =>
+    /insufficient_quota|billing_hard_limit|exceeded your current quota|quota has been exceeded/i.test(String(attempt?.error ?? ''))
+  );
+}
+
 function retryDelayMs(response, attempt) {
   const value = response?.headers?.get?.('retry-after');
   if (value) {
@@ -214,7 +221,7 @@ export class VoiceService {
   status() {
     return {
       stt: { default: 'gemini', fallback: 'openai', model: config.voice.sttGeminiModel || config.providers.gemini.model, fallbackModel: config.voice.sttOpenAiModel, providers: this.sttProviders(), configured: this.isSTTConfigured(), hedgeMs: config.voice.sttHedgeMs },
-      tts: { provider: this.ttsProviders()[0] ?? null, providers: this.ttsProviders(), configured: this.isTTSConfigured(), fallback: 'browser', streaming: true, hedgeMs: config.voice.ttsHedgeMs },
+      tts: { provider: this.ttsProviders()[0] ?? null, providers: this.ttsProviders(), configured: this.isTTSConfigured(), fallback: 'client-native', streaming: true, hedgeMs: config.voice.ttsHedgeMs },
     };
   }
 
