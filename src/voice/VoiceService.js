@@ -62,6 +62,18 @@ function waitForRetry(ms, signal) {
  * Retry transient provider failures without rebuilding or discarding the captured audio.
  * Permanent client/auth/payload errors are returned immediately; a caller's timeout/abort is never retried.
  */
+async function isQuotaExhausted(response) {
+  if (Number(response?.status) !== 429) return false;
+  const raw = await response.clone().text().catch(() => '');
+  let payload = null;
+  try { payload = raw ? JSON.parse(raw) : null; } catch { /* provider may return plain text */ }
+  const detail = payload?.error ?? payload;
+  const code = String(detail?.code ?? detail?.type ?? '').toLowerCase();
+  return code === 'insufficient_quota'
+    || code === 'billing_hard_limit_reached'
+    || /insufficient_quota|billing_hard_limit|exceeded your current quota/i.test(raw);
+}
+
 async function fetchWithSttRetry(fetchImpl, url, init, { maxAttempts = 2 } = {}) {
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     let response;
@@ -73,6 +85,8 @@ async function fetchWithSttRetry(fetchImpl, url, init, { maxAttempts = 2 } = {})
       continue;
     }
     if (!RETRYABLE_STT_STATUSES.has(response.status) || attempt + 1 >= maxAttempts) return response;
+    // A quota/billing 429 is permanent until account limits change; retrying wastes time and calls.
+    if (await isQuotaExhausted(response)) return response;
     const delay = retryDelayMs(response, attempt);
     try { await response.body?.cancel(); } catch { /* response may already be consumed */ }
     await waitForRetry(delay, init.signal);
