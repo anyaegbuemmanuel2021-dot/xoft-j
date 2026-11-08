@@ -85,6 +85,17 @@ test('STT honors explicit Igbo language selection (Gemini and OpenAI)', async ()
   } finally { restore(); }
 });
 
+test('STT normalizes recorder MIME parameters before sending audio to Gemini', async () => {
+  const restore = withKeys();
+  try {
+    let requestBody;
+    const svc = new VoiceService({ fetchImpl: async (_url, init) => { requestBody = JSON.parse(init.body); return geminiText('normalized mime'); } });
+    const out = await svc.transcribe(Buffer.from('audio'), { mime: 'audio/mp4;codecs=mp4a.40.2' });
+    assert.equal(out.text, 'normalized mime');
+    assert.equal(requestBody.contents[0].parts[1].inline_data.mime_type, 'audio/mp4');
+  } finally { restore(); }
+});
+
 test('STT falls back to OpenAI immediately when Gemini fails', async () => {
   const restore = withKeys();
   try {
