@@ -59,6 +59,10 @@ export class TaskQueue {
    */
   scheduleAt(taskId, whenIso) {
     if (Number.isNaN(new Date(whenIso).getTime())) throw new Error(`TaskQueue: invalid schedule time '${whenIso}'`);
+    const task = this.taskPlanner.get(taskId);
+    if (!['planned', 'waiting_approval', 'scheduled'].includes(task.status)) {
+      throw new Error(`TaskQueue: cannot schedule a task in '${task.status}' state.`);
+    }
     return this.taskPlanner.setStatus(taskId, 'scheduled', { scheduledFor: whenIso });
   }
 
