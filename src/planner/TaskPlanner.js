@@ -69,6 +69,10 @@ export class TaskPlanner {
     this.executionRecordStore = executionRecordStore ?? new ExecutionRecordStore({ dataDir, sqliteStore });
     this.experienceStore = experienceStore ?? new ExperienceStore({ dataDir, sqliteStore });
     this.maxDurationMs = Math.max(1000, Number(maxDurationMs ?? 15 * 60 * 1000));
+    // Keep the execution lock until the underlying work actually settles.
+    // A caller timeout does not cancel a tool's real-world side effect, so
+    // releasing the lock at timeout could let a second request duplicate it.
+    this._inFlight = new Map();
     this._store = new JsonStore({ dataDir, fileName: 'tasks.json', kvKey: 'tasks', defaultValue: { tasks: [] }, sqliteStore });
   }
 
@@ -198,25 +202,36 @@ export class TaskPlanner {
    * @param {string} taskId
    */
   async execute(taskId) {
+    const existing = this._inFlight.get(taskId);
+    if (existing) return existing.promise;
+
     const timeoutMs = this.maxDurationMs;
-    let timer;
     const work = this._executeTask(taskId);
-    const timeout = new Promise((_, reject) => {
+    let timer;
+    const timed = new Promise((resolve, reject) => {
       timer = setTimeout(() => reject(new Error(`TaskPlanner: task '${taskId}' exceeded the maximum duration of ${timeoutMs}ms.`)), timeoutMs);
     });
-    try {
-      return await Promise.race([work, timeout]);
-    } catch (err) {
-      if (String(err?.message).includes('exceeded the maximum duration')) {
-        const task = this._getTask(taskId);
-        this._updateTask(taskId, (t) => ({ ...t, status: 'timed_out', timedOutAt: new Date().toISOString(), timeoutMs, error: err.message }));
-        this.activityLog.log({ type: 'task_timed_out', taskId, detail: { timeoutMs } });
-        this.eventBus?.emitEvent(EventType.TASK_FAILED, { taskId, goal: task.goal, reason: 'timeout' });
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+    const promise = Promise.race([work, timed])
+      .catch((err) => {
+        if (String(err?.message).includes('exceeded the maximum duration')) {
+          const task = this._getTask(taskId);
+          this._updateTask(taskId, (t) => ({ ...t, status: 'timed_out', timedOutAt: new Date().toISOString(), timeoutMs, error: err.message }));
+          this.activityLog.log({ type: 'task_timed_out', taskId, detail: { timeoutMs } });
+          this.eventBus?.emitEvent(EventType.TASK_FAILED, { taskId, goal: task.goal, reason: 'timeout' });
+        }
+        throw err;
+      })
+      .finally(() => clearTimeout(timer));
+
+    this._inFlight.set(taskId, { work, promise });
+    // Important: release only when the actual execution settles, not when
+    // Promise.race reports a timeout. Tools may still be performing side
+    // effects after the caller has stopped waiting.
+    const release = () => {
+      if (this._inFlight.get(taskId)?.work === work) this._inFlight.delete(taskId);
+    };
+    work.then(release, release);
+    return promise;
   }
 
   async _executeTask(taskId) {
