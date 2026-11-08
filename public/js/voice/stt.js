@@ -44,9 +44,13 @@ async function transcribeOnServer(blob, language = 'auto') {
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    const error = new Error(`XOFT server transcription returned ${res.status}${detail ? `: ${detail.slice(0, 240)}` : ''}`);
+    let payload = null;
+    try { payload = detail ? JSON.parse(detail) : null; } catch { /* plain-text server error */ }
+    const reason = payload?.message || payload?.error || detail.slice(0, 240);
+    const error = new Error(`XOFT server transcription returned ${res.status}${reason ? `: ${reason}` : ''}`);
     error.status = res.status;
-    error.retryable = RETRYABLE_HTTP.has(res.status);
+    error.code = payload?.error || null;
+    error.retryable = payload?.retryable === false ? false : RETRYABLE_HTTP.has(res.status);
     const retryAfter = res.headers?.get?.('retry-after');
     if (retryAfter) {
       const seconds = Number(retryAfter);
