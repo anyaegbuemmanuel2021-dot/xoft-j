@@ -55,6 +55,32 @@ function makeHarness({ tool, concurrency = 2, maxPending = 250 }) {
 }
 
 describe('TaskQueue', () => {
+  test('observer failures never prevent queued work from running or draining', async () => {
+    const statuses = new Map([['first', 'planned'], ['second', 'planned']]);
+    const calls = [];
+    const planner = {
+      get(id) { return { id, status: statuses.get(id), priority: 'normal' }; },
+      setStatus(id, status) { statuses.set(id, status); return { id, status, priority: 'normal' }; },
+      execute(id) {
+        calls.push(id);
+        return id === 'first' ? Promise.reject(new Error('tool failed')) : Promise.resolve({ status: 'completed' });
+      },
+    };
+    const queue = new TaskQueue({
+      taskPlanner: planner,
+      eventBus: { emitEvent() { throw new Error('event store unavailable'); } },
+      activityLog: { log() { throw new Error('activity store unavailable'); } },
+      concurrency: 1,
+    });
+
+    assert.doesNotThrow(() => queue.enqueue('first'));
+    assert.doesNotThrow(() => queue.enqueue('second'));
+    await sleep(30);
+    assert.deepEqual(calls, ['first', 'second'], 'the second task must drain after the first fails');
+    assert.equal(queue.status().running.length, 0);
+    assert.equal(queue.status().pending.length, 0);
+  });
+
   test('never runs more tasks at once than the configured concurrency', async () => {
     const { tool, getMaxActive } = makeControlledTool('test.slow', 40);
     const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 2 });
