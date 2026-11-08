@@ -317,7 +317,7 @@ export class VoiceService {
             role: 'user',
             parts: [
               { text: `${config.voice.sttContextPrompt} ${language === 'ig' ? 'The user selected Igbo; prioritize faithful Igbo transcription and preserve any English/Pidgin words that are spoken.' : language === 'en' ? 'The user selected English/Nigerian Pidgin; transcribe the spoken English or Pidgin verbatim and preserve any Igbo words that are spoken.' : 'Automatically detect the language. The audio may mix Nigerian English, Nigerian Pidgin and Igbo within the same sentence; preserve code-switching and do not translate.'} Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.` },
-              { inline_data: { mime_type: GEMINI_AUDIO_MIME[mime] ?? 'audio/webm', data: Buffer.from(audioBuffer).toString('base64') } },
+              { inline_data: { mime_type: GEMINI_AUDIO_MIME[String(mime).split(';', 1)[0].trim().toLowerCase()] ?? 'audio/webm', data: Buffer.from(audioBuffer).toString('base64') } },
             ],
           }],
           generationConfig: { temperature: 0 },
