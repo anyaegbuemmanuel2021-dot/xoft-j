@@ -6,6 +6,7 @@ import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
+import { fetchSpeechAudio } from './tts.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -14,12 +15,9 @@ const selectedLanguage = () => $('language')?.value || 'auto';
 const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const BACKENDS = {
-  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech segments are transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Choose Auto for mixed Nigerian English/Pidgin/Igbo, or explicitly select English or Igbo.' },
-  'browser-speech': { available: Boolean(SR), label: 'Browser speech recognition (last resort)', note: 'Compatibility fallback only when server recording is unavailable. Browser recognition may send audio to the browser vendor cloud service; it is not fully local.' },
-  // A fully on-device wake-word/STT engine (openWakeWord, Porcupine or Vosk compiled to WASM) can be added here as a third backend;
-  // none is bundled because they require model files that are not part of this repository.
+  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech is captured locally, detected with local VAD, then transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Auto supports mixed Nigerian English/Pidgin/Igbo.' },
+
 };
 
 const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLocaleTimeString()}] ${t}\n`; el.scrollTop = el.scrollHeight; }, pill(id, text, cls = '') { const el = $(id); el.textContent = text; el.className = `pill ${cls}`; } };
@@ -27,7 +25,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizer = null; let recognizerWanted = false; let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null;
+let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -35,31 +33,8 @@ function makeBackendControls() {
   const first = Object.entries(BACKENDS).find(([, b]) => b.available)?.[0];
   if (first) sel.value = first; else ui.log('No speech recognition backend is available in this browser.');
   const note = () => { $('backend-note').textContent = BACKENDS[sel.value]?.note ?? ''; };
-  sel.addEventListener('change', () => { note(); stopRecognizer(); });
+  sel.addEventListener('change', note);
   note();
-}
-
-// ---- backend: browser SpeechRecognition (opened only while VAD says someone is speaking) ----
-function startBrowserSpeech() {
-  if (recognizer || !SR) return;
-  recognizer = new SR(); recognizer.continuous = true; recognizer.interimResults = true; recognizer.lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
-  recognizer.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const text = String(e.results[i][0]?.transcript || '').trim();
-      if (!text) continue;
-      $('transcript').textContent = text;
-      if (e.results[i].isFinal) ui.log(`heard: ${text}`);
-      pipeline.transcript(text, e.results[i].isFinal);
-    }
-  };
-  recognizer.onerror = (e) => { if (e.error !== 'no-speech' && e.error !== 'aborted') ui.log(`recognizer error: ${e.error}`); };
-  recognizer.onend = () => { recognizer = null; if (recognizerWanted && $('backend').value === 'browser-speech') startBrowserSpeech(); }; // Chrome ends sessions on its own; restart only while wanted
-  try { recognizer.start(); } catch (err) { ui.log(`could not start recognizer: ${err.message}`); recognizer = null; }
-}
-function stopRecognizer() {
-  recognizerWanted = false;
-  // stop(), unlike abort(), allows the recognizer to deliver its final transcript.
-  try { recognizer?.stop(); } catch { /* already stopped */ }
 }
 
 // ---- backend: continuous capture with a bounded pre-roll for VAD segments ----
@@ -138,30 +113,56 @@ function stopSegmentRecording() {
 }
 
 function wantRecognizer(on) {
-  recognizerWanted = on;
-  const b = $('backend').value;
-  if (b === 'browser-speech') on ? startBrowserSpeech() : stopRecognizer();
-  if (b === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
+  if ($('backend').value === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
 }
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
-function speakReply(text) {
-  if (!speechOutputEnabled() || !('speechSynthesis' in window) || !text) return Promise.resolve();
-  return new Promise((resolve) => {
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(String(text).slice(0, 4000));
-      const lang = selectedLanguage() === 'ig' ? 'ig-NG' : 'en-NG';
-      utterance.lang = lang;
-      const voices = window.speechSynthesis.getVoices();
-      utterance.voice = voices.find((v) => v.lang?.toLowerCase() === lang.toLowerCase())
-        || voices.find((v) => v.lang?.toLowerCase().startsWith(selectedLanguage() === 'ig' ? 'ig' : 'en-ng'))
-        || voices.find((v) => v.lang?.toLowerCase().startsWith('en'));
-      utterance.onend = resolve; utterance.onerror = resolve;
-      window.speechSynthesis.speak(utterance);
-    } catch { resolve(); }
-  });
+async function speakReply(text) {
+  if (!speechOutputEnabled() || !text) return;
+  let audio = null;
+  let objectUrl = null;
+  const controller = new AbortController();
+  activeSpeechRequestController?.abort();
+  activeSpeechRequestController = controller;
+  try {
+    const result = await fetchSpeechAudio(text, { requestHeaders: headers(), signal: controller.signal });
+    activeSpeechCancel?.();
+    activeSpeechAudio?.pause();
+    if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl);
+    objectUrl = URL.createObjectURL(result.audio);
+    activeSpeechUrl = objectUrl;
+    audio = new Audio(objectUrl);
+    activeSpeechAudio = audio;
+    audio.preload = 'auto';
+    ui.log('TTS audio ready (' + result.provider + ', ' + result.contentType + ')');
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error = null) => {
+        if (settled) return;
+        settled = true;
+        if (activeSpeechCancel === cancel) activeSpeechCancel = null;
+        if (error) reject(error); else resolve();
+      };
+      const cancel = () => finish();
+      activeSpeechCancel = cancel;
+      audio.onended = () => finish();
+      audio.onerror = () => finish(new Error('The device could not play XOFT audio.'));
+      audio.play().catch(finish);
+    });
+  } catch (error) {
+    if (error?.name !== 'AbortError') ui.log('XOFT server TTS failed: ' + error.message);
+  } finally {
+    if (activeSpeechRequestController === controller) activeSpeechRequestController = null;
+    if (audio) {
+      if (activeSpeechAudio === audio) activeSpeechAudio = null;
+      try { audio.pause(); } catch { /* already stopped */ }
+    }
+    if (objectUrl) {
+      if (activeSpeechUrl === objectUrl) activeSpeechUrl = null;
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
 }
 
 async function sendCommand({ text }) {
@@ -265,7 +266,11 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; stopRecognizer();
+  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
+  activeSpeechCancel?.(); activeSpeechCancel = null;
+  activeSpeechAudio?.pause(); activeSpeechAudio = null;
+  if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
   // Let MediaRecorder emit its final dataavailable chunk before its onstop handler flushes any active segment.
   if (recorder?.state === 'recording') { try { recorder.stop(); } catch { /* already stopping */ } }
   else { captureBuffer?.discard(); captureBuffer = null; }

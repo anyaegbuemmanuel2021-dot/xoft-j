@@ -17,8 +17,9 @@ test('Chat provides a user-controlled hands-free voice conversation mode', () =>
 
 test('Recognized speech is sent to XOFT automatically and listening resumes after the answer', () => {
   const chat = read('public/js/views/chat.js');
-  assert.match(chat, /void send\(container, finalText\.trim\(\), \{ voiceTurn: true \}\)/);
-  assert.match(chat, /await send\(container, voiceText, \{ voiceTurn: true \}\)/);
+  assert.match(chat, /transcribeAudioBlob\(blob/);
+  assert.match(chat, /if \(voiceText && voiceConversationActive\)\s*\{\s*await send\(container, voiceText, \{ voiceTurn: true \}\)/);
+
   // Status updates happen before the UI button is repainted; assert the whole turn-resume sequence, not an obsolete adjacent-line layout.
   assert.match(chat, /if \(\(voiceTurn \|\| continueLiveVoice\) && voiceConversationActive\)\s*\{[^}]*setVoiceStatus\('listening'[^}]*setConversationButton\(container, true,[^}]*scheduleConversationListen\(container, 500\);/);
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
@@ -29,6 +30,8 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   const input = read('public/js/dashboard/CommandInput.js');
   const stt = read('public/js/voice/stt.js');
   const companion = read('public/js/voice/companion.js');
+  assert.doesNotMatch(chat, /SpeechRecognition|webkitSpeechRecognition/);
+  assert.doesNotMatch(input, /SpeechRecognition|webkitSpeechRecognition/);
   assert.match(chat, /from '\.\.\/voice\/stt\.js'/);
   assert.match(input, /from '\.\.\/voice\/stt\.js'/);
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
@@ -48,20 +51,22 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
-test('Voice companion defaults to server STT and uses shared fallback instead of browser speech first', () => {
+test('Voice companion uses only local capture/VAD with server STT and no browser speech-recognition fallback', () => {
   const companion = read('public/js/voice/companion.js');
-  assert.ok(companion.indexOf("'server-stt':") < companion.indexOf("'browser-speech':"), 'server STT must be the default backend');
+  assert.match(companion, /'server-stt':/);
+  assert.doesNotMatch(companion, /'browser-speech'|SpeechRecognition|webkitSpeechRecognition/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
   assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
   assert.match(companion, /Gemini → OpenAI fallback/);
 });
 
-test('Speech output uses the server voice (Gemini → OpenAI) by default and falls back to browser TTS', () => {
+test('Speech output uses server-generated audio only and never falls back to browser TTS', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
-  assert.match(tts, /speechSynthesis/);
-  assert.ok(tts.indexOf('serverSpeak(spoken, runId)') < tts.indexOf('browserSpeak(spoken, runId)'), 'the server voice must be tried before the browser voice');
+  assert.doesNotMatch(tts, /speechSynthesis|browserSpeak|SpeechSynthesisUtterance/);
+  assert.match(tts, /serverSpeak\(spoken, runId\)/);
+  assert.match(tts, /XOFT server voice is unavailable/);
   assert.doesNotMatch(tts, /api\.elevenlabs\.io/, 'the browser must never hold or use the ElevenLabs key directly');
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);
 });
@@ -75,13 +80,14 @@ test('The service worker cache uses server-only transcription and has a new cach
   assert.match(read('public/js/app.js'), /sw\.js\?v=\d{8}-\d+/);
 });
 
-test('AUTO LISTEN uses XOFT server transcription by default and only uses browser Web Speech when recording is unavailable', () => {
+test('AUTO LISTEN requires microphone recording and always uses XOFT server transcription', () => {
   const input = read('public/js/dashboard/CommandInput.js');
   const listen = read('public/js/voice/listen.js');
-  assert.match(input, /let serverMode = canRecord \|\| !Recognition/);
-  assert.match(input, /AUTO LISTEN sends recorded audio to XOFT server transcription/);
+  assert.match(input, /const canRecord = Boolean\(navigator\.mediaDevices\?\.getUserMedia && window\.MediaRecorder\)/);
+  assert.doesNotMatch(input, /SpeechRecognition|webkitSpeechRecognition|new Recognition/);
+  assert.match(input, /if \(!canRecord\)/);
+
   assert.doesNotMatch(input, /local Whisper|on-device Whisper|WHISPER AUTO LISTEN/);
-  assert.match(input, /event\.error === 'network' \|\| event\.error === 'service-not-allowed'/);
   assert.match(input, /createServerListener/);
   assert.match(listen, /setInterval/);
   assert.doesNotMatch(listen, /requestAnimationFrame/);
