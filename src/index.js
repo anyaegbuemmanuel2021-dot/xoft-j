@@ -47,7 +47,7 @@ import { ApprovalSystem } from './approval/ApprovalSystem.js';
 import { TaskPlanner } from './planner/TaskPlanner.js';
 import { TaskQueue } from './planner/TaskQueue.js';
 import { RealtimeServer } from './realtime/RealtimeServer.js';
-import { VoiceService } from './voice/VoiceService.js';
+import { VoiceService, isSttQuotaError } from './voice/VoiceService.js';
 import { WakeWordService } from './voice/WakeWordService.js';
 import { RulesEngine } from './automation/RulesEngine.js';
 import { NotificationClassifier } from './notifications/NotificationClassifier.js';
@@ -1117,7 +1117,15 @@ app.post('/api/voice/transcribe', voiceLimit, async (req, res) => {
     const { text, provider, ms } = await voiceService.transcribe(req.body, { filename: `recording.${extension}`, mime, language });
     res.json({ text, provider, ms });
   } catch (err) {
-    res.status(502).json({ error: err.message, attempts: err.attempts ?? [] });
+    if (isSttQuotaError(err)) {
+      return res.status(503).json({
+        error: 'STT_QUOTA_EXHAUSTED',
+        message: 'Gemini transcription timed out or failed, and the OpenAI fallback is blocked by exhausted API quota or billing limits. Restore provider quota or enable on-device Android speech recognition in the XOFT companion.',
+        attempts: err.attempts ?? [],
+        retryable: false,
+      });
+    }
+    res.status(502).json({ error: err.message, attempts: err.attempts ?? [], retryable: true });
   }
 });
 
