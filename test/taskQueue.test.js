@@ -172,4 +172,49 @@ describe('TaskQueue', () => {
     assert.equal(taskQueue.status().pending.length, 0);
   });
 
+  test('blocked tasks are not enqueued or executed', async () => {
+    const { tool, getMaxActive } = makeControlledTool('test.blocked', 5);
+    const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 1 });
+    const task = await taskPlanner.plan('blocked task');
+    taskPlanner.setStatus(task.id, 'blocked', { blockedReason: 'planner could not create a safe plan', steps: [] });
+
+    const returned = taskQueue.enqueue(task.id);
+    assert.equal(returned.status, 'blocked');
+    assert.equal(taskQueue.status().pending.length, 0);
+    await sleep(30);
+    assert.equal(taskPlanner.get(task.id).status, 'blocked', 'an empty blocked plan must never become completed');
+    assert.equal(getMaxActive(), 0, 'blocked tasks must not invoke tools');
+  });
+
+  test('cancelled tasks waiting for a queue slot disappear from pending status and never execute', async () => {
+    const { tool, getMaxActive } = makeControlledTool('test.cancel-pending', 100);
+    const { taskPlanner, taskQueue } = makeHarness({ tool, concurrency: 1 });
+    const active = await taskPlanner.plan('occupy queue slot');
+    const cancelled = await taskPlanner.plan('cancel while queued');
+
+    taskQueue.enqueue(active.id);
+    taskQueue.enqueue(cancelled.id);
+    assert.equal(taskQueue.status().pending.some((p) => p.taskId === cancelled.id), true);
+
+    taskPlanner.cancel(cancelled.id);
+    assert.equal(taskQueue.status().pending.some((p) => p.taskId === cancelled.id), false);
+
+    await sleep(180);
+    assert.equal(taskPlanner.get(active.id).status, 'completed');
+    assert.equal(taskPlanner.get(cancelled.id).status, 'cancelled');
+    assert.equal(getMaxActive(), 1);
+  });
+
+  test('scheduleAt rejects blocked or cancelled tasks', async () => {
+    const { tool } = makeControlledTool('test.unschedulable', 5);
+    const { taskPlanner, taskQueue } = makeHarness({ tool });
+    const blocked = await taskPlanner.plan('blocked');
+    taskPlanner.setStatus(blocked.id, 'blocked');
+    assert.throws(() => taskQueue.scheduleAt(blocked.id, new Date(Date.now() + 1000).toISOString()), /cannot schedule a task in 'blocked' state/);
+
+    const cancelled = await taskPlanner.plan('cancelled');
+    taskPlanner.cancel(cancelled.id);
+    assert.throws(() => taskQueue.scheduleAt(cancelled.id, new Date(Date.now() + 1000).toISOString()), /cannot schedule a task in 'cancelled' state/);
+  });
+
 });

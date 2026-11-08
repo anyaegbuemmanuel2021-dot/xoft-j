@@ -41,7 +41,7 @@ export class TaskQueue {
   enqueue(taskId) {
     const task = this.taskPlanner.get(taskId);
     if (this._running.has(taskId) || this._pending.some((p) => p.taskId === taskId)) return task;
-    if (['completed', 'cancelled', 'rolled_back'].includes(task.status)) return task;
+    if (['blocked', 'completed', 'cancelled', 'rolled_back'].includes(task.status)) return task;
 
     const patched = this.taskPlanner.setStatus(taskId, 'queued');
     this._pending.push({ taskId, priority: patched.priority ?? 'normal' });
@@ -59,6 +59,10 @@ export class TaskQueue {
    */
   scheduleAt(taskId, whenIso) {
     if (Number.isNaN(new Date(whenIso).getTime())) throw new Error(`TaskQueue: invalid schedule time '${whenIso}'`);
+    const task = this.taskPlanner.get(taskId);
+    if (!['planned', 'waiting_approval', 'scheduled'].includes(task.status)) {
+      throw new Error(`TaskQueue: cannot schedule a task in '${task.status}' state.`);
+    }
     return this.taskPlanner.setStatus(taskId, 'scheduled', { scheduledFor: whenIso });
   }
 
@@ -115,6 +119,11 @@ export class TaskQueue {
   _drain() {
     while (this._running.size < this.concurrency && this._pending.length > 0) {
       const { taskId } = this._pending.shift();
+      let task;
+      try { task = this.taskPlanner.get(taskId); } catch { continue; }
+      // Cancellation or another terminal transition may happen while this
+      // task waits for a queue slot. Never execute stale pending entries.
+      if (task.status !== 'queued') continue;
       this._running.add(taskId);
       this.taskPlanner
         .execute(taskId)
@@ -133,7 +142,9 @@ export class TaskQueue {
     return {
       concurrency: this.concurrency,
       running: [...this._running],
-      pending: this._pending.map((p) => ({ taskId: p.taskId, priority: p.priority })),
+      pending: this._pending.filter((p) => {
+        try { return this.taskPlanner.get(p.taskId).status === 'queued'; } catch { return false; }
+      }).map((p) => ({ taskId: p.taskId, priority: p.priority })),
     };
   }
 }
