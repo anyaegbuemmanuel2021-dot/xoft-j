@@ -1,6 +1,7 @@
 // XOFT speech output uses server-generated audio (Gemini first, OpenAI fallback).
-// No browser SpeechSynthesis fallback: provider and device behavior varies too much for dependable voice output.
+// No browser speech API fallback. Android uses its native OS voice; web-only clients use server-generated audio.
 import { apiHeaders, getVoiceStatus, peekVoiceStatus, invalidateVoiceStatus } from './voice-status.js';
+import { hasNativeSpeech, speakNative, stopNativeSpeech } from './native-bridge.js';
 const ENABLED_KEY = 'xoft_speak_out_enabled';
 let currentAudio = null;
 let currentAudioUrl = null;
@@ -26,7 +27,7 @@ export function setSpeakOutEnabled(enabled) {
 
 export function canSpeakOut() {
   // Audio playback is only the output device; all speech generation happens on XOFT's server.
-  return typeof window !== 'undefined' && typeof Audio === 'function';
+  return typeof window !== 'undefined' && (hasNativeSpeech() || typeof Audio === 'function');
 }
 
 // Resolves the in-flight playback promise when audio is stopped from outside (user interrupts XOFT).
@@ -53,6 +54,7 @@ function releaseAudio() {
 
 export function stopSpeaking() {
   speechRun += 1;
+  stopNativeSpeech();
   releaseAudio();
   setSpeechState('idle');
 }
@@ -190,6 +192,31 @@ async function serverSpeak(text, runId) {
   return true;
 }
 
+function waitForNativeSpeech(text, runId) {
+  if (!hasNativeSpeech()) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let settled = false;
+    let started = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener('xoft:speech-state', onState);
+      resolve(ok);
+    };
+    const onState = (event) => {
+      const state = event.detail?.state;
+      if (state === 'speaking') { started = true; if (runId === speechRun) setSpeechState('speaking'); }
+      if (state === 'error') finish(false);
+      if (state === 'idle' && started) finish(true);
+    };
+    window.addEventListener('xoft:speech-state', onState);
+    const timer = setTimeout(() => finish(false), Math.max(15000, Math.min(60000, text.length * 90)));
+    if (!speakNative(text)) finish(false);
+    else setSpeechState('loading');
+  });
+}
+
 export async function speakOut(text) {
   const message = String(text ?? '').trim();
   if (!message || !isSpeakOutEnabled() || !canSpeakOut()) return false;
@@ -202,10 +229,14 @@ export async function speakOut(text) {
   const runId = speechRun;
   setSpeechState('loading');
 
-  // 1) Default: Gemini → OpenAI server voice through the XOFT server.
-  const served = await serverSpeak(spoken, runId);
-  if (served || runId !== speechRun) return served;
+  // 1) Android companion: local OS voice first, with no API key or cloud model.
+  const nativePlayed = await waitForNativeSpeech(spoken, runId);
+  if (runId !== speechRun) return false;
+  if (nativePlayed) return true;
 
+  // 2) Web-only or unavailable native voice: keep the reliable server-generated audio pipeline.
+  const served = await serverSpeak(spoken, runId);
+  if (runId !== speechRun) return false;
   if (!served) setSpeechState('error', 'XOFT server voice is unavailable. Check the voice provider configuration and connection.');
   return served;
 }
