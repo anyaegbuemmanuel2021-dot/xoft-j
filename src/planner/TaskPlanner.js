@@ -81,6 +81,20 @@ function validateStepGraph(steps, availableToolNames) {
   return null;
 }
 
+function topologicalOrder(steps) {
+  const byId = new Map(steps.map((step) => [step.id, step]));
+  const visited = new Set();
+  const ordered = [];
+  const visit = (id) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    for (const dependency of byId.get(id).dependsOn) visit(dependency);
+    ordered.push(byId.get(id));
+  };
+  for (const step of steps) visit(step.id);
+  return ordered;
+}
+
 const MAX_RETRIES_PER_STEP = 2;
 // Agent loop limit (spec: "every autonomous task should have a maximum
 // number of steps... prevent infinite/runaway plans"). This is a ceiling on
@@ -234,7 +248,8 @@ export class TaskPlanner {
       this.activityLog.log({ type: 'task_blocked_oversized_plan', taskId, detail: { goal, stepCount: rawSteps.length, limit: MAX_PLAN_STEPS } });
       return task;
     }
-    const steps = rawSteps.map((s) => ({
+    const orderedSteps = topologicalOrder(rawSteps);
+    const steps = orderedSteps.map((s) => ({
       ...s,
       status: 'pending', // pending | waiting_approval | running | completed | failed | blocked | rolled_back | cancelled
       result: null,
