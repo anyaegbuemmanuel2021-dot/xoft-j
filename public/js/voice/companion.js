@@ -235,9 +235,9 @@ async function start() {
     if (!stream) return;
     const diagnostic = classifyMicInput({ peakRms: peakMicRms, speechEvents: speechStartEvents, threshold: vad?.threshold ?? 0.003 });
     ui.log(`microphone check: ${diagnostic.message} (peak RMS ${peakMicRms.toFixed(4)}, speech starts ${speechStartEvents})`);
-    if (diagnostic.status === 'silent') ui.pill('mic', 'mic: no input signal', 'err');
   }, 5000);
   stream.getAudioTracks()[0].addEventListener('ended', () => { ui.log('microphone was disconnected or revoked'); stop(); });
+  ui.log('Speak now for the 5-second microphone signal check.');
   ui.pill('mic', 'mic: listening (local VAD)', 'ok'); $('start').disabled = true; $('stop').disabled = false;
   const audioTrackSettings = stream.getAudioTracks()[0]?.getSettings?.() ?? {};
   ui.log('microphone ready; AudioContext ' + ctx.state + '; sample rate ' + (audioTrackSettings.sampleRate ?? ctx.sampleRate ?? 'unknown') + ' Hz; channels ' + (audioTrackSettings.channelCount ?? 'unknown'));
