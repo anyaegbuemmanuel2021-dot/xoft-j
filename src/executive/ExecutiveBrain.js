@@ -132,6 +132,11 @@ export class ExecutiveBrain {
   async _handleGoal(sessionId, message) {
     this.memory.addTurn(sessionId, 'user', message);
 
+    // Any new goal supersedes the previous unconfirmed proposal in this
+    // session, even if the new request is blocked or safe to execute directly.
+    const previousPending = this._pendingPlans.take(sessionId);
+    if (previousPending?.taskId) this.taskPlanner.cancel(previousPending.taskId);
+
     const task = await this.taskPlanner.plan(message);
 
     if (task.status === 'blocked' || task.steps.length === 0) {
@@ -182,10 +187,7 @@ export class ExecutiveBrain {
     }
 
     // RISK is high enough to require explicit go-ahead before EXECUTE.
-    const replaced = this._pendingPlans.set(sessionId, { taskId: task.id, goal: message });
-    // A newer proposal supersedes an older unconfirmed proposal in the same
-    // conversation. Cancel the stale task so it cannot be confirmed later.
-    if (replaced?.taskId && replaced.taskId !== task.id) this.taskPlanner.cancel(replaced.taskId);
+    this._pendingPlans.set(sessionId, { taskId: task.id, goal: message });
     const reply = `Here's the plan:\n${preview.text}\n\nThis includes at least one ${preview.maxRiskName}-risk step, so I'll wait for you to confirm before running it. This proposal expires in 15 minutes. Say "do it" to proceed.`;
     this.memory.addTurn(sessionId, 'assistant', reply);
     return { action: 'goal', reply, meta: { task, preview, intelligence, awaitingConfirmation: true } };
