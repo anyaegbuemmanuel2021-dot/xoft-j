@@ -6,6 +6,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -30,6 +36,10 @@ class LiveActivity : Activity() {
     @Volatile private var visible = false
     @Volatile private var ttsReady = false
     private var textToSpeech: TextToSpeech? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    @Volatile private var recognitionWanted = false
+    private val speechHandler = Handler(Looper.getMainLooper())
+    private var recognitionLanguage = "en-NG"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,10 +120,64 @@ class LiveActivity : Activity() {
     override fun onDestroy() {
         XoftBubbleService.hide(this)
         if (::web.isInitialized) web.destroy()
+        recognitionWanted = false
+        speechHandler.removeCallbacksAndMessages(null)
+        try { speechRecognizer?.cancel() } catch (_: Exception) { }
+        try { speechRecognizer?.destroy() } catch (_: Exception) { }
+        speechRecognizer = null
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
         super.onDestroy()
+    }
+
+    private fun dispatchNativeTranscript(text: String, isFinal: Boolean, error: String? = null) {
+        if (!::web.isInitialized) return
+        runOnUiThread {
+            if (!::web.isInitialized) return@runOnUiThread
+            val safeText = JSONObject.quote(text)
+            val safeError = JSONObject.quote(error ?: "")
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-transcript',{detail:{text:$safeText,isFinal:$isFinal,error:$safeError}}))", null)
+        }
+    }
+
+    private fun startRecognitionSession() {
+        if (!recognitionWanted || !::web.isInitialized) return
+        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            dispatchNativeTranscript("", true, "On-device speech recognition is unavailable on this device.")
+            recognitionWanted = false
+            return
+        }
+        try { speechRecognizer?.destroy() } catch (_: Exception) { }
+        speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).apply {
+            setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) { dispatchNativeSpeechState("listening") }
+                override fun onBeginningOfSpeech() { dispatchNativeSpeechState("listening") }
+                override fun onRmsChanged(rmsdB: Float) { }
+                override fun onBufferReceived(buffer: ByteArray?) { }
+                override fun onEndOfSpeech() { }
+                override fun onError(error: Int) {
+                    if (!recognitionWanted) return
+                    dispatchNativeTranscript("", true, "Native recognizer error: " + error)
+                    speechHandler.postDelayed({ startRecognitionSession() }, 700)
+                }
+                override fun onResults(results: Bundle?) {
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    if (text.isNotBlank()) dispatchNativeTranscript(text, true)
+                    if (recognitionWanted) speechHandler.postDelayed({ startRecognitionSession() }, 250)
+                }
+                override fun onPartialResults(partialResults: Bundle?) { }
+                override fun onEvent(eventType: Int, params: Bundle?) { }
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            }
+            startListening(intent)
+        }
     }
 
     private fun dispatchNativeSpeechState(state: String) {
@@ -127,6 +191,32 @@ class LiveActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface
+        fun canListenOffline(): Boolean {
+            return Build.VERSION.SDK_INT >= 31
+                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                && SpeechRecognizer.isOnDeviceRecognitionAvailable(this@LiveActivity)
+        }
+
+        @JavascriptInterface
+        fun startListening(language: String): Boolean {
+            if (!canListenOffline()) return false
+            recognitionLanguage = if (language == "ig") "ig-NG" else "en-NG"
+            recognitionWanted = true
+            runOnUiThread { startRecognitionSession() }
+            return true
+        }
+
+        @JavascriptInterface
+        fun stopListening() {
+            recognitionWanted = false
+            speechHandler.removeCallbacksAndMessages(null)
+            runOnUiThread {
+                try { speechRecognizer?.cancel() } catch (_: Exception) { }
+                try { speechRecognizer?.destroy() } catch (_: Exception) { }
+                speechRecognizer = null
+            }
+        }
+
         fun speak(text: String): Boolean {
             if (!ttsReady || text.isBlank()) return false
             val clean = text.take(4000)
