@@ -22,6 +22,13 @@ function deterministicCalculation(message) {
   return expression;
 }
 
+/** Parse only explicit date/time questions; do not guess when the request is ambiguous. */
+function deterministicDateTime(message) {
+  const text = String(message ?? '').trim();
+  if (text.length > 120) return false;
+  return /^(?:(?:hey\\s+)?xoft[,! ]*)?(?:please\\s+)?(?:what(?:'s| is) the (?:current )?time|what time is it|tell me the time|what(?:'s| is) today's date|what day is it|today's date|current date|date today)[?.!]*$/i.test(text);
+}
+
 const WORLD_STATE_SYSTEM_PROMPT = `You are XOFT, a personal AI assistant. Answer the user's question about their
 current situation using ONLY the WORLD STATE data below — don't invent tasks, approvals, or deadlines that
 aren't listed. Be concise and direct, like a briefing, not a report.`;
@@ -93,6 +100,21 @@ export class ExecutiveBrain {
   async handle(sessionId, message) {
     // Exact arithmetic is a deterministic local operation; don't pay for an intent
     // classifier or planner model when the request is unambiguous.
+    if (deterministicDateTime(message)) {
+      this.memory.addTurn(sessionId, 'user', message);
+      try {
+        const result = await this.taskPlanner.toolRegistry.execute('get_current_time', {}, { memory: this.memory });
+        const reply = result.formatted + (result.timezone ? ' (' + result.timezone + ')' : '');
+        this.memory.addTurn(sessionId, 'assistant', reply);
+        this.activityLog.log({ type: 'deterministic_command_executed', detail: { sessionId, toolName: 'get_current_time' } });
+        return { action: 'tool', reply, meta: { toolName: 'get_current_time', result, deterministic: true } };
+      } catch (error) {
+        const reply = 'I could not read the current date and time: ' + error.message;
+        this.memory.addTurn(sessionId, 'assistant', reply);
+        return { action: 'tool', reply, meta: { toolName: 'get_current_time', deterministic: true, error: error.message } };
+      }
+    }
+
     const expression = deterministicCalculation(message);
     if (expression) {
       this.memory.addTurn(sessionId, 'user', message);
