@@ -1,67 +1,61 @@
-import { TaskType } from '../providers/ProviderRouter.js';
-
 /**
- * Intents the system currently recognizes. This list grows as agents are
- * added (email, calendar, phone, etc. in later phases) — for now it covers
- * what Phase 1-3 (core + memory) can actually act on.
+ * Deterministic memory intent detection.
+ *
+ * Explicit verbs are required for memory mutations. Ambiguous language is
+ * treated as ordinary conversation so a casual sentence cannot delete data.
  */
 export const Intent = {
-  REMEMBER: 'remember', // "remember this", "note that..."
-  FORGET: 'forget', // "forget that", "delete everything about X"
-  RECALL: 'recall', // "what do you remember about..."
-  CONVERSATION: 'conversation', // general chat / question answering
+  REMEMBER: 'remember',
+  FORGET: 'forget',
+  RECALL: 'recall',
+  CONVERSATION: 'conversation',
 };
 
-const SYSTEM_PROMPT = `You are an intent classifier for a personal AI assistant.
-Classify the user's message into exactly one of: remember, forget, recall, conversation.
+function categoryFrom(text) {
+  const value = String(text ?? '').toLowerCase();
+  for (const category of ['person', 'project', 'preference', 'rule', 'decision', 'task']) {
+    if (new RegExp('\\b' + category + '(?:s)?\\b').test(value)) return category;
+  }
+  return 'fact';
+}
 
-- "remember" = user is telling you a fact to store for later (e.g. "remember my flight is Friday", "John's birthday is March 3rd")
-- "forget" = user wants something deleted from memory (e.g. "forget that", "delete everything about John")
-- "recall" = user is asking what you remember (e.g. "what do you know about my project?")
-- "conversation" = anything else — questions, requests, general chat
-
-Respond with ONLY a JSON object, no markdown fences, no explanation:
-{"intent": "<one of the four above>", "category": "<person|project|preference|rule|decision|task|fact|null>", "subject": "<short string the intent is about, or null>"}`;
+function cleanSubject(text) {
+  return String(text ?? '')
+    .replace(/^(?:that|this|it|about|to)\\s+/i, '')
+    .replace(/[.!?]+$/, '')
+    .trim()
+    .slice(0, 500) || null;
+}
 
 export class IntentDetector {
-  /** @param {import('../providers/ProviderRouter.js').ProviderRouter} router */
-  constructor(router) {
-    this.router = router;
-  }
-
-  /**
-   * @param {string} message
-   * @returns {Promise<{intent:string, category:string|null, subject:string|null}>}
-   */
   async detect(message) {
-    // Most messages are ordinary conversation. Do not spend a second model call
-    // classifying every chat turn; reserve model-based classification for messages
-    // that plausibly ask to save, delete, or recall memory. This keeps casual chat
-    // faster and reduces provider cost/quota usage without guessing at destructive
-    // memory actions.
     const text = String(message ?? '').trim();
-    const memoryRelated = /\b(remember|remind me|memor(?:y|ies)|forget|recall|save (?:this|that|it)|note that|what have i told you|what do you know about me)\b/i.test(text);
-    if (!memoryRelated) {
-      return { intent: Intent.CONVERSATION, category: null, subject: null };
+    if (!text) return { intent: Intent.CONVERSATION, category: null, subject: null };
+
+    // Recall is checked before remember because "what do you remember" contains
+    // the word remember but is a read operation, not a write.
+    if (/^(?:what do you remember|what have i told you|what do you know about|recall(?: my)?|show (?:my )?memories)\\b/i.test(text)) {
+      const subject = text
+        .replace(/^(?:what do you remember|what have i told you|what do you know about|recall(?: my)?|show (?:my )?memories)\\s*/i, '');
+      return { intent: Intent.RECALL, category: categoryFrom(subject), subject: cleanSubject(subject) };
     }
 
-    const result = await this.router.complete(TaskType.SIMPLE, {
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: text }],
-      maxTokens: 150,
-    });
-
-    try {
-      const cleaned = result.text.trim().replace(/^```json\s*|\s*```$/g, '');
-      const parsed = JSON.parse(cleaned);
-      if (!Object.values(Intent).includes(parsed.intent)) {
+    const forget = text.match(/^(?:please\\s+)?(?:forget|erase|remove from memory|delete from memory)(?:\\s+(?:that|this|about))?\\s*(.*)$/i);
+    if (forget) {
+      const subject = cleanSubject(forget[1]);
+      // Never turn a broad "forget everything" into a destructive wipe.
+      if (!subject || /^(?:everything|all|all memories)$/i.test(subject)) {
         return { intent: Intent.CONVERSATION, category: null, subject: null };
       }
-      return parsed;
-    } catch {
-      // If classification output isn't valid JSON, fail safe to plain
-      // conversation rather than guessing at a destructive intent like forget.
-      return { intent: Intent.CONVERSATION, category: null, subject: null };
+      return { intent: Intent.FORGET, category: categoryFrom(subject), subject };
     }
+
+    const remember = text.match(/^(?:please\\s+)?(?:remember|note|save)(?:\\s+(?:that|this))?\\s+(.+)$/i);
+    if (remember) {
+      const subject = cleanSubject(remember[1]);
+      return { intent: Intent.REMEMBER, category: categoryFrom(subject), subject };
+    }
+
+    return { intent: Intent.CONVERSATION, category: null, subject: null };
   }
 }
