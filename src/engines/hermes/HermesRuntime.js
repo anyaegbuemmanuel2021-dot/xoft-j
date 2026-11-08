@@ -92,7 +92,8 @@ export async function detectExecutionSandbox({ settings = {}, env = process.env,
   }
   if (backend === 'docker') {
     const binaryName = configured.HERMES_DOCKER_BINARY ?? env.HERMES_DOCKER_BINARY ?? 'docker';
-    const binary = findExecutable(binaryName, { env, platform });
+    const binary = findExecutable(binaryName, { env, platform })
+      ?? (binaryName === 'docker' ? findExecutable('podman', { env, platform }) : null);
     if (!binary) return { backend, runtimeAvailable: false, taskWorkspaceBinding: false, isolated: false, reason: 'Docker/Podman executable was not found.' };
     const result = await run(binary, ['info', '--format', '{{.ServerVersion}}'], { timeout: 5000, execFileImpl });
     if (!result.ok || !result.stdout) return { backend, runtimeAvailable: false, taskWorkspaceBinding: false, isolated: false, reason: 'Docker/Podman CLI exists, but its daemon is not reachable.' };
