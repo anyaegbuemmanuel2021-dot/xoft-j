@@ -212,7 +212,7 @@ export class VoiceService {
 
   async _geminiSpeak(text, signal) {
     const model = config.voice.geminiTtsModel || 'gemini-2.5-flash-preview-tts';
-    const res = await fetchWithSttRetry(this.fetch,
+    const res = await this.fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
@@ -358,7 +358,7 @@ export class VoiceService {
 
   async _geminiTranscribe(audioBuffer, mime, signal, language = 'auto') {
     const model = config.voice.sttGeminiModel || config.providers.gemini.model;
-    const res = await this.fetch(
+    const res = await fetchWithSttRetry(this.fetch,
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
