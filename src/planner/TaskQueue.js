@@ -76,11 +76,33 @@ export class TaskQueue {
   /** Moves any due 'scheduled' task into the pending queue. Safe to call manually (tests) or on a timer. */
   tick() {
     const now = Date.now();
-    for (const task of this.taskPlanner.list()) {
-      if (task.status === 'scheduled' && task.scheduledFor && new Date(task.scheduledFor).getTime() <= now) {
+    let tasks;
+    try {
+      tasks = this.taskPlanner.list();
+    } catch (error) {
+      try {
+        this.activityLog?.log({ type: 'task_queue_scan_failed', detail: { error: error.message } });
+      } catch { /* queue polling must remain alive when diagnostics fail */ }
+      return [];
+    }
+
+    const enqueued = [];
+    for (const task of tasks) {
+      if (task.status !== 'scheduled' || !task.scheduledFor || new Date(task.scheduledFor).getTime() > now) continue;
+      try {
         this.enqueue(task.id);
+        enqueued.push(task.id);
+      } catch (error) {
+        try {
+          this.activityLog?.log({
+            type: 'task_schedule_enqueue_failed',
+            taskId: task.id,
+            detail: { error: error.message },
+          });
+        } catch { /* one bad task must not stop other due tasks */ }
       }
     }
+    return enqueued;
   }
 
   /**
