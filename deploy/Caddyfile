@@ -1,0 +1,6 @@
+# Caddy obtains and renews the HTTPS certificate automatically once DNS for {$DOMAIN} points at this server.
+# Plain HTTP on port 80 is redirected to HTTPS by default. WebSocket (realtime) traffic is proxied without extra config.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy xoft-core:3000
+}

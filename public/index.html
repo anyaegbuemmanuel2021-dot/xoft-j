@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>XOFT AI</title>
+<meta name="theme-color" content="#05090b" />
+<link rel="manifest" href="/manifest.json" />
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/icons/icon.svg" />
+<link rel="stylesheet" href="/css/app.css" />
+<link rel="stylesheet" href="/css/command-center.css" />
+<link rel="stylesheet" href="/css/uniform.css" />
+<link rel="preload" as="image" href="/img/xoft-core.webp" />
+</head>
+<body>
+<div id="offline-banner" class="offline-banner">Offline · changes will sync when you reconnect.</div>
+<div id="app">
+  <div id="nav-backdrop" aria-hidden="true"></div>
+  <div id="sidebar">
+    <div class="brand">XOFT</div>
+    <div id="nav"></div>
+    <section id="nav-recent-chats" aria-label="Recent conversations"><div class="nav-recent-heading">Recent chats <button type="button" class="nav-new-chat" data-new-chat aria-label="Start a new chat" title="New chat">+</button></div><input id="nav-recent-chat-search" type="search" placeholder="Search saved chats…" aria-label="Search saved chats"><div id="nav-recent-chat-list"></div></section>
+    <div id="conn-indicator"></div>
+  </div>
+  <div id="main">
+    <div id="topbar"><h1 id="page-title">Overview</h1></div>
+    <div id="content"><div class="empty">Loading…</div></div>
+  </div>
+</div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

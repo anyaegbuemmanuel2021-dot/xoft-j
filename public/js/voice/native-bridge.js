@@ -1,0 +1,24 @@
+// native-bridge.js — optional hand-off to the XOFT Android companion.
+// A web page cannot draw over the phone's home screen, so when XOFT runs inside the companion's WebView the
+// companion exposes `window.XoftNative`. This module mirrors the live-voice state to it; the companion shows
+// its floating XOFT bubble when the user leaves the app mid-conversation. Without the bridge this does nothing.
+const LIVE_STATES = new Set(['listening', 'thinking', 'speaking']);
+let lastState = '';
+
+function bridge() {
+  const native = typeof window !== 'undefined' ? window.XoftNative : null;
+  return native && typeof native.onVoiceState === 'function' ? native : null;
+}
+
+export function pushVoiceState(state) {
+  const next = LIVE_STATES.has(state) ? state : 'idle';
+  if (next === lastState) return;
+  lastState = next;
+  try { bridge()?.onVoiceState(next); } catch { /* the native bridge is best effort */ }
+}
+
+if (typeof window !== 'undefined' && !window.__xoftNativeBridgeBound) {
+  window.__xoftNativeBridgeBound = true;
+  window.addEventListener('xoft:voice-state', (e) => pushVoiceState(e.detail?.state || 'idle'));
+  window.addEventListener('xoft:speech-state', (e) => { if (e.detail?.state === 'speaking') pushVoiceState('speaking'); });
+}

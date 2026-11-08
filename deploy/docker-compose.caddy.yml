@@ -1,0 +1,41 @@
+# XOFT AI CORE behind Caddy (automatic HTTPS). Run from the project root:
+#   DOMAIN=xoft.example.com docker compose -f deploy/docker-compose.caddy.yml up -d --build
+# xoft-core is NOT published to the internet: only Caddy exposes ports 80/443, so nothing can reach Xoft without HTTPS.
+# (Docker bypasses host firewalls such as ufw for any port it publishes — that is why xoft-core uses `expose`, not `ports`.)
+# STATUS: a template written from the Docker/Caddy docs; it has not been run in the build sandbox (no Docker there).
+name: xoft-ai-core   # fixed project name => volumes are called xoft-ai-core_xoft-data regardless of folder name
+services:
+  xoft-core:
+    build: ..
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      STORAGE_MODE: sqlite
+      SQLITE_PATH: /app/data/xoft.sqlite
+      TRUST_PROXY: "1"          # exactly one proxy (Caddy) in front
+    expose: ["3000"]
+    volumes:
+      - xoft-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [xoft-core]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to your domain, e.g. xoft.example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  xoft-data:
+  caddy-data:
+  caddy-config:

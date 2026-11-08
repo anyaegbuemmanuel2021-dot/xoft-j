@@ -1,0 +1,10 @@
+# XOFT's private SearXNG service configuration.
+# Only XOFT's Docker network can reach this service; do not publish port 8080.
+use_default_settings: true
+server:
+  limiter: true
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json

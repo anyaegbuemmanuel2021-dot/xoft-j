@@ -1,0 +1,9 @@
+package com.xoft.companion
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.graphics.Path
+import android.os.Bundle
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import org.json.JSONObject
+class XoftAccessibilityService:AccessibilityService(){ companion object { private var instance:XoftAccessibilityService?=null; fun execute(action:String,p:JSONObject):JSONObject { val s=instance?:return JSONObject().put("success",false).put("error","Accessibility service is not enabled by the user."); return when(action){ "screen.click"->{val path=Path();path.moveTo(p.getDouble("x").toFloat(),p.getDouble("y").toFloat());val g=GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path,0,50)).build();JSONObject().put("success",s.dispatchGesture(g,null,null))}; "screen.type"->{val root=s.rootInActiveWindow;val n=root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT);val b=Bundle();b.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,p.getString("text"));JSONObject().put("success",n?.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,b)==true)}; "screen.scroll"->{val root=s.rootInActiveWindow;val n=root?.findAccessibilityNodeInfosByViewId(p.optString("viewId"))?.firstOrNull();val dir=p.optString("direction","down");val actionId=if(dir=="up")AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD;JSONObject().put("success",n?.performAction(actionId)==true)}; else->JSONObject().put("success",false).put("error","Unsupported accessibility action: $action") } } }; override fun onServiceConnected(){instance=this}; override fun onAccessibilityEvent(e:AccessibilityEvent?){ }; override fun onInterrupt(){instance=null} }

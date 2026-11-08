@@ -1,0 +1,7 @@
+node_modules/
+data/
+public/generated/
+.env
+*.log
+.env
+env.env
