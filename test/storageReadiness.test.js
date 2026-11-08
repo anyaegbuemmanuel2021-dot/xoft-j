@@ -31,3 +31,10 @@ test('storage readiness requires both memory and SQLite paths inside the mounted
   assert.deepEqual(assessStorageReadiness({ persistentRoot: '/var/data', dataRoot: '/var/data', sqlitePath: '/var/data/xoft.sqlite', mountInfo }), { durable: true, configured: true, mounted: true });
   assert.equal(assessStorageReadiness({ persistentRoot: '/var/data', dataRoot: '/app/data', sqlitePath: '/var/data/xoft.sqlite', mountInfo }).durable, false);
 });
+
+test('strict durable-storage mode fails readiness on ephemeral storage but remains opt-in', async () => {
+  const { isStorageReady } = await import('../src/persistence/storageReadiness.js');
+  assert.equal(isStorageReady({ durable: false }), true);
+  assert.equal(isStorageReady({ durable: false, required: true }), false);
+  assert.equal(isStorageReady({ durable: true, required: true }), true);
+});
