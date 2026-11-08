@@ -159,7 +159,6 @@ async function start() {
   // The context was already unlocked in the click handler; finish any pending resume before VAD starts.
   try {
     if (!ctx) throw new Error('This browser does not support AudioContext.');
-    if (!ctx) throw new Error('This browser does not support AudioContext.');
     if (ctx.state === 'suspended') await ctx.resume();
     if (ctx.state !== 'running') throw new Error(`AudioContext is ${ctx.state}; tap Start listening again and allow audio access.`);
     analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
