@@ -1,27 +1,61 @@
 import { TaskType } from '../providers/ProviderRouter.js';
 
 /**
- * Intents the system currently recognizes. This list grows as agents are
- * added (email, calendar, phone, etc. in later phases) — for now it covers
- * what Phase 1-3 (core + memory) can actually act on.
+ * Intents the system currently recognizes. Deterministic patterns handle
+ * explicit memory commands; the model is reserved for genuinely ambiguous
+ * memory language.
  */
 export const Intent = {
-  REMEMBER: 'remember', // "remember this", "note that..."
-  FORGET: 'forget', // "forget that", "delete everything about X"
-  RECALL: 'recall', // "what do you remember about..."
-  CONVERSATION: 'conversation', // general chat / question answering
+  REMEMBER: 'remember',
+  FORGET: 'forget',
+  RECALL: 'recall',
+  CONVERSATION: 'conversation',
 };
 
 const SYSTEM_PROMPT = `You are an intent classifier for a personal AI assistant.
 Classify the user's message into exactly one of: remember, forget, recall, conversation.
 
-- "remember" = user is telling you a fact to store for later (e.g. "remember my flight is Friday", "John's birthday is March 3rd")
-- "forget" = user wants something deleted from memory (e.g. "forget that", "delete everything about John")
-- "recall" = user is asking what you remember (e.g. "what do you know about my project?")
+- "remember" = user is telling you a fact to store for later
+- "forget" = user wants something deleted from memory
+- "recall" = user is asking what you remember
 - "conversation" = anything else — questions, requests, general chat
 
 Respond with ONLY a JSON object, no markdown fences, no explanation:
-{"intent": "<one of the four above>", "category": "<person|project|preference|rule|decision|task|fact|null>", "subject": "<short string the intent is about, or null>"}`;
+{"intent": "<one of the four above>", "category": "<person|project|preference|rule|decision|task|fact|null>", "subject": "<short string the intent is about, or null>" }`;
+
+const cleanSubject = (value) => {
+  const subject = String(value ?? '').trim()
+    .replace(/^[\s:,-]+|[\s?.!,;:]+$/g, '')
+    .replace(/^(?:that|this)\s+/i, '')
+    .trim();
+  return subject || null;
+};
+
+/**
+ * Fast path for explicit, unambiguous commands. These operations do not need
+ * a language model and therefore remain available when every AI provider is
+ * offline or rate-limited.
+ */
+function detectExplicitMemoryCommand(text) {
+  let match = text.match(/^(?:(?:hey\s+)?xoft[,!]?\s*)?(?:please\s+|kindly\s+)?(?:remember|save|note)\s+(?:that\s+)?(.+)$/i);
+  if (match) {
+    return { intent: Intent.REMEMBER, category: 'fact', subject: cleanSubject(match[1]) };
+  }
+
+  match = text.match(/^(?:(?:hey\s+)?xoft[,!]?\s*)?(?:please\s+|kindly\s+)?(?:forget|delete from memory|remove from memory)\s+(.+)$/i);
+  if (match) {
+    let subject = cleanSubject(match[1]);
+    subject = subject?.replace(/^(?:everything|all (?:the )?memories|all entries)\s+(?:about|for|related to)\s+/i, '') ?? null;
+    return { intent: Intent.FORGET, category: null, subject };
+  }
+
+  match = text.match(/^(?:(?:hey\s+)?xoft[,!]?\s*)?(?:what do you remember about|what have i told you about|recall)\s+(.+)$/i);
+  if (match) {
+    return { intent: Intent.RECALL, category: null, subject: cleanSubject(match[1]) };
+  }
+
+  return null;
+}
 
 export class IntentDetector {
   /** @param {import('../providers/ProviderRouter.js').ProviderRouter} router */
@@ -34,12 +68,12 @@ export class IntentDetector {
    * @returns {Promise<{intent:string, category:string|null, subject:string|null}>}
    */
   async detect(message) {
-    // Most messages are ordinary conversation. Do not spend a second model call
-    // classifying every chat turn; reserve model-based classification for messages
-    // that plausibly ask to save, delete, or recall memory. This keeps casual chat
-    // faster and reduces provider cost/quota usage without guessing at destructive
-    // memory actions.
     const text = String(message ?? '').trim();
+    const deterministic = detectExplicitMemoryCommand(text);
+    if (deterministic) return deterministic;
+
+    // Most messages are ordinary conversation. Only ambiguous messages that
+    // plausibly concern memory reach the model-based classifier.
     const memoryRelated = /\b(remember|remind me|memor(?:y|ies)|forget|recall|save (?:this|that|it)|note that|what have i told you|what do you know about me)\b/i.test(text);
     if (!memoryRelated) {
       return { intent: Intent.CONVERSATION, category: null, subject: null };
@@ -59,8 +93,7 @@ export class IntentDetector {
       }
       return parsed;
     } catch {
-      // If classification output isn't valid JSON, fail safe to plain
-      // conversation rather than guessing at a destructive intent like forget.
+      // Fail safe: malformed model output must never trigger a memory mutation.
       return { intent: Intent.CONVERSATION, category: null, subject: null };
     }
   }
