@@ -202,9 +202,10 @@ async function sendCommand({ text }) {
   }
 }
 
-function buildPipeline() {
+function buildPipeline(continuousRecognition = false) {
   pipeline = new VoicePipeline({
     conversationMode: conversationEnabled(),
+    continuousRecognition,
     onState: (s) => ui.pill('state', `state: ${s.replace('_', ' ')}`, s === 'idle' ? '' : 'ok'),
     onWake: (p) => ui.log(`wake phrase heard ("${p}")`),
     onCommand: sendCommand,
