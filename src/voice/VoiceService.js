@@ -71,7 +71,7 @@ async function isQuotaExhausted(response) {
   const code = String(detail?.code ?? detail?.type ?? '').toLowerCase();
   return code === 'insufficient_quota'
     || code === 'billing_hard_limit_reached'
-    || /insufficient_quota|billing_hard_limit|exceeded your current quota/i.test(raw);
+    || /insufficient_quota|billing_hard_limit|exceeded your current quota|\\bquota\\b/i.test(raw);
 }
 
 async function fetchWithSttRetry(fetchImpl, url, init, { maxAttempts = 2 } = {}) {
