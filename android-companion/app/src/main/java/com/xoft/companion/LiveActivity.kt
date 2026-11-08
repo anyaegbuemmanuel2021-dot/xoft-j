@@ -6,7 +6,16 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.Locale
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -25,6 +34,13 @@ class LiveActivity : Activity() {
     private lateinit var web: WebView
     @Volatile private var voiceState = "idle"
     @Volatile private var visible = false
+    @Volatile private var ttsReady = false
+    private var textToSpeech: TextToSpeech? = null
+    private var speechRecognizer: SpeechRecognizer? = null
+    @Volatile private var recognitionWanted = false
+    private val speechHandler = Handler(Looper.getMainLooper())
+    private var recognitionLanguage = "en-NG"
+    private var recognitionFailures = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,6 +48,23 @@ class LiveActivity : Activity() {
         if (base.isEmpty()) { finish(); return }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC)
+        }
+        textToSpeech = TextToSpeech(this) { status ->
+            ttsReady = status == TextToSpeech.SUCCESS
+            if (ttsReady) {
+                val languageResult = textToSpeech?.setLanguage(Locale("en", "NG"))
+                if (languageResult == TextToSpeech.LANG_MISSING_DATA || languageResult == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    textToSpeech?.setLanguage(Locale.US)
+                }
+                textToSpeech?.setSpeechRate(1.0f)
+                textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) { dispatchNativeSpeechState("speaking") }
+                    override fun onDone(utteranceId: String?) { dispatchNativeSpeechState("idle") }
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) { dispatchNativeSpeechState("error") }
+                    override fun onError(utteranceId: String?, errorCode: Int) { dispatchNativeSpeechState("error") }
+                })
+            }
         }
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -88,10 +121,139 @@ class LiveActivity : Activity() {
     override fun onDestroy() {
         XoftBubbleService.hide(this)
         if (::web.isInitialized) web.destroy()
+        recognitionWanted = false
+        speechHandler.removeCallbacksAndMessages(null)
+        try { speechRecognizer?.cancel() } catch (_: Exception) { }
+        try { speechRecognizer?.destroy() } catch (_: Exception) { }
+        speechRecognizer = null
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
         super.onDestroy()
     }
 
+    private fun dispatchNativeTranscript(text: String, isFinal: Boolean, error: String? = null) {
+        if (!::web.isInitialized) return
+        runOnUiThread {
+            if (!::web.isInitialized) return@runOnUiThread
+            val safeText = JSONObject.quote(text)
+            val safeError = JSONObject.quote(error ?: "")
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-transcript',{detail:{text:$safeText,isFinal:$isFinal,error:$safeError}}))", null)
+        }
+    }
+
+    private fun startRecognitionSession() {
+        if (!recognitionWanted || !::web.isInitialized) return
+        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            dispatchNativeTranscript("", true, "On-device speech recognition is unavailable on this device.")
+            recognitionWanted = false
+            return
+        }
+        try { speechRecognizer?.destroy() } catch (_: Exception) { }
+        speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).apply {
+            setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) { dispatchNativeSpeechState("listening") }
+                override fun onBeginningOfSpeech() { dispatchNativeSpeechState("listening") }
+                override fun onRmsChanged(rmsdB: Float) { }
+                override fun onBufferReceived(buffer: ByteArray?) { }
+                override fun onEndOfSpeech() { }
+                override fun onError(error: Int) {
+                    if (!recognitionWanted) return
+                    // Silence/no-match is a normal outcome in an always-listening assistant,
+                    // not a broken recognizer. Restart without consuming the failure budget.
+                    if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
+                        recognitionFailures = 0
+                        speechHandler.postDelayed({ startRecognitionSession() }, 400)
+                        return
+                    }
+                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) {
+                        recognitionWanted = false
+                        dispatchNativeTranscript("", true, "On-device recognizer cannot use the selected language or microphone permission.")
+                        dispatchNativeSpeechState("idle")
+                        return
+                    }
+                    recognitionFailures += 1
+                    if (recognitionFailures >= 4) {
+                        recognitionWanted = false
+                        dispatchNativeTranscript("", true, "On-device speech recognition stopped after repeated errors: " + error)
+                        dispatchNativeSpeechState("idle")
+                    } else {
+                        speechHandler.postDelayed({ startRecognitionSession() }, 500L * recognitionFailures)
+                    }
+                }
+                override fun onResults(results: Bundle?) {
+                    recognitionFailures = 0
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    if (text.isNotBlank()) dispatchNativeTranscript(text, true)
+                    if (recognitionWanted) speechHandler.postDelayed({ startRecognitionSession() }, 250)
+                }
+                override fun onPartialResults(partialResults: Bundle?) { }
+                override fun onEvent(eventType: Int, params: Bundle?) { }
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            }
+            startListening(intent)
+        }
+    }
+
+    private fun dispatchNativeSpeechState(state: String) {
+        if (!::web.isInitialized) return
+        runOnUiThread {
+            if (!::web.isInitialized) return@runOnUiThread
+            val safe = JSONObject.quote(state)
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-speech-state',{detail:{state:$safe}}))", null)
+        }
+    }
+
     inner class Bridge {
+        @JavascriptInterface
+        fun canListenOffline(): Boolean {
+            return Build.VERSION.SDK_INT >= 31
+                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                && SpeechRecognizer.isOnDeviceRecognitionAvailable(this@LiveActivity)
+        }
+
+        @JavascriptInterface
+        fun startListening(language: String): Boolean {
+            if (!canListenOffline()) return false
+            recognitionLanguage = if (language == "ig") "ig-NG" else "en-NG"
+            recognitionWanted = true
+            runOnUiThread { startRecognitionSession() }
+            return true
+        }
+
+        @JavascriptInterface
+        fun stopListening() {
+            recognitionWanted = false
+            speechHandler.removeCallbacksAndMessages(null)
+            runOnUiThread {
+                try { speechRecognizer?.cancel() } catch (_: Exception) { }
+                try { speechRecognizer?.destroy() } catch (_: Exception) { }
+                speechRecognizer = null
+            }
+        }
+
+        @JavascriptInterface
+        fun speak(text: String): Boolean {
+            if (!ttsReady || text.isBlank()) return false
+            val clean = text.take(4000)
+            val utteranceId = "xoft-" + System.currentTimeMillis().toString()
+            return textToSpeech?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId) == TextToSpeech.SUCCESS
+        }
+
+        @JavascriptInterface
+        fun stopSpeaking() {
+            textToSpeech?.stop()
+            dispatchNativeSpeechState("idle")
+        }
+
         @JavascriptInterface
         fun onVoiceState(state: String) {
             voiceState = if (state == "listening" || state == "thinking" || state == "speaking") state else "idle"
