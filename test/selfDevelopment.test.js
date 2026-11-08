@@ -103,7 +103,6 @@ test('invalid proposal ids are rejected (no path injection through the id)', () 
 
 test('apply restores every original file when a later file write fails partway through', async () => {
   const { root, eng } = repo();
-  fs.writeFileSync(path.join(root, 'blocked'), 'not a directory');
   const p = eng.propose({
     title: 'partial write must roll back',
     files: {
@@ -112,6 +111,7 @@ test('apply restores every original file when a later file write fails partway t
     },
   });
   await eng.sandboxTest(p.id);
+  fs.writeFileSync(path.join(root, 'blocked'), 'not a directory');
   await assert.rejects(
     () => eng.apply(p.id, { approvedBy: 'ikye' }),
     /original files were restored/,
