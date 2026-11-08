@@ -41,7 +41,11 @@ async function transcribeOnServer(blob, language = 'auto') {
   const data = await res.json();
   const text = String(data?.text || '').trim();
   if (!text) throw new Error('XOFT server returned an empty transcript. Try speaking closer to the microphone.');
-  return { text, provider: data?.provider || 'server' };
+  return {
+    text,
+    provider: data?.provider || 'server',
+    ms: Number.isFinite(Number(data?.ms)) ? Number(data.ms) : null,
+  };
 }
 
 /** Send a captured audio Blob to XOFT's server-side Gemini → OpenAI transcription pipeline. */
@@ -50,6 +54,8 @@ export async function transcribe(blob, onStatus = () => {}, language = 'auto') {
   onStatus('Sending audio to XOFT…');
   onStatus('Transcribing on XOFT server…');
   const result = await transcribeOnServer(blob, language);
-  onStatus(`Transcribed by XOFT (${result.provider})`);
+  onStatus(result.ms === null
+    ? `Transcribed by XOFT (${result.provider})`
+    : `Transcribed by XOFT (${result.provider}) in ${Math.round(result.ms)} ms`);
   return result.text;
 }
