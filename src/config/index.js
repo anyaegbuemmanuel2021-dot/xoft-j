@@ -39,6 +39,7 @@ export const config = {
     mode: required('STORAGE_MODE', 'sqlite'),
     sqlitePath: required('SQLITE_PATH', path.join(dataDir, 'xoft.sqlite')),
     persistentDataDir,
+    requireDurableStorage: String(required('REQUIRE_DURABLE_STORAGE', 'false')).toLowerCase() === 'true',
   },
   production: {
     requireAuth: String(required('REQUIRE_AUTH_IN_PRODUCTION', 'true')).toLowerCase() === 'true',
