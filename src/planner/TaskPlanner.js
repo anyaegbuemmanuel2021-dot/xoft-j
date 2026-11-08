@@ -135,7 +135,12 @@ export class TaskPlanner {
     // existing callers/tests that don't pass one explicitly keep working.
     this.executionRecordStore = executionRecordStore ?? new ExecutionRecordStore({ dataDir, sqliteStore });
     this.experienceStore = experienceStore ?? new ExperienceStore({ dataDir, sqliteStore });
-    this.maxDurationMs = Math.max(1000, Number(maxDurationMs ?? 15 * 60 * 1000));
+    const requestedMaxDuration = Number(maxDurationMs ?? 15 * 60 * 1000);
+    // Invalid environment/config values must never turn setTimeout(NaN) into
+    // an almost-immediate timeout. Bound this to a sane 24-hour ceiling.
+    this.maxDurationMs = Number.isFinite(requestedMaxDuration)
+      ? Math.max(1000, Math.min(24 * 60 * 60 * 1000, Math.floor(requestedMaxDuration)))
+      : 15 * 60 * 1000;
     // Keep the execution lock until the underlying work actually settles.
     // A caller timeout does not cancel a tool's real-world side effect, so
     // releasing the lock at timeout could let a second request duplicate it.
