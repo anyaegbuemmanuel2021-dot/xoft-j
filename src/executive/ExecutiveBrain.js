@@ -55,7 +55,11 @@ export class ExecutiveBrain {
     this.intelligenceDirector = intelligenceDirector ?? null;
     this.classifier = new ExecutiveClassifier(router);
     /** @type {Map<string, {taskId:string, goal:string}>} last proposed-but-unconfirmed plan per session */
-    this._pendingPlans = new PendingPlanStore();
+    this._pendingPlans = new PendingPlanStore({
+      onExpire: (plan) => {
+        if (plan?.taskId) this.taskPlanner.cancel(plan.taskId);
+      },
+    });
   }
 
   _personalityFragment(context = {}, sessionId = null) {
