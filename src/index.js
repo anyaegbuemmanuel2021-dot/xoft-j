@@ -1840,7 +1840,7 @@ app.post('/api/runtime/halt', requireAdmin, async (req, res) => {
 // Hermes is an OPTIONAL, pluggable engine. Everything Hermes-specific lives in src/engines/hermes/; the rest of Xoft only sees
 // the Engine interface, the EngineRegistry and the EngineTaskManager. If Hermes is absent or crashes, tasks fall back to Xoft Core.
 // See docs/HERMES_ENGINE.md.
-const engineSecrets = new EngineSecretStore({ dataDir: config.memory.dataDir });
+const engineSecrets = new EngineSecretStore({ dataDir: config.memory.dataDir, sqliteStore: durableStore });
 const engineStore = new EngineTaskStore({ dataDir: config.memory.dataDir, sqliteStore: durableStore });
 const enginePublicUrl = `http://127.0.0.1:${config.port}`;
 const engineRegistry = new EngineRegistry({ eventBus, activityLog });
