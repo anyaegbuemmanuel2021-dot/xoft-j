@@ -205,4 +205,16 @@ describe('TaskQueue', () => {
     assert.equal(getMaxActive(), 1);
   });
 
+  test('scheduleAt rejects blocked or cancelled tasks', async () => {
+    const { tool } = makeControlledTool('test.unschedulable', 5);
+    const { taskPlanner, taskQueue } = makeHarness({ tool });
+    const blocked = await taskPlanner.plan('blocked');
+    taskPlanner.setStatus(blocked.id, 'blocked');
+    assert.throws(() => taskQueue.scheduleAt(blocked.id, new Date(Date.now() + 1000).toISOString()), /cannot schedule a task in 'blocked' state/);
+
+    const cancelled = await taskPlanner.plan('cancelled');
+    taskPlanner.cancel(cancelled.id);
+    assert.throws(() => taskQueue.scheduleAt(cancelled.id, new Date(Date.now() + 1000).toISOString()), /cannot schedule a task in 'cancelled' state/);
+  });
+
 });
