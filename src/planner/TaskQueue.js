@@ -34,6 +34,7 @@ export class TaskQueue {
     this._pending = []; // [{ taskId, priority }] waiting for a concurrency slot
     this._timer = null;
     this._recoveredOnStart = false;
+    this._recoveredTaskIds = new Set();
   }
 
   _priorityRank(p) {
@@ -91,20 +92,34 @@ export class TaskQueue {
    */
   recoverOnStartup() {
     if (this._recoveredOnStart) return [];
-    this._recoveredOnStart = true;
     const interrupted = this.taskPlanner.list().filter((task) =>
-      ['queued', 'running', 'timed_out'].includes(task.status)
+      ['queued', 'running', 'timed_out'].includes(task.status) &&
+      !this._recoveredTaskIds.has(task.id)
     );
     const recovered = [];
+    let hadFailures = false;
     for (const task of interrupted) {
-      this.activityLog?.log({
-        type: 'task_recovered_after_restart',
-        taskId: task.id,
-        detail: { previousStatus: task.status },
-      });
-      this.enqueue(task.id);
-      recovered.push({ taskId: task.id, previousStatus: task.status });
+      try {
+        this.activityLog?.log({
+          type: 'task_recovered_after_restart',
+          taskId: task.id,
+          detail: { previousStatus: task.status },
+        });
+        this.enqueue(task.id);
+        this._recoveredTaskIds.add(task.id);
+        recovered.push({ taskId: task.id, previousStatus: task.status });
+      } catch (error) {
+        // One corrupt/unavailable task must not prevent healthy tasks from
+        // recovering or stop the queue's polling loop from starting.
+        hadFailures = true;
+        this.activityLog?.log({
+          type: 'task_recovery_failed',
+          taskId: task.id,
+          detail: { previousStatus: task.status, error: error.message },
+        });
+      }
     }
+    this._recoveredOnStart = !hadFailures;
     return recovered;
   }
 
