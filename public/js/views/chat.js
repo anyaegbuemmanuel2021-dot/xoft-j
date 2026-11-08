@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { esc, toast, onDelegate } from '../dom.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
 import { claimAutoVoiceStart } from '../voice/auto-start.js';
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from '../voice/native-bridge.js';
 
 export const title = 'Live Conversation';
 export let cleanup = null;
@@ -232,11 +233,48 @@ export function render(container) {
     toast(enabled ? 'Speak Out enabled — XOFT replies will be read aloud.' : 'Speak Out disabled.', 'info');
   });
   onDelegate(container, 'click', '#chat-speak-stop', () => stopSpeaking());
+  const onNativeTranscript = (event) => {
+    if (!nativeVoiceMode) return;
+    const modeAtStart = nativeVoiceMode;
+    const detail = event.detail || {};
+    if (detail.error) {
+      nativeVoiceMode = null;
+      nativeSpeechDisabledForSession = true;
+      stopNativeListening();
+      setMicButton(container, 'Voice Input');
+      toast('On-device speech recognition: ' + detail.error + ' Switching to XOFT server transcription.', 'warn');
+      if (modeAtStart === 'conversation' && voiceConversationActive) scheduleConversationListen(container, 700);
+      else if (modeAtStart === 'dictation') startVoiceRecording(container);
+      return;
+    }
+    const transcript = String(detail.text || '').trim();
+    if (!transcript) return;
+    nativeVoiceMode = null;
+    stopNativeListening();
+    if (modeAtStart === 'dictation') {
+      const input = container.querySelector('#chat-input');
+      if (input) { input.value = [input.value.trim(), transcript].filter(Boolean).join(' '); input.focus(); }
+      setMicButton(container, 'Voice Input');
+      setVoiceStatus('idle', 'TRANSCRIPTION READY · ANDROID');
+      toast('Recognized on device. Review your text and send it.', 'success');
+      return;
+    }
+    if (modeAtStart === 'conversation' && voiceConversationActive) {
+      setVoiceStatus('thinking', 'XOFT IS THINKING');
+      setConversationButton(container, true, 'XOFT is thinking…');
+      void send(container, transcript, { voiceTurn: true });
+    }
+  };
+  window.addEventListener('xoft:native-transcript', onNativeTranscript);
+
   container.querySelector('#chat-input').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(container); }
   });
 
   cleanup = () => {
+    window.removeEventListener('xoft:native-transcript', onNativeTranscript);
+    stopNativeListening();
+    nativeVoiceMode = null;
     stopLiveVideo(container, true);
     if (voiceConversationActive) stopVoiceConversation(container, true);
     cleanup = null;
@@ -286,6 +324,8 @@ let voiceBusy = false;
 let voiceConversationActive = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
+let nativeVoiceMode = null;
+let nativeSpeechDisabledForSession = false;
 let liveVideoStream = null;
 
 function setVoiceStatus(state, label) {
@@ -495,7 +535,16 @@ function toggleVoiceInput(container) {
     voiceRecorder.stop();
     return;
   }
-  // Use only local microphone capture and XOFT server transcription.
+  // Prefer Android's on-device recognizer; web-only sessions use recorded audio + XOFT server STT.
+  if (!nativeSpeechDisabledForSession && hasNativeSpeechRecognition()) {
+    nativeVoiceMode = 'dictation';
+    setVoiceStatus('listening', 'LISTENING · SPEAK NOW');
+    setMicButton(container, 'Listening… tap to stop', true);
+    if (startNativeListening('auto')) return;
+    nativeVoiceMode = null;
+    nativeSpeechDisabledForSession = true;
+    toast('Android on-device recognition could not start. Switching to XOFT server transcription.', 'warn');
+  }
   startVoiceRecording(container);
 }
 
@@ -565,6 +614,8 @@ function setConversationButton(container, active, label = '') {
 
 function stopVoiceConversation(container, silent = false) {
   voiceConversationActive = false;
+  nativeVoiceMode = null;
+  stopNativeListening();
   if (voiceConversationTimer) clearTimeout(voiceConversationTimer);
   voiceConversationTimer = null;
   if (voiceRecorder && voiceRecorder.state !== 'inactive') {
@@ -586,9 +637,15 @@ function scheduleConversationListen(container, delay = 500) {
 
 function listenForConversationTurn(container) {
   if (!voiceConversationActive || voiceBusy || (voiceRecorder && voiceRecorder.state !== 'inactive')) return;
-
-  // Hands-free mode uses the same local voice path as push-to-talk.
-  // This avoids relying on vendor-specific browser recognition services.
+  if (!nativeSpeechDisabledForSession && hasNativeSpeechRecognition()) {
+    nativeVoiceMode = 'conversation';
+    setVoiceStatus('listening', 'LISTENING · SPEAK NATURALLY');
+    setConversationButton(container, true, 'Listening… speak naturally');
+    if (startNativeListening('auto')) return;
+    nativeVoiceMode = null;
+    nativeSpeechDisabledForSession = true;
+    toast('Android on-device recognition could not start. Switching to XOFT server transcription.', 'warn');
+  }
   if (!voiceFallbackNoticeShown) {
     voiceFallbackNoticeShown = true;
     toast('Voice conversation uses XOFT server transcription (Gemini → OpenAI fallback).', 'info');
