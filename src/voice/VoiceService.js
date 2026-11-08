@@ -31,6 +31,55 @@ function withTimeout(ms, signal) {
   return signal ? AbortSignal.any([AbortSignal.timeout(ms), signal]) : AbortSignal.timeout(ms);
 }
 
+const RETRYABLE_STT_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function retryDelayMs(response, attempt) {
+  const value = response?.headers?.get?.('retry-after');
+  if (value) {
+    const seconds = Number(value);
+    const requested = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+    if (Number.isFinite(requested) && requested >= 0) return Math.min(1500, requested);
+  }
+  return 250 * (2 ** attempt);
+}
+
+function waitForRetry(ms, signal) {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? Object.assign(new Error('Request aborted'), { name: 'AbortError' }));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+/**
+ * Retry transient provider failures without rebuilding or discarding the captured audio.
+ * Permanent client/auth/payload errors are returned immediately; a caller's timeout/abort is never retried.
+ */
+async function fetchWithSttRetry(fetchImpl, url, init, { maxAttempts = 2 } = {}) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(url, init);
+    } catch (error) {
+      if (init.signal?.aborted || attempt + 1 >= maxAttempts) throw error;
+      await waitForRetry(250 * (2 ** attempt), init.signal);
+      continue;
+    }
+    if (!RETRYABLE_STT_STATUSES.has(response.status) || attempt + 1 >= maxAttempts) return response;
+    const delay = retryDelayMs(response, attempt);
+    try { await response.body?.cancel(); } catch { /* response may already be consumed */ }
+    await waitForRetry(delay, init.signal);
+  }
+  throw new Error('Speech transcription retry attempts exhausted.');
+}
+
 /** Wrap raw 16-bit little-endian mono PCM in a WAV container so any <audio> element can play it. */
 export function pcm16ToWav(pcm, sampleRate = 24000, channels = 1) {
   const data = Buffer.isBuffer(pcm) ? pcm : Buffer.from(pcm);
@@ -163,7 +212,7 @@ export class VoiceService {
 
   async _geminiSpeak(text, signal) {
     const model = config.voice.geminiTtsModel || 'gemini-2.5-flash-preview-tts';
-    const res = await this.fetch(
+    const res = await fetchWithSttRetry(this.fetch,
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
         method: 'POST',
@@ -293,12 +342,12 @@ export class VoiceService {
     // Leave language detection open for mixed Nigerian English/Pidgin/Igbo unless explicitly selected.
     const chosenLanguage = language === 'auto' ? '' : (language || config.voice.sttLanguage);
     if (chosenLanguage) form.append('language', chosenLanguage);
-    const res = await this.fetch('https://api.openai.com/v1/audio/transcriptions', {
+    const res = await fetchWithSttRetry(this.fetch, 'https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.providers.openai.apiKey}` },
       body: form,
       signal: withTimeout(config.voice.sttTimeoutMs, signal),
-    });
+    }, { maxAttempts: 2 });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
       throw new Error(`OpenAI transcription error ${res.status} - ${errText.slice(0, 300)}`);
@@ -325,7 +374,8 @@ export class VoiceService {
           generationConfig: { temperature: 0 },
         }),
         signal: withTimeout(config.voice.sttTimeoutMs, signal),
-      }
+      },
+      { maxAttempts: 2 }
     );
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
