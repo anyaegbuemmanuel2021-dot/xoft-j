@@ -103,6 +103,7 @@ import { WhatsAppInboxStore } from './integrations/WhatsAppInboxStore.js';
 import { TwilioService } from './integrations/TwilioService.js';
 import { buildCommunicationTools } from './tools/builtins/communicationTools.js';
 import { SocialHandleManager } from './social/SocialHandleManager.js';
+import { NativeCommandEngine } from './native/NativeCommandEngine.js';
 
 const durableStore = config.storage.mode === 'sqlite' ? new SqliteStore(config.storage.sqlitePath) : null;
 const modelHealth = new ModelHealthManager();
@@ -234,6 +235,7 @@ const automationFactory = new AutomationFactory({ router, toolRegistry, rulesEng
 const specialistDirector = new SpecialistDirector({ router, injectionGuard, activityLog });
 const contextEngine = new ContextEngine({ worldState, memory, activityLog });
 const intelligenceDirector = new IntelligenceDirector({ router, reasoningEngine, confidenceEngine, memory, contextEngine, activityLog });
+const nativeCommandEngine = new NativeCommandEngine({ toolRegistry, activityLog });
 const executiveBrain = new ExecutiveBrain({
   router,
   memory,
@@ -247,6 +249,7 @@ const executiveBrain = new ExecutiveBrain({
   address,
   advisorAgent,
   intelligenceDirector,
+  nativeCommandEngine,
 });
 
 const channelGateway = new ChannelGateway({ executiveBrain, activityLog, address });
