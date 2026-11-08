@@ -71,9 +71,10 @@ function taskRow(t) {
         ${statusBadge(t.status)}
       </div>
       <div class="muted" style="margin:4px 0;">${doneSteps}/${t.steps.length} steps · created ${fmtTime(t.createdAt)}${t.scheduledFor ? ' · scheduled for ' + fmtTime(t.scheduledFor) : ''}</div>
+      ${t.blockedReason ? `<div class="muted" style="margin:4px 0;">${esc(t.blockedReason)}</div>` : ''}
       <div class="inline" style="gap:6px; flex-wrap:wrap;">
-        ${t.status === 'planned' || t.status === 'blocked' || t.status === 'waiting_approval' ? `<button data-execute="${t.id}">Execute</button><button data-enqueue="${t.id}">Enqueue</button><button data-schedule="${t.id}">Schedule…</button>` : ''}
-        ${!['completed', 'cancelled'].includes(t.status) ? `<button data-cancel="${t.id}" class="danger">Cancel</button>` : ''}
+        ${t.status === 'planned' || t.status === 'waiting_approval' ? `<button data-execute="${t.id}">Execute</button><button data-enqueue="${t.id}">Enqueue</button><button data-schedule="${t.id}">Schedule…</button>` : ''}
+        ${!['completed', 'cancelled', 'blocked', 'rolled_back'].includes(t.status) ? `<button data-cancel="${t.id}" class="danger">Cancel</button>` : ''}
         <button data-executions="${t.id}">Executions</button>
       </div>
     </div>
