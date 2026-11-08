@@ -13,6 +13,9 @@ test('Chat provides a user-controlled hands-free voice conversation mode', () =>
   assert.match(chat, /function toggleVoiceConversation\(container\)/);
   assert.match(chat, /function stopVoiceConversation\(container/);
   assert.match(chat, /voiceConversationActive = true/);
+  assert.match(chat, /hasNativeSpeechRecognition/);
+  assert.match(chat, /startNativeListening/);
+  assert.match(chat, /xoft:native-transcript/);
 });
 
 test('Recognized speech is sent to XOFT automatically and listening resumes after the answer', () => {
@@ -25,13 +28,13 @@ test('Recognized speech is sent to XOFT automatically and listening resumes afte
   assert.match(chat, /scheduleConversationListen\(container, 500\)/);
 });
 
-test('Every view transcribes through the shared XOFT server STT module only', () => {
+test('Web views use server STT and Android companion can use the native on-device recognizer', () => {
   const chat = read('public/js/views/chat.js');
   const input = read('public/js/dashboard/CommandInput.js');
   const stt = read('public/js/voice/stt.js');
   const companion = read('public/js/voice/companion.js');
-  assert.doesNotMatch(chat, /SpeechRecognition|webkitSpeechRecognition/);
-  assert.doesNotMatch(input, /SpeechRecognition|webkitSpeechRecognition/);
+  assert.doesNotMatch(chat, /window\\.SpeechRecognition|webkitSpeechRecognition/);
+  assert.doesNotMatch(input, /window\\.SpeechRecognition|webkitSpeechRecognition/);
   assert.match(chat, /from '\.\.\/voice\/stt\.js'/);
   assert.match(input, /from '\.\.\/voice\/stt\.js'/);
   assert.doesNotMatch(chat, /fetch\('\/api\/voice\/transcribe'/);
@@ -51,21 +54,25 @@ test('Every view transcribes through the shared XOFT server STT module only', ()
   assert.doesNotMatch(companion, /then on-device Whisper/);
 });
 
-test('Voice companion uses only local capture/VAD with server STT and no browser speech-recognition fallback', () => {
+test('Voice companion prefers native Android STT and retains server STT fallback without browser speech recognition', () => {
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /'server-stt':/);
-  assert.doesNotMatch(companion, /'browser-speech'|SpeechRecognition|webkitSpeechRecognition/);
+  assert.match(companion, /'native-android':/);
+  assert.match(companion, /startNativeListening/);
+  assert.doesNotMatch(companion, /'browser-speech'|window\\.SpeechRecognition|webkitSpeechRecognition/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
   assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
   assert.match(companion, /Gemini → OpenAI fallback/);
 });
 
-test('Speech output uses server-generated audio only and never falls back to browser TTS', () => {
+test('Speech output prefers native Android TTS, then server TTS, and never uses browser synthesis', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
   assert.doesNotMatch(tts, /speechSynthesis|browserSpeak|SpeechSynthesisUtterance/);
   assert.match(tts, /serverSpeak\(spoken, runId\)/);
+  assert.match(tts, /waitForNativeSpeech/);
+  assert.match(tts, /speakNative/);
   assert.match(tts, /XOFT server voice is unavailable/);
   assert.doesNotMatch(tts, /api\.elevenlabs\.io/, 'the browser must never hold or use the ElevenLabs key directly');
   assert.doesNotMatch(read('public/js/views/chat.js'), /freeOnly/);

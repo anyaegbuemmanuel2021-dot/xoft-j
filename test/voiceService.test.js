@@ -96,6 +96,26 @@ test('STT normalizes recorder MIME parameters before sending audio to Gemini', a
   } finally { restore(); }
 });
 
+test('STT does not retry OpenAI insufficient_quota 429 and preserves the actionable reason', async () => {
+  const restore = withKeys({ gemini: null });
+  try {
+    let calls = 0;
+    const svc = new VoiceService({
+      fetchImpl: async () => {
+        calls += 1;
+        return json({ error: { message: 'You exceeded your current quota', type: 'insufficient_quota', code: 'insufficient_quota' } }, 429);
+      },
+    });
+    await assert.rejects(() => svc.transcribe(Buffer.from('audio')), (error) => {
+      assert.match(error.message, /insufficient_quota/);
+      assert.match(error.message, /exceeded your current quota/);
+      assert.equal(error.attempts[0].provider, 'openai');
+      return true;
+    });
+    assert.equal(calls, 1, 'billing/quota failures must not be retried');
+  } finally { restore(); }
+});
+
 test('STT falls back to OpenAI immediately when Gemini fails', async () => {
   const restore = withKeys();
   try {

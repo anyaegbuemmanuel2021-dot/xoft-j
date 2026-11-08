@@ -13,6 +13,7 @@ function makeBrain() {
       toolRegistry: {
         execute: async (name, input) => {
           calls.execute.push({ name, input });
+          if (name === 'get_current_time') return { formatted: '11/8/2026, 5:00:00 PM', timezone: 'Africa/Lagos' };
           const result = Function('"use strict"; return (' + input.expression + ')')();
           return { expression: input.expression, result };
         },
@@ -48,5 +49,14 @@ test('ordinary conversation does not invoke the calculator', async () => {
   const result = await brain.handle('session-3', 'How are you today?');
   assert.equal(result.reply, 'delegated');
   assert.equal(calls.execute.length, 0);
+  assert.equal(calls.model, 0);
+});
+
+test('explicit date and time questions use the registered utility without an AI call', async () => {
+  const { brain, calls } = makeBrain();
+  const result = await brain.handle('session-4', 'Hey XOFT, what time is it?');
+  assert.equal(result.action, 'tool');
+  assert.ok(result.reply.includes('Africa/Lagos'));
+  assert.deepEqual(calls.execute, [{ name: 'get_current_time', input: {} }]);
   assert.equal(calls.model, 0);
 });

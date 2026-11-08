@@ -1,5 +1,4 @@
 import { PendingPlanStore } from './PendingPlanStore.js';
-import { TaskType } from '../providers/ProviderRouter.js';
 import { RiskLevel } from '../tools/Tool.js';
 import { ExecutiveClassifier, ExecutiveAction } from './ExecutiveClassifier.js';
 
@@ -20,6 +19,13 @@ function deterministicCalculation(message) {
     .trim();
   if (!/^[\d\s()+\-*/.]+$/.test(expression) || !/[+*/-]/.test(expression) || /\*\*|\/\//.test(expression)) return null;
   return expression;
+}
+
+/** Parse only explicit date/time questions; do not guess when the request is ambiguous. */
+function deterministicDateTime(message) {
+  const text = String(message ?? '').trim();
+  if (text.length > 120) return false;
+  return /^(?:(?:hey\s+)?xoft[,! ]*)?(?:please\s+)?(?:what(?:'s| is) the (?:current )?time|what time is it|tell me the time|what(?:'s| is) today's date|what day is it|today's date|current date|date today)[?.!]*$/i.test(text);
 }
 
 const WORLD_STATE_SYSTEM_PROMPT = `You are XOFT, a personal AI assistant. Answer the user's question about their
@@ -93,6 +99,21 @@ export class ExecutiveBrain {
   async handle(sessionId, message) {
     // Exact arithmetic is a deterministic local operation; don't pay for an intent
     // classifier or planner model when the request is unambiguous.
+    if (deterministicDateTime(message)) {
+      this.memory.addTurn(sessionId, 'user', message);
+      try {
+        const result = await this.taskPlanner.toolRegistry.execute('get_current_time', {}, { memory: this.memory });
+        const reply = result.formatted + (result.timezone ? ' (' + result.timezone + ')' : '');
+        this.memory.addTurn(sessionId, 'assistant', reply);
+        this.activityLog.log({ type: 'deterministic_command_executed', detail: { sessionId, toolName: 'get_current_time' } });
+        return { action: 'tool', reply, meta: { toolName: 'get_current_time', result, deterministic: true } };
+      } catch (error) {
+        const reply = 'I could not read the current date and time: ' + error.message;
+        this.memory.addTurn(sessionId, 'assistant', reply);
+        return { action: 'tool', reply, meta: { toolName: 'get_current_time', deterministic: true, error: error.message } };
+      }
+    }
+
     const expression = deterministicCalculation(message);
     if (expression) {
       this.memory.addTurn(sessionId, 'user', message);
@@ -152,15 +173,10 @@ export class ExecutiveBrain {
   async _handleWorldState(sessionId, message) {
     this.memory.addTurn(sessionId, 'user', message);
     const worldStateText = this.worldState.describe();
-
-    const result = await this.router.complete(TaskType.REASONING, {
-      system: `${WORLD_STATE_SYSTEM_PROMPT}\n\nWORLD STATE:\n${worldStateText}${this._personalityFragment({}, sessionId)}`,
-      messages: [{ role: 'user', content: message }],
-      maxTokens: 400,
-    });
-
-    this.memory.addTurn(sessionId, 'assistant', result.text);
-    return { action: 'world_state', reply: result.text, meta: { worldState: this.worldState.snapshot() } };
+    const reply = worldStateText || 'No current XOFT activity is available.';
+    this.memory.addTurn(sessionId, 'assistant', reply);
+    this.activityLog.log({ type: 'world_state_reported', detail: { sessionId } });
+    return { action: 'world_state', reply, meta: { worldState: this.worldState.snapshot(), deterministic: true } };
   }
 
   // PLAN + CONFIDENCE + RISK ASSESSMENT
@@ -268,18 +284,20 @@ export class ExecutiveBrain {
 
   // VERIFY + RESPOND
   async _verifyAndRespond(sessionId, task) {
-    const stepSummary = task.steps
-      .map((s) => `${s.description}: ${s.status}${s.error ? ` (${s.error})` : ''}`)
-      .join('\n');
-
-    const result = await this.router.complete(TaskType.SIMPLE, {
-      system: SUMMARY_SYSTEM_PROMPT + this._personalityFragment({}, sessionId),
-      messages: [{ role: 'user', content: `Task: ${task.goal}\nOverall status: ${task.status}\nSteps:\n${stepSummary}` }],
-      maxTokens: 200,
-    });
-
-    this.memory.addTurn(sessionId, 'assistant', result.text);
+    const completed = task.steps.filter((step) => step.status === 'completed').length;
+    const failed = task.steps.filter((step) => step.status === 'failed').length;
+    const total = task.steps.length;
+    let reply;
+    if (task.status === 'completed' && failed === 0) {
+      reply = `Completed: ${task.goal}. ${completed} of ${total} step(s) finished successfully.`;
+    } else if (failed > 0) {
+      const failures = task.steps.filter((step) => step.status === 'failed').map((step) => step.description + (step.error ? ': ' + step.error : ''));
+      reply = `The task was not fully completed: ${task.goal}. ${completed} step(s) succeeded and ${failed} failed. ${failures.join('; ')}`;
+    } else {
+      reply = `Task status: ${task.status}. ${task.goal}. ${completed} of ${total} step(s) completed.`;
+    }
+    this.memory.addTurn(sessionId, 'assistant', reply);
     this.activityLog.log({ type: 'executive_verified', detail: { taskId: task.id, status: task.status } });
-    return { action: 'goal', reply: result.text, meta: { task } };
+    return { action: 'goal', reply, meta: { task, deterministic: true } };
   }
 }

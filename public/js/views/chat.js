@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { esc, toast, onDelegate } from '../dom.js';
 import { canSpeakOut, isSpeakOutEnabled, setSpeakOutEnabled, speakOut, stopSpeaking } from '../voice/speak-out.js';
 import { claimAutoVoiceStart } from '../voice/auto-start.js';
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from '../voice/native-bridge.js';
 
 export const title = 'Live Conversation';
 export let cleanup = null;
@@ -284,6 +285,7 @@ let voiceStream = null;
 let voiceChunks = [];
 let voiceBusy = false;
 let voiceConversationActive = false;
+let nativeSpeechActive = false;
 let voiceConversationTimer = null;
 let voiceFallbackNoticeShown = false;
 let liveVideoStream = null;
@@ -565,6 +567,8 @@ function setConversationButton(container, active, label = '') {
 
 function stopVoiceConversation(container, silent = false) {
   voiceConversationActive = false;
+  nativeSpeechActive = false;
+  stopNativeListening();
   if (voiceConversationTimer) clearTimeout(voiceConversationTimer);
   voiceConversationTimer = null;
   if (voiceRecorder && voiceRecorder.state !== 'inactive') {
@@ -587,13 +591,49 @@ function scheduleConversationListen(container, delay = 500) {
 function listenForConversationTurn(container) {
   if (!voiceConversationActive || voiceBusy || (voiceRecorder && voiceRecorder.state !== 'inactive')) return;
 
-  // Hands-free mode uses the same local voice path as push-to-talk.
-  // This avoids relying on vendor-specific browser recognition services.
+  // Prefer Android's installed on-device recognizer inside the XOFT companion.
+  // Normal web sessions use recorded audio + XOFT server STT; browser speech APIs are never used.
+  if (hasNativeSpeechRecognition()) {
+    if (!voiceFallbackNoticeShown) {
+      voiceFallbackNoticeShown = true;
+      toast('Using Android on-device speech recognition. Your audio stays on this device.', 'success');
+    }
+    if (startNativeListening('auto')) {
+      nativeSpeechActive = true;
+      setVoiceStatus('listening', 'LISTENING · ON-DEVICE');
+      setConversationButton(container, true, 'Listening on device…');
+      return;
+    }
+    toast('Android on-device recognition could not start. Switching to XOFT server transcription.', 'warn');
+  }
   if (!voiceFallbackNoticeShown) {
     voiceFallbackNoticeShown = true;
     toast('Voice conversation uses XOFT server transcription (Gemini → OpenAI fallback).', 'info');
   }
   startVoiceRecording(container, { autoSegment: true });
+}
+
+if (!window.__xoftChatNativeTranscriptBound) {
+  window.__xoftChatNativeTranscriptBound = true;
+  window.addEventListener('xoft:native-transcript', (event) => {
+    const detail = event.detail || {};
+    const container = document.querySelector('#content');
+    if (!container || !voiceConversationActive || !nativeSpeechActive) return;
+    if (detail.error) {
+      nativeSpeechActive = false;
+      stopNativeListening();
+      toast('Android on-device STT stopped: ' + detail.error + ' Switching to server transcription.', 'warn');
+      startVoiceRecording(container, { autoSegment: true });
+      return;
+    }
+    if (detail.isFinal === false) return;
+    const transcript = String(detail.text || '').trim();
+    if (!transcript) return;
+    nativeSpeechActive = false;
+    stopNativeListening();
+    voiceBusy = true;
+    void send(container, transcript, { voiceTurn: true }).finally(() => { voiceBusy = false; });
+  });
 }
 
 function toggleVoiceConversation(container) {

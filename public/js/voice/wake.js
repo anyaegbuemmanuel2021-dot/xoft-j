@@ -44,12 +44,29 @@ export function matchWake(transcript, { greetings = DEFAULT_GREETINGS, names = D
  * Only text that follows a matched wake phrase ever leaves this object; non-wake speech is discarded unseen.
  */
 export class VoicePipeline {
-  constructor({ activationWindowMs = 8000, confirmWindowMs = 8000, conversationWindowMs = 45000, conversationMode = false, recognitionGraceMs = 2500, minCommandChars = 2, wake = {}, onState = () => {}, onWake = () => {}, onCommand = () => {}, onNeedConfirm = () => {}, onTimeout = () => {}, onCancel = () => {}, wantRecognizer = () => {} } = {}) {
-    Object.assign(this, { activationWindowMs, confirmWindowMs, conversationWindowMs, conversationMode, recognitionGraceMs, minCommandChars, wake, onState, onWake, onCommand, onNeedConfirm, onTimeout, onCancel, wantRecognizer });
+  constructor({ activationWindowMs = 8000, confirmWindowMs = 8000, conversationWindowMs = 45000, conversationMode = false, continuousRecognition = false, recognitionGraceMs = 2500, minCommandChars = 2, wake = {}, onState = () => {}, onWake = () => {}, onCommand = () => {}, onNeedConfirm = () => {}, onTimeout = () => {}, onCancel = () => {}, wantRecognizer = () => {} } = {}) {
+    Object.assign(this, { activationWindowMs, confirmWindowMs, conversationWindowMs, conversationMode, continuousRecognition, recognitionGraceMs, minCommandChars, wake, onState, onWake, onCommand, onNeedConfirm, onTimeout, onCancel, wantRecognizer });
     this.state = 'idle'; this._deadline = 0; this._pending = null; this._recognitionDeadline = 0; this._conversationUntil = 0;
   }
 
   _set(s) { if (this.state !== s) { this.state = s; this.onState(s); } }
+
+  start() {
+    if (this.continuousRecognition) {
+      this._recognitionDeadline = 0;
+      this._set('wake_listening');
+      this.wantRecognizer(true);
+      return true;
+    }
+    return false;
+  }
+
+  stop() {
+    this.wantRecognizer(false);
+    this._pending = null;
+    this._recognitionDeadline = 0;
+    this._set('idle');
+  }
 
   /** Stop recording at VAD end but keep recognition state briefly: STT completes asynchronously after MediaRecorder stops. */
   vad(event) {
@@ -106,7 +123,11 @@ export class VoicePipeline {
   done() {
     if (this.state === 'submitting') {
       if (this.conversationMode) this._conversationUntil = Date.now() + this.conversationWindowMs;
-      this._set('idle');
+      if (this.continuousRecognition) {
+        this._recognitionDeadline = 0;
+        this._set('wake_listening');
+        this.wantRecognizer(true);
+      } else this._set('idle');
     }
   }
 
