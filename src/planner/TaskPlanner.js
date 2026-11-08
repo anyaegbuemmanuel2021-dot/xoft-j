@@ -326,14 +326,19 @@ export class TaskPlanner {
 
   async _executeTask(taskId) {
     let task = this._getTask(taskId);
-    if (task.status === 'blocked') return task;
+    if (['blocked', 'cancelled', 'completed', 'rolled_back'].includes(task.status)) return task;
 
     const alreadyStarted = Boolean(task.startedAt);
     task = this._updateTask(taskId, (t) => ({ ...t, status: 'running', startedAt: t.startedAt ?? new Date().toISOString() }));
     if (!alreadyStarted) this.eventBus?.emitEvent(EventType.TASK_STARTED, { taskId, goal: task.goal });
 
     for (const step of task.steps) {
-      if (step.status === 'completed') continue;
+      // Cancellation is cooperative: never start another step after the
+      // caller cancels. An already-running tool is allowed to settle because
+      // its external side effect may not be safely interruptible.
+      task = this._getTask(taskId);
+      if (task.status === 'cancelled') break;
+      if (step.status === 'completed' || step.status === 'cancelled') continue;
 
       const dependenciesDone = step.dependsOn.every(
         (depId) => task.steps.find((s) => s.id === depId)?.status === 'completed'
@@ -345,6 +350,7 @@ export class TaskPlanner {
 
       const stepResult = await this._runStep(taskId, step);
       task = this._getTask(taskId);
+      if (task.status === 'cancelled') break;
 
       if (stepResult.status === 'waiting_approval') {
         task = this._updateTask(taskId, (t) => ({ ...t, status: 'waiting_approval' }));
