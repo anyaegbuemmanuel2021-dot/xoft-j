@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { config } from '../src/config/index.js';
-import { VoiceService, pcm16ToWav } from '../src/voice/VoiceService.js';
+import { VoiceService, pcm16ToWav, isSttQuotaError } from '../src/voice/VoiceService.js';
 
 function withKeys({ openai = 'sk-test', gemini = 'g-test', eleven = 'el-test', ttsOrder, hedge, ttsHedge } = {}) {
   const prev = {
@@ -325,7 +325,7 @@ test('STT production policy: Gemini first, short hedge cutoff', () => {
   assert.ok(config.voice.ttsHedgeMs > 0 && config.voice.ttsHedgeMs <= 1500);
 });
 
-test('status() reports Gemini → OpenAI for STT and TTS with browser fallback', () => {
+test('status() reports Gemini → OpenAI for STT and native client TTS fallback', () => {
   const restore = withKeys();
   try {
     const s = new VoiceService().status();
@@ -335,6 +335,11 @@ test('status() reports Gemini → OpenAI for STT and TTS with browser fallback',
     assert.equal(s.tts.provider, 'gemini');
     assert.deepEqual(s.tts.providers, ['gemini', 'openai', 'elevenlabs']);
     assert.equal(s.tts.configured, true);
-    assert.equal(s.tts.fallback, 'browser');
+    assert.equal(s.tts.fallback, 'client-native');
   } finally { restore(); }
+});
+
+test('quota exhaustion is distinguished from transient STT provider errors', () => {
+  assert.equal(isSttQuotaError({ attempts: [{ provider: 'gemini', error: 'timeout' }, { provider: 'openai', error: 'OpenAI transcription error 429 - insufficient_quota: exceeded your current quota' }] }), true);
+  assert.equal(isSttQuotaError({ attempts: [{ provider: 'gemini', error: '502 bad gateway' }, { provider: 'openai', error: '429 rate_limit_exceeded' }] }), false);
 });

@@ -41,3 +41,25 @@ test('client does not retry permanent transcription errors', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('client does not retry a server-reported exhausted provider quota', async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return new Response(JSON.stringify({
+      error: 'STT_QUOTA_EXHAUSTED',
+      message: 'OpenAI fallback is blocked by exhausted API quota or billing limits.',
+      retryable: false,
+    }), { status: 503, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    await assert.rejects(
+      () => transcribe(new Blob(['captured-audio'], { type: 'audio/webm' })),
+      /exhausted API quota or billing limits/
+    );
+    assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
