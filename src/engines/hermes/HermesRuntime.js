@@ -156,14 +156,32 @@ export const randomSecret = (bytes = 32) => crypto.randomBytes(bytes).toString('
  * The values are only ever returned to in-process callers — never logged and never put in an API response by default.
  */
 export class EngineSecretStore {
-  constructor({ dataDir = './data', fileName = 'engine-secrets.json' } = {}) {
+  constructor({ dataDir = './data', fileName = 'engine-secrets.json', sqliteStore = null } = {}) {
     this.dir = path.join(dataDir, 'engines');
     this.file = path.join(this.dir, fileName);
+    this.sqliteStore = sqliteStore;
+    this.sqliteKey = `secrets:${fileName}`;
   }
 
-  _read() { try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return {}; } }
+  _read() {
+    if (this.sqliteStore) {
+      let data = this.sqliteStore.get(this.sqliteKey);
+      if (data === null && fs.existsSync(this.file)) {
+        try {
+          data = JSON.parse(fs.readFileSync(this.file, 'utf8'));
+          this.sqliteStore.set(this.sqliteKey, data);
+        } catch { data = {}; }
+      }
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    }
+    try { return JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { return {}; }
+  }
 
   _write(data) {
+    if (this.sqliteStore) {
+      this.sqliteStore.set(this.sqliteKey, data);
+      return;
+    }
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const tmp = `${this.file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
