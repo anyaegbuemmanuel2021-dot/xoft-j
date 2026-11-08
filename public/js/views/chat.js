@@ -594,9 +594,6 @@ function listenForConversationTurn(container) {
     toast('Voice conversation uses XOFT server transcription (Gemini → OpenAI fallback).', 'info');
   }
   startVoiceRecording(container, { autoSegment: true });
-  return;
-
-
 }
 
 function toggleVoiceConversation(container) {
