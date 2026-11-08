@@ -41,3 +41,21 @@ export function stopNativeSpeech() {
 }
 
 export function hasNativeSpeech() { const native = bridge(); return Boolean(native && typeof native.speak === 'function'); }
+
+/** True only when Android exposes its on-device recognizer and microphone permission is granted. */
+export function hasNativeSpeechRecognition() {
+  const native = bridge();
+  try { return Boolean(native && typeof native.canListenOffline === 'function' && native.canListenOffline() === true); }
+  catch { return false; }
+}
+
+export function startNativeListening(language = 'auto') {
+  const native = bridge();
+  if (!native || typeof native.startListening !== 'function') return false;
+  try { return native.startListening(language) === true; } catch { return false; }
+}
+
+export function stopNativeListening() {
+  const native = bridge();
+  try { native?.stopListening?.(); } catch { /* best effort */ }
+}
