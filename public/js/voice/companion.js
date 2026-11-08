@@ -16,6 +16,7 @@ const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const BACKENDS = {
+  ...(hasNativeSpeechRecognition() ? { 'native-android': { available: true, label: 'On-device Android speech recognition', note: 'Android on-device speech service. Requires an installed offline language pack and microphone permission.' } } : {}),
   'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech is captured locally, detected with local VAD, then transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Auto supports mixed Nigerian English/Pidgin/Igbo.' },
 
 };
@@ -25,7 +26,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
+let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -112,8 +113,24 @@ function stopSegmentRecording() {
   if (chunks.length) void transcribeCapturedChunks(chunks, type);
 }
 
+function fallbackToServerStt(reason) {
+  if ($('backend').value !== 'native-android') return;
+  ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
+  $('backend').value = 'server-stt';
+  stopNativeListening();
+  stop();
+  void start();
+}
+
 function wantRecognizer(on) {
-  if ($('backend').value === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
+  recognizerWanted = on;
+  const backend = $('backend').value;
+  if (backend === 'native-android') {
+    if (on && !startNativeListening(selectedLanguage())) fallbackToServerStt('recognizer could not start');
+    if (!on) stopNativeListening();
+    return;
+  }
+  if (backend === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
 }
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
@@ -200,7 +217,33 @@ function buildPipeline() {
   const origSubmit = pipeline._submit.bind(pipeline); pipeline._submit = (c) => { hideConfirm(); origSubmit(c); };
 }
 
+window.addEventListener('xoft:native-transcript', (event) => {
+  const detail = event.detail || {};
+  if ($('backend').value !== 'native-android') return;
+  if (detail.error) {
+    ui.log('Android on-device STT: ' + detail.error);
+    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) fallbackToServerStt(detail.error);
+    return;
+  }
+  const transcript = String(detail.text || '').trim();
+  if (transcript) {
+    $('transcript').textContent = transcript;
+    ui.log('heard (Android on-device): ' + transcript);
+    pipeline?.transcript(transcript, detail.isFinal !== false);
+  }
+});
+
 async function start() {
+  if ($('backend').value === 'native-android') {
+    buildPipeline(true);
+    pipeline.start();
+    if ($('backend').value !== 'native-android') return;
+    timer = setInterval(() => pipeline?.tick(Date.now()), 250);
+    ui.pill('mic', 'mic: on-device Android', 'ok');
+    $('start').disabled = true; $('stop').disabled = false;
+    ui.log('Android on-device recognizer started; waiting for the wake phrase.');
+    return;
+  }
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
   // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
   // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
@@ -266,7 +309,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  clearInterval(timer); timer = null; stopNativeListening(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
   activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
