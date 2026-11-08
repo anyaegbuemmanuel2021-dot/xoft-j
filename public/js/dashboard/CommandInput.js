@@ -76,6 +76,7 @@ export function mountCommandInput(el, store, controller) {
   let recorder = null;
   let stream = null;
   let serverListener = null;
+  // AUTO LISTEN sends recorded audio to XOFT server transcription (Gemini → OpenAI fallback).
   let autoListening = false;
   let wakeArmed = false;
   let isSpeaking = false;
