@@ -325,7 +325,7 @@ test('STT production policy: Gemini first, short hedge cutoff', () => {
   assert.ok(config.voice.ttsHedgeMs > 0 && config.voice.ttsHedgeMs <= 1500);
 });
 
-test('status() reports Gemini → OpenAI for STT and TTS with browser fallback', () => {
+test('status() reports Gemini → OpenAI for STT and native client TTS fallback', () => {
   const restore = withKeys();
   try {
     const s = new VoiceService().status();
@@ -335,7 +335,7 @@ test('status() reports Gemini → OpenAI for STT and TTS with browser fallback',
     assert.equal(s.tts.provider, 'gemini');
     assert.deepEqual(s.tts.providers, ['gemini', 'openai', 'elevenlabs']);
     assert.equal(s.tts.configured, true);
-    assert.equal(s.tts.fallback, 'browser');
+    assert.equal(s.tts.fallback, 'client-native');
   } finally { restore(); }
 });
 
