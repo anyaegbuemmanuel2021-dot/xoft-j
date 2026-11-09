@@ -15,8 +15,8 @@ import { DeviceRiskLevel } from '../../devices/DeviceManager.js';
  *  - Agent-side ActionPolicy is a second, independent gate behind these.
  */
 const DRM = DeviceRiskLevel;
-const dev = { deviceId: { type: 'string', description: 'Target device id from GET /api/devices' } };
-const locator = { type: 'object', description: 'Exactly one of {selector} (CSS) or {text} (visible text); optional index to pick the nth match.', properties: { selector: { type: 'string', maxLength: 500 }, text: { type: 'string', maxLength: 200 }, index: { type: 'integer', minimum: 0 } } };
+const dev = { deviceId: { type: 'string', minLength: 1, maxLength: 200, description: 'Target device id from GET /api/devices' } };
+const locator = { type: 'object', description: 'Exactly one of {selector} (CSS) or {text} (visible text); optional index to pick the nth match.', properties: { selector: { type: 'string', minLength: 1, maxLength: 500 }, text: { type: 'string', minLength: 1, maxLength: 200 }, index: { type: 'integer', minimum: 0 } }, oneOf: [{ required: ['selector'] }, { required: ['text'] }], additionalProperties: false };
 const ctxOf = (ctx) => ({ missionId: ctx?.missionId ?? ctx?.taskId ?? null, agent: ctx?.agent ?? 'xoft', reason: ctx?.reason ?? null });
 
 export function buildRuntimeTools({ deviceManager }) {
@@ -30,7 +30,7 @@ export function buildRuntimeTools({ deviceManager }) {
     // ---------------- browser (CDP) ----------------
     T('browser_list_tabs', 'List open browser tabs (id, title, url) on the device. Requires Chrome/Chromium with remote debugging enabled.', {}, [], ['browser.read'], RiskLevel.SAFE, run('browser', 'list_tabs', DRM.LOW)),
     T('browser_attach_tab', 'Attach to an existing browser tab by id so later browser_* calls act on it.', { tabId: { type: 'string' } }, ['tabId'], ['browser.read'], RiskLevel.LOW, run('browser', 'attach_tab', DRM.LOW)),
-    T('browser_new_tab', 'Open a new tab (http/https only) and attach to it.', { url: { type: 'string' } }, [], ['browser.navigate'], RiskLevel.LOW, run('browser', 'new_tab', DRM.LOW)),
+    T('browser_new_tab', 'Open a new tab (http/https only) and attach to it.', { url: { type: 'string', minLength: 8, maxLength: 2048, pattern: '^https?://' } }, [], ['browser.navigate'], RiskLevel.LOW, run('browser', 'new_tab', DRM.LOW)),
     T('browser_navigate', 'Navigate the attached tab to an http/https URL and wait for load. Returns the final URL and whether it redirected to a different host.', { url: { type: 'string' } }, ['url'], ['browser.navigate'], RiskLevel.LOW, run('browser', 'navigate', DRM.LOW, 45000)),
     T('browser_back', 'Go back in the attached tab history.', {}, [], ['browser.navigate'], RiskLevel.LOW, run('browser', 'back', DRM.LOW, 45000)),
     T('browser_forward', 'Go forward in the attached tab history.', {}, [], ['browser.navigate'], RiskLevel.LOW, run('browser', 'forward', DRM.LOW, 45000)),
