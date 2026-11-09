@@ -11,7 +11,7 @@ function fakeBrowser(cfg = {}) {
     url: 'https://a.test/', title: 'A', mouse: [], keys: [], inserted: [], evalTags: [],
     fp: { url: 'https://a.test/', title: 'A', textLen: 10, nodes: 5 },
     prep: { ok: true, x: 100, y: 50, covered: false, target: { tag: 'button' } },
-    fillVerify: { ok: true, length: 3, matches: true }, clickChangesPage: true, closeOn: null, closeCount: 0,
+    fillVerify: { ok: true, length: 3, matches: true }, clickChangesPage: true, closeOn: null, closeCount: 0, stopLoadingCount: 0,
     pages: [{ id: 'T1', type: 'page', title: 'A', url: 'https://a.test/', webSocketDebuggerUrl: 'ws://127.0.0.1:9222/devtools/page/T1' }],
     ...cfg,
   };
@@ -19,7 +19,8 @@ function fakeBrowser(cfg = {}) {
     respond: async (method, params, ws) => {
       switch (method) {
         case 'Page.enable': case 'Runtime.enable': case 'DOM.enable': return {};
-        case 'Page.navigate': state.url = params.url; setTimeout(() => ws.emit('Page.loadEventFired', {}), 1); return { frameId: 'F' };
+        case 'Page.stopLoading': state.stopLoadingCount += 1; return {};
+        case 'Page.navigate': state.url = cfg.redirectUrl ?? params.url; setTimeout(() => ws.emit('Page.loadEventFired', {}), 1); return { frameId: 'F' };
         case 'Page.captureScreenshot': state.lastShot = params; return { data: 'UE5HREFUQQ==' };
         case 'Page.getLayoutMetrics': return { cssContentSize: { width: 800, height: 2400 } };
         case 'Input.dispatchMouseEvent':
@@ -73,6 +74,19 @@ test('navigate waits for load and verifies final URL', async () => {
   assert.equal(r.success, true);
   assert.equal(state.url, 'https://example.org/x');
   assert.equal(r.verification.evidence.finalUrl, 'https://example.org/x');
+});
+
+test('navigation rejects and stops redirects to blocked hosts or unsafe schemes', async () => {
+  const blocked = fakeBrowser({ redirectUrl: 'https://evil.test/steal', ctl: { policy: { blockedHosts: ['evil.test'] } } });
+  const blockedResult = await blocked.b.navigate('https://safe.test/start');
+  assert.equal(blockedResult.success, false);
+  assert.match(blockedResult.error, /redirected to a URL blocked by policy/i);
+  assert.equal(blocked.state.stopLoadingCount, 1);
+
+  const unsafe = fakeBrowser({ redirectUrl: 'file:///etc/passwd' });
+  const unsafeResult = await unsafe.b.navigate('https://safe.test/start');
+  assert.equal(unsafeResult.success, false);
+  assert.equal(unsafe.state.stopLoadingCount, 1);
 });
 
 test('navigation policy blocks dangerous schemes, credentials and blocked hosts before touching the browser', async () => {
