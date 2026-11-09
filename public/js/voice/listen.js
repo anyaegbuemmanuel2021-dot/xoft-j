@@ -185,3 +185,9 @@ export function createServerListener({ onSegment, onLevel = () => {}, onError = 
 
   return { start, stop };
 }
+
+
+/** Resolve the actual recorder MIME type, retaining the selected option if the browser omits mimeType. */
+export function recordedMimeType(recorder, options = {}) {
+  return String(recorder?.mimeType || options?.mimeType || 'audio/webm').trim();
+}

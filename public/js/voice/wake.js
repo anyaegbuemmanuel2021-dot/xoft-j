@@ -52,7 +52,7 @@ export class VoicePipeline {
   _set(s) { if (this.state !== s) { this.state = s; this.onState(s); } }
 
   start() {
-    if (this.continuousRecognition) {
+    if (this.continuousRecognition && this.state === 'idle') {
       this._recognitionDeadline = 0;
       this._set('wake_listening');
       this.wantRecognizer(true);
@@ -62,9 +62,9 @@ export class VoicePipeline {
   }
 
   stop() {
-    this.wantRecognizer(false);
     this._pending = null;
     this._recognitionDeadline = 0;
+    this.wantRecognizer(false);
     this._set('idle');
   }
 
@@ -117,7 +117,17 @@ export class VoicePipeline {
 
   /** UI tap or spoken "yes" for a risky command. Never auto-confirmed; times out to cancel. */
   confirm() { if (this.state === 'confirming' && this._pending) this._submit(this._pending); }
-  cancel(reason = 'cancelled') { if (this._pending || this.state !== 'idle') { this._pending = null; this.wantRecognizer(false); this._set('idle'); this.onCancel(reason); } }
+  cancel(reason = 'cancelled') {
+    if (!this._pending && this.state === 'idle') return;
+    this._pending = null;
+    this.wantRecognizer(false);
+    this.onCancel(reason);
+    if (this.continuousRecognition) {
+      this._recognitionDeadline = 0;
+      this._set('wake_listening');
+      this.wantRecognizer(true);
+    } else this._set('idle');
+  }
 
   /** Call only after XOFT's spoken reply finishes, so the assistant does not capture its own voice. */
   done() {
@@ -133,7 +143,15 @@ export class VoicePipeline {
 
   tick(now = Date.now()) {
     if ((this.state === 'awaiting_command' || this.state === 'confirming') && now >= this._deadline) {
-      const was = this.state; this._pending = null; this.wantRecognizer(false); this._set('idle'); (was === 'confirming' ? this.onCancel : this.onTimeout)(was === 'confirming' ? 'confirmation timed out' : 'no command heard');
+      const was = this.state;
+      this._pending = null;
+      this.wantRecognizer(false);
+      (was === 'confirming' ? this.onCancel : this.onTimeout)(was === 'confirming' ? 'confirmation timed out' : 'no command heard');
+      if (this.continuousRecognition) {
+        this._recognitionDeadline = 0;
+        this._set('wake_listening');
+        this.wantRecognizer(true);
+      } else this._set('idle');
     }
     if (this.state === 'wake_listening' && this._recognitionDeadline > 0 && now >= this._recognitionDeadline) {
       this._recognitionDeadline = 0;
