@@ -167,7 +167,7 @@ test('Stopping or restarting the live voice session invalidates old replies and 
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /activeChatRequestController\?\.abort\(\)/);
   assert.match(companion, /if \(commandGeneration === voiceSessionGeneration\) \{\s*if \(reply\) await speakReply\(reply\);\s*if \(commandGeneration === voiceSessionGeneration\) commandPipeline\?\.done\(\);\s*\}/);
-  assert.match(companion, /async function start\(\) \{\s*voiceSessionGeneration \+= 1;/);
+  assert.match(companion, /async function start\(\) \{\s*const startGeneration = \+\+voiceSessionGeneration;/);
   assert.match(companion, /function stop\(\) \{\s*voiceSessionGeneration \+= 1;/);
 });
 
