@@ -239,7 +239,7 @@ class LiveActivity : Activity() {
             } catch (error: Exception) {
                 if (audioCaptureWanted) dispatchNativeAudioError("Android audio capture failed: " + (error.message ?: "unknown error"))
             } finally {
-                if (active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
+                if (audioCaptureWanted && active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
                 try { recorder.stop() } catch (_: Exception) { }
                 recorder.release()
                 if (audioRecord === recorder) audioRecord = null
