@@ -4,6 +4,40 @@ import { ExecutiveClassifier, ExecutiveAction } from './ExecutiveClassifier.js';
 
 const CONFIDENCE_THRESHOLD = 55;
 
+/**
+ * Small, unambiguous conversational turns are handled locally.
+ * This keeps greetings, acknowledgements and basic XOFT help independent of
+ * model availability, network latency and provider quotas.
+ */
+export function deterministicConversation(message) {
+  const text = String(message ?? '').trim().replace(/[.!?]+$/g, '').toLowerCase();
+  if (!text || text.length > 100) return null;
+
+  if (/^(?:hi|hello|hey|hello xoft|hey xoft|good morning|good afternoon|good evening|how far|wetin dey|how you dey|you dey|ndewo|kedụ|kedu)$/.test(text)) {
+    if (/^(?:how far|wetin dey|how you dey|you dey)$/.test(text)) return "I dey here. How I fit help you?";
+    if (/^(?:ndewo|kedụ|kedu)$/.test(text)) return "Ndewo! Kedu ka m ga-esi nyere gị aka?";
+    return "Hello. I'm here and ready to help. What would you like me to do?";
+  }
+
+  if (/^(?:thanks|thank you|thanks xoft|thank you xoft|i appreciate it|nice one)$/.test(text)) {
+    return "You're welcome. I'm ready for the next task.";
+  }
+
+  if (/^(?:who are you|what are you|what is xoft|introduce yourself)$/.test(text)) {
+    return "I'm XOFT, your assistant. I use built-in rules and tools for tasks they can handle, and only call an AI model when a request genuinely needs language reasoning.";
+  }
+
+  if (/^(?:help|what can you do|show help|help me)$/.test(text)) {
+    return "I can handle supported commands, calculations, date and time, memory requests, task execution and connected tools. I use deterministic logic first; requests outside those rules may need an AI provider.";
+  }
+
+  if (/^(?:are you there|you there|are you online|xoft status)$/.test(text)) {
+    return "Yes. XOFT is running and listening. Tell me what you need.";
+  }
+
+  return null;
+}
+
 /** Parse only explicit arithmetic requests. Anything conversational stays on the normal route. */
 function deterministicCalculation(message) {
   const text = String(message ?? '').trim();
@@ -97,6 +131,14 @@ export class ExecutiveBrain {
    * @returns {Promise<{action:string, reply:string, meta?:object}>}
    */
   async handle(sessionId, message) {
+    // Deterministic conversation fast path: no classifier or generative model.
+    const localReply = deterministicConversation(message);
+    if (localReply) {
+      this.memory.addTurn(sessionId, 'user', message);
+      this.memory.addTurn(sessionId, 'assistant', localReply);
+      this.activityLog?.log({ type: 'deterministic_conversation', detail: { sessionId } });
+      return { action: 'conversation', reply: localReply, meta: { deterministic: true, modelUsed: false } };
+    }
     // Exact arithmetic is a deterministic local operation; don't pay for an intent
     // classifier or planner model when the request is unambiguous.
     if (deterministicDateTime(message)) {
