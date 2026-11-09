@@ -103,6 +103,14 @@ test('Voice command HTTP helper passes cancellation through and returns server r
   assert.equal(result.reply, 'Done');
 });
 
+test('Voice transcription discards segments and results from an earlier session', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.match(companion, /sessionGeneration !== voiceSessionGeneration/);
+  assert.match(companion, /transcribeCapturedChunks\(chunks, type, recorderSessionGeneration\)/);
+  const android = read('android-companion/app/src/main/java/com/xoft/companion/LiveActivity.kt');
+  assert.match(android, /audioCaptureWanted && active && segment\.size\(\)/);
+});
+
 test('Stopping or restarting the live voice session invalidates old replies and aborts the active request', () => {
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /activeChatRequestController\?\.abort\(\)/);
