@@ -91,3 +91,13 @@ export async function transcribe(blob, onStatus = () => {}, language = 'auto') {
     : `Transcribed by XOFT (${result.provider}) in ${Math.round(result.ms)} ms`);
   return result.text;
 }
+
+/** Decode Android AudioRecord's base64 WAV payload and use the same server-side Gemini → OpenAI pipeline. */
+export async function transcribeNativeAudio(base64, language = 'auto', onStatus = () => {}) {
+  if (typeof base64 !== 'string' || !base64.length) throw new Error('Native audio payload is empty.');
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: 'audio/wav' });
+  return transcribe(blob, onStatus, language);
+}
