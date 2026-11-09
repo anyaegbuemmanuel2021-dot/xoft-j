@@ -40,6 +40,7 @@ class LiveActivity : Activity() {
     @Volatile private var ttsReady = false
     private var textToSpeech: TextToSpeech? = null
     @Volatile private var audioCaptureWanted = false
+    @Volatile private var pendingAudioStart = false
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var audioThread: Thread? = null
     private val speechHandler = Handler(Looper.getMainLooper())
@@ -105,7 +106,17 @@ class LiveActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_MIC && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) web.reload()
+        if (requestCode == REQUEST_MIC) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+                if (pendingAudioStart) {
+                    pendingAudioStart = false
+                    startAudioCapture()
+                } else if (::web.isInitialized) web.reload()
+            } else {
+                pendingAudioStart = false
+                dispatchNativeTranscript("", true, "Microphone permission was denied.")
+            }
+        }
     }
 
     override fun onResume() {
@@ -197,7 +208,7 @@ class LiveActivity : Activity() {
                         i += 2
                     }
                     val rms = if (i == 0) 0.0 else sqrt(sum / (i / 2))
-                    val voiced = rms >= 520.0
+                    val voiced = rms >= 260.0
                     if (!active) {
                         preRoll.addLast(exact)
                         while (preRoll.size > 17) preRoll.removeFirst() // ~510 ms
@@ -283,14 +294,19 @@ class LiveActivity : Activity() {
     inner class Bridge {
         @JavascriptInterface
         fun canCaptureAudio(): Boolean {
-            return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                && Build.VERSION.SDK_INT >= 26
+            // Advertise the native capture capability before the first runtime permission prompt.
+            return Build.VERSION.SDK_INT >= 26
         }
 
         @JavascriptInterface
         fun startAudioListening(language: String): Boolean {
-            if (!canCaptureAudio() || audioCaptureWanted) return false
+            if (!canCaptureAudio() || audioCaptureWanted || pendingAudioStart) return false
             audioLanguage = if (language == "ig") "ig" else if (language == "en") "en" else "auto"
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                pendingAudioStart = true
+                runOnUiThread { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC) }
+                return true
+            }
             runOnUiThread { startAudioCapture() }
             return true
         }
