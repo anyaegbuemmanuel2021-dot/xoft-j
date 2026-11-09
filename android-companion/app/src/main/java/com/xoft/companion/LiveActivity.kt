@@ -276,6 +276,8 @@ class LiveActivity : Activity() {
     }
 
     private fun stopAudioCapture() {
+        // A permission dialog may still be open; stopping the session must cancel its deferred start.
+        pendingAudioStart = false
         audioCaptureWanted = false
         try { audioRecord?.stop() } catch (_: Exception) { }
         audioThread?.interrupt()
