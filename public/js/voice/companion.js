@@ -27,7 +27,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
+let recorder = null; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -178,20 +178,30 @@ function buildPipeline(continuousRecognition = false) {
   const origSubmit = pipeline._submit.bind(pipeline); pipeline._submit = (c) => { hideConfirm(); origSubmit(c); };
 }
 
-window.addEventListener('xoft:native-audio', async (event) => {
+window.addEventListener('xoft:native-audio-error', (event) => {
+  const reason = String(event.detail?.error || 'native microphone capture failed');
+  ui.log('Android AudioRecord: ' + reason);
+  fallbackToServerStt(reason);
+});
+
+window.addEventListener('xoft:native-audio', (event) => {
   const detail = event.detail || {};
   if ($('backend').value !== 'native-android' || !detail.base64) return;
-  try {
-    ui.log('native Android PCM segment captured; sending WAV to XOFT Gemini → OpenAI STT');
-    const transcript = await transcribeNativeAudio(detail.base64, detail.language || selectedLanguage(), (message) => ui.log(message));
-    if (transcript) {
-      $('transcript').textContent = transcript;
-      ui.log('heard (native audio / server STT): ' + transcript);
-      pipeline?.transcript(transcript, true);
+  // Keep segments ordered; overlapping provider calls can return out of order and confuse the wake pipeline.
+  nativeTranscriptionQueue = nativeTranscriptionQueue.then(async () => {
+    if ($('backend').value !== 'native-android') return;
+    try {
+      ui.log('native Android PCM segment captured; sending WAV to XOFT Gemini → OpenAI STT');
+      const transcript = await transcribeNativeAudio(detail.base64, detail.language || selectedLanguage(), (message) => ui.log(message));
+      if (transcript) {
+        $('transcript').textContent = transcript;
+        ui.log('heard (native audio / server STT): ' + transcript);
+        pipeline?.transcript(transcript, true);
+      }
+    } catch (error) {
+      ui.log('native audio transcription failed: ' + error.message);
     }
-  } catch (error) {
-    ui.log('native audio transcription failed: ' + error.message);
-  }
+  }).catch((error) => ui.log('native STT queue error: ' + error.message));
 });
 
 async function start() {
