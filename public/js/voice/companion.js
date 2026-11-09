@@ -29,7 +29,7 @@ const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}
 
 let voiceSessionGeneration = 0;
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let recorderSessionGeneration = 0; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
+let recorder = null; let recorderSessionGeneration = 0; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let activeSttControllers = new Set(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -50,8 +50,10 @@ async function transcribeCapturedChunks(chunks, type, sessionGeneration = voiceS
     ui.log('audio segment was too small to transcribe; check microphone input and speech gate');
     return;
   }
+  const controller = new AbortController();
+  activeSttControllers.add(controller);
   try {
-    const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage());
+    const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage(), { signal: controller.signal });
     if (sessionGeneration !== voiceSessionGeneration) return;
     if (transcript) {
       $('transcript').textContent = transcript;
@@ -59,7 +61,9 @@ async function transcribeCapturedChunks(chunks, type, sessionGeneration = voiceS
       pipeline?.transcript(transcript, true);
     } else ui.log('No speech was recognized in this segment.');
   } catch (err) {
-    if (sessionGeneration === voiceSessionGeneration) ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message);
+    if (sessionGeneration === voiceSessionGeneration && err?.name !== 'AbortError') ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message);
+  } finally {
+    activeSttControllers.delete(controller);
   }
 }
 
@@ -212,9 +216,11 @@ window.addEventListener('xoft:native-audio', (event) => {
   const sessionGeneration = voiceSessionGeneration;
   nativeTranscriptionQueue = nativeTranscriptionQueue.then(async () => {
     if ($('backend').value !== 'native-android' || !recognizerWanted || sessionGeneration !== voiceSessionGeneration) return;
+    const controller = new AbortController();
+    activeSttControllers.add(controller);
     try {
       ui.log('native Android PCM segment captured; sending WAV to XOFT Gemini → OpenAI STT');
-      const transcript = await transcribeNativeAudio(detail.base64, detail.language || selectedLanguage(), (message) => ui.log(message));
+      const transcript = await transcribeNativeAudio(detail.base64, detail.language || selectedLanguage(), (message) => ui.log(message), { signal: controller.signal });
       if (sessionGeneration !== voiceSessionGeneration || !recognizerWanted) return;
       if (transcript) {
         $('transcript').textContent = transcript;
@@ -222,7 +228,9 @@ window.addEventListener('xoft:native-audio', (event) => {
         pipeline?.transcript(transcript, true);
       }
     } catch (error) {
-      ui.log('native audio transcription failed: ' + error.message);
+      if (sessionGeneration === voiceSessionGeneration && error?.name !== 'AbortError') ui.log('native audio transcription failed: ' + error.message);
+    } finally {
+      activeSttControllers.delete(controller);
     }
   }).catch((error) => ui.log('native STT queue error: ' + error.message));
 });
@@ -309,6 +317,9 @@ function stop() {
   voiceSessionGeneration += 1;
   clearInterval(timer); timer = null; pipeline?.stop(); stopNativeAudioCapture(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
   activeChatRequestController?.abort(); activeChatRequestController = null;
+  for (const controller of activeSttControllers) controller.abort();
+  activeSttControllers.clear();
+  nativeTranscriptionQueue = Promise.resolve();
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
   if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
