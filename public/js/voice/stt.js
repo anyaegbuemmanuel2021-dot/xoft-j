@@ -38,17 +38,44 @@ async function transcribeOnServer(blob, language = 'auto', externalSignal) {
   const controller = new AbortController();
   const forwardAbort = () => controller.abort(externalSignal?.reason);
   externalSignal?.addEventListener('abort', forwardAbort, { once: true });
-  // A sleeping Render free instance can take time to wake. Allow the request to reach it.
+  // Keep the timeout active until the response body has been consumed, not merely until headers arrive.
   const timer = setTimeout(() => controller.abort(), 60000);
-  let res;
   try {
-    res = await voiceFetch('/api/voice/transcribe', {
+    const res = await voiceFetch('/api/voice/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': blob.type || 'audio/webm', 'X-Xoft-STT-Language': language },
       body: blob,
       cache: 'no-store',
       signal: controller.signal,
     });
+    throwIfAborted(externalSignal);
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throwIfAborted(externalSignal);
+      let payload = null;
+      try { payload = detail ? JSON.parse(detail) : null; } catch { /* plain-text server error */ }
+      const reason = payload?.message || payload?.error || detail.slice(0, 240);
+      const error = new Error(`XOFT server transcription returned ${res.status}${reason ? `: ${reason}` : ''}`);
+      error.status = res.status;
+      error.code = payload?.error || null;
+      error.retryable = payload?.retryable === false ? false : RETRYABLE_HTTP.has(res.status);
+      const retryAfter = res.headers?.get?.('retry-after');
+      if (retryAfter) {
+        const seconds = Number(retryAfter);
+        const parsed = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
+        if (Number.isFinite(parsed) && parsed >= 0) error.retryAfterMs = parsed;
+      }
+      throw error;
+    }
+    const data = await res.json();
+    throwIfAborted(externalSignal);
+    const text = String(data?.text || '').trim();
+    if (!text) throw new Error('XOFT server returned an empty transcript. Try speaking closer to the microphone.');
+    return {
+      text,
+      provider: data?.provider || 'server',
+      ms: Number.isFinite(Number(data?.ms)) ? Number(data.ms) : null,
+    };
   } catch (error) {
     if (externalSignal?.aborted) throw abortError();
     if (error?.name === 'AbortError') throw new Error('XOFT server transcription timed out after 60 seconds. Check the server and try again.');
@@ -57,32 +84,6 @@ async function transcribeOnServer(blob, language = 'auto', externalSignal) {
     clearTimeout(timer);
     externalSignal?.removeEventListener('abort', forwardAbort);
   }
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    let payload = null;
-    try { payload = detail ? JSON.parse(detail) : null; } catch { /* plain-text server error */ }
-    const reason = payload?.message || payload?.error || detail.slice(0, 240);
-    const error = new Error(`XOFT server transcription returned ${res.status}${reason ? `: ${reason}` : ''}`);
-    error.status = res.status;
-    error.code = payload?.error || null;
-    error.retryable = payload?.retryable === false ? false : RETRYABLE_HTTP.has(res.status);
-    const retryAfter = res.headers?.get?.('retry-after');
-    if (retryAfter) {
-      const seconds = Number(retryAfter);
-      const parsed = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
-      if (Number.isFinite(parsed) && parsed >= 0) error.retryAfterMs = parsed;
-    }
-    throw error;
-  }
-  const data = await res.json();
-  throwIfAborted(externalSignal);
-  const text = String(data?.text || '').trim();
-  if (!text) throw new Error('XOFT server returned an empty transcript. Try speaking closer to the microphone.');
-  return {
-    text,
-    provider: data?.provider || 'server',
-    ms: Number.isFinite(Number(data?.ms)) ? Number(data.ms) : null,
-  };
 }
 
 /** Send a captured audio Blob to XOFT's server-side Gemini → OpenAI transcription pipeline. */
