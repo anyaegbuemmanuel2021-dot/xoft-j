@@ -57,7 +57,7 @@ function deterministicCalculation(message) {
 
 
 /** Deterministic unit conversion. No model, network, or browser dependency. */
-function deterministicConversion(message) {
+export function deterministicConversion(message) {
   const text = String(message ?? '').trim();
   if (!text || text.length > 120) return null;
   const match = text.match(/^(?:hey\\s+)?xoft[,! ]*(?:please\\s+)?convert\\s+(-?\\d+(?:\\.\\d+)?)\\s*([a-z]+)\\s+to\\s+([a-z]+)[?.!]*$/i);
