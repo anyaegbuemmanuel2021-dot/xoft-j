@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { postVoiceCommand } from '../public/js/voice/command-request.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -68,6 +70,53 @@ test('Voice companion prefers native Android STT and retains server STT fallback
   assert.match(companion, /preferredRecorderOptions/);
   assert.match(companion, /blob\.size < 300/, 'short wake phrases must not be discarded by a high byte threshold');
   assert.match(companion, /Gemini → OpenAI fallback/);
+});
+
+test('Voice companion module parses as valid JavaScript before runtime', () => {
+  const result = spawnSync(process.execPath, ['--check', path.join(root, 'public/js/voice/companion.js')], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout || 'companion.js failed syntax validation');
+});
+
+test('Voice command HTTP helper passes cancellation through and returns server replies', async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  const pending = postVoiceCommand({
+    fetchImpl: async (_url, options) => {
+      receivedSignal = options.signal;
+      return await new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    },
+    sessionId: 'test-session',
+    message: 'test command',
+    signal: controller.signal,
+  });
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+
+  const result = await postVoiceCommand({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ reply: 'Done' }) }),
+    sessionId: 'test-session',
+    message: 'test command',
+  });
+  assert.equal(result.reply, 'Done');
+});
+
+test('Voice transcription discards segments and results from an earlier session', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.match(companion, /sessionGeneration !== voiceSessionGeneration/);
+  assert.match(companion, /transcribeCapturedChunks\(chunks, type, recorderSessionGeneration\)/);
+  const android = read('android-companion/app/src/main/java/com/xoft/companion/LiveActivity.kt');
+  assert.match(android, /audioCaptureWanted && active && segment\.size\(\)/);
+});
+
+test('Stopping or restarting the live voice session invalidates old replies and aborts the active request', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.match(companion, /activeChatRequestController\?\.abort\(\)/);
+  assert.match(companion, /if \(reply && commandGeneration === voiceSessionGeneration\) await speakReply\(reply\)/);
+  assert.match(companion, /async function start\(\) \{\s*voiceSessionGeneration \+= 1;/);
+  assert.match(companion, /function stop\(\) \{\s*voiceSessionGeneration \+= 1;/);
 });
 
 test('Speech output prefers native Android TTS, then server TTS, and never uses browser synthesis', () => {

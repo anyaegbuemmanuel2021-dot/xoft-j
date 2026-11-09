@@ -239,7 +239,7 @@ class LiveActivity : Activity() {
             } catch (error: Exception) {
                 if (audioCaptureWanted) dispatchNativeAudioError("Android audio capture failed: " + (error.message ?: "unknown error"))
             } finally {
-                if (active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
+                if (audioCaptureWanted && active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
                 try { recorder.stop() } catch (_: Exception) { }
                 recorder.release()
                 if (audioRecord === recorder) audioRecord = null
@@ -276,6 +276,8 @@ class LiveActivity : Activity() {
     }
 
     private fun stopAudioCapture() {
+        // A permission dialog may still be open; stopping the session must cancel its deferred start.
+        pendingAudioStart = false
         audioCaptureWanted = false
         try { audioRecord?.stop() } catch (_: Exception) { }
         audioThread?.interrupt()
