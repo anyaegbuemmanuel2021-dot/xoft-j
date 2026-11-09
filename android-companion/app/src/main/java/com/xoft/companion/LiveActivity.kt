@@ -197,7 +197,8 @@ class LiveActivity : Activity() {
             try {
                 while (audioCaptureWanted && !Thread.currentThread().isInterrupted) {
                     val read = recorder.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
-                    if (read <= 0) continue
+                    if (read < 0) throw IllegalStateException("AudioRecord.read failed: " + read)
+                    if (read == 0) continue
                     val exact = if (read == frame.size) frame.copyOf() else frame.copyOf(read - (read % 2))
                     if (exact.isEmpty()) continue
                     var sum = 0.0
