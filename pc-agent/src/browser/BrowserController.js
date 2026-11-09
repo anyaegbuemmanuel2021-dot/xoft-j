@@ -142,6 +142,12 @@ class BrowserController {
     if (!p.ok) { this.guard.audit?.('browser.navigate.denied', { url, reason: p.reason }); return Promise.resolve({ success: false, error: p.reason }); }
     return this._run('navigate', async ({ page }) => {
       const info = await page.navigate(p.url);
+      const finalPolicy = checkUrl(info.url, this.policy);
+      if (!finalPolicy.ok) {
+        await page.stopLoading().catch(() => {});
+        this.guard.audit?.('browser.navigate.redirect_denied', { requestedUrl: p.url, finalUrl: info.url, reason: finalPolicy.reason });
+        return { success: false, error: `Navigation was redirected to a URL blocked by policy: ${finalPolicy.reason}`, data: { requestedUrl: p.url, finalUrl: info.url } };
+      }
       const sameHost = (() => { try { return new URL(info.url).hostname === new URL(p.url).hostname; } catch { return false; } })();
       return { data: info, verification: { verified: true, evidence: { requested: p.url, finalUrl: info.url, redirectedToDifferentHost: !sameHost, readyState: info.readyState } } };
     });
