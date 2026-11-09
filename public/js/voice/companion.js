@@ -6,7 +6,8 @@ import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
-import { fetchSpeechAudio } from './tts.js';
+import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
+import { speakOut } from './speak-out.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -137,49 +138,8 @@ function wantRecognizer(on) {
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
 async function speakReply(text) {
   if (!speechOutputEnabled() || !text) return;
-  let audio = null;
-  let objectUrl = null;
-  const controller = new AbortController();
-  activeSpeechRequestController?.abort();
-  activeSpeechRequestController = controller;
-  try {
-    const result = await fetchSpeechAudio(text, { requestHeaders: headers(), signal: controller.signal });
-    activeSpeechCancel?.();
-    activeSpeechAudio?.pause();
-    if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl);
-    objectUrl = URL.createObjectURL(result.audio);
-    activeSpeechUrl = objectUrl;
-    audio = new Audio(objectUrl);
-    activeSpeechAudio = audio;
-    audio.preload = 'auto';
-    ui.log('TTS audio ready (' + result.provider + ', ' + result.contentType + ')');
-    await new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (error = null) => {
-        if (settled) return;
-        settled = true;
-        if (activeSpeechCancel === cancel) activeSpeechCancel = null;
-        if (error) reject(error); else resolve();
-      };
-      const cancel = () => finish();
-      activeSpeechCancel = cancel;
-      audio.onended = () => finish();
-      audio.onerror = () => finish(new Error('The device could not play XOFT audio.'));
-      audio.play().catch(finish);
-    });
-  } catch (error) {
-    if (error?.name !== 'AbortError') ui.log('XOFT server TTS failed: ' + error.message);
-  } finally {
-    if (activeSpeechRequestController === controller) activeSpeechRequestController = null;
-    if (audio) {
-      if (activeSpeechAudio === audio) activeSpeechAudio = null;
-      try { audio.pause(); } catch { /* already stopped */ }
-    }
-    if (objectUrl) {
-      if (activeSpeechUrl === objectUrl) activeSpeechUrl = null;
-      URL.revokeObjectURL(objectUrl);
-    }
-  }
+  const spoken = await speakOut(text);
+  if (!spoken) ui.log('XOFT speech output unavailable; check Android text-to-speech or configure server TTS.');
 }
 
 async function sendCommand({ text }) {
