@@ -66,7 +66,7 @@ function friendlyProviderError(rawMessage) {
 }
 function sessionId() { return currentSessionId(); }
 async function transcribe(blob, onStatus = () => {}) {
-  // One shared path: XOFT server transcription (Gemini primary, OpenAI fallback).
+  // One shared path: XOFT server transcription (OpenAI primary, Gemini fallback).
   return transcribeAudio(blob, onStatus);
 }
 
@@ -76,7 +76,7 @@ export function mountCommandInput(el, store, controller) {
   let recorder = null;
   let stream = null;
   let serverListener = null;
-  // AUTO LISTEN sends recorded audio to XOFT server transcription (Gemini → OpenAI fallback).
+  // AUTO LISTEN always uses captured audio and XOFT server transcription. Browser speech APIs are not used.
   let autoListening = false;
   let wakeArmed = false;
   let isSpeaking = false;
@@ -95,7 +95,7 @@ export function mountCommandInput(el, store, controller) {
           <button type="button" data-act="recent" aria-expanded="false" title="Find your saved chats">RECENT</button>
           <button type="button" data-act="command" aria-haspopup="menu" aria-expanded="false" title="Quick commands">MORE</button>
           <button type="button" data-act="voice" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">VOICE</button>
-          <button type="button" data-act="auto-listen" ${canRecord ? '' : 'disabled title="Automatic listening needs microphone recording support and HTTPS"'} aria-pressed="false">XOFT AUTO LISTEN</button>
+          <button type="button" data-act="auto-listen" ${canRecord ? '' : 'disabled title="Microphone recording is not available"'} aria-pressed="false">XOFT AUTO LISTEN</button>
           <button type="button" data-act="speakout" aria-pressed="${isSpeakOutEnabled()}" ${canSpeakOut() ? '' : 'disabled'}>${isSpeakOutEnabled() ? 'SPEAK: ON' : 'SPEAK: OFF'}</button>
           <button type="button" data-act="stop-speaking" ${canSpeakOut() ? '' : 'disabled'} title="Stop spoken output">STOP</button>
           <button type="submit" class="cc-primary" data-act="send">SEND</button>
@@ -259,7 +259,7 @@ export function mountCommandInput(el, store, controller) {
   function stopRecognition() {
     if (serverListener) { serverListener.stop(); serverListener = null; }
   }
-  // Wake-word handling for XOFT server STT. Returns true when a command was submitted.
+  // Deterministic wake-word handling for transcripts returned by XOFT server STT.
   function handleHeard(heard) {
     heard = String(heard ?? '').trim();
     if (!heard) return false;
@@ -314,7 +314,9 @@ export function mountCommandInput(el, store, controller) {
     void serverListener.start();
   }
 
-  function startRecognition() { startServerListening(); }
+  function startRecognition() {
+    startServerListening();
+  }
 
   async function submit(text, { fromVoice = false } = {}) {
     text = String(text ?? '').trim();
@@ -405,7 +407,7 @@ export function mountCommandInput(el, store, controller) {
 
   function toggleAutoListen() {
     if (!canRecord) {
-      toast('Automatic listening requires microphone recording support and HTTPS.', 'warn');
+      toast('Automatic listening requires microphone recording support and permission over HTTPS.', 'warn');
       return;
     }
     unlockAudio();
