@@ -150,6 +150,7 @@ async function speakReply(text) {
 
 async function sendCommand({ text }) {
   const commandGeneration = voiceSessionGeneration;
+  const commandPipeline = pipeline;
   ui.log(`command: ${text}`);
   let reply = '';
   const controller = new AbortController();
@@ -162,18 +163,23 @@ async function sendCommand({ text }) {
       message: text,
       signal: controller.signal,
     });
+    if (commandGeneration !== voiceSessionGeneration) return;
     reply = String(body.reply ?? body.message ?? body.response ?? '').trim();
     if (!reply) reply = JSON.stringify(body).slice(0, 300);
     ui.log(`XOFT: ${reply}`);
     $('transcript').textContent = `You: ${text}\nXOFT: ${reply}`;
   } catch (err) {
-    if (err?.name === 'AbortError') ui.log('voice command cancelled because the live session stopped');
-    else ui.log(`XOFT chat request failed; execution status may be unknown: ${err.message}`);
+    if (commandGeneration === voiceSessionGeneration) {
+      if (err?.name === 'AbortError') ui.log('voice command cancelled because the live session stopped');
+      else ui.log(`XOFT chat request failed; execution status may be unknown: ${err.message}`);
+    }
   } finally {
     if (activeChatRequestController === controller) activeChatRequestController = null;
-    // A reply from an older/stopped session must never start speaking after the user stops or restarts XOFT.
-    if (reply && commandGeneration === voiceSessionGeneration) await speakReply(reply);
-    pipeline?.done();
+    // A reply from an older/stopped session must never speak or resume a newer pipeline.
+    if (commandGeneration === voiceSessionGeneration) {
+      if (reply) await speakReply(reply);
+      if (commandGeneration === voiceSessionGeneration) commandPipeline?.done();
+    }
   }
 }
 
