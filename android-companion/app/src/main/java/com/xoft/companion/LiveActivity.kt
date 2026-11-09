@@ -43,6 +43,8 @@ class LiveActivity : Activity() {
     @Volatile private var pendingAudioStart = false
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var audioThread: Thread? = null
+    @Volatile private var audioCaptureGeneration = 0L
+    private val audioLifecycleLock = Any()
     private val speechHandler = Handler(Looper.getMainLooper())
     private var audioLanguage = "auto"
 
@@ -159,6 +161,15 @@ class LiveActivity : Activity() {
      */
     private fun startAudioCapture() {
         if (audioCaptureWanted || !::web.isInitialized) return
+        // Never open a second AudioRecord while the previous capture thread is still releasing its recorder.
+        if (audioThread?.isAlive == true) {
+            dispatchNativeAudioError("The previous microphone session is still closing. Please try listening again.")
+            return
+        }
+        val generation = synchronized(audioLifecycleLock) {
+            audioCaptureGeneration += 1
+            audioCaptureGeneration
+        }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             dispatchNativeAudioError("Microphone permission is required.")
             return
@@ -183,9 +194,15 @@ class LiveActivity : Activity() {
             dispatchNativeAudioError("Android microphone could not be initialized.")
             return
         }
+        try {
+            recorder.startRecording()
+        } catch (error: Exception) {
+            recorder.release()
+            dispatchNativeAudioError("Android microphone could not start: " + (error.message ?: "unknown error"))
+            return
+        }
         audioRecord = recorder
         audioCaptureWanted = true
-        recorder.startRecording()
         dispatchNativeSpeechState("listening")
         audioThread = Thread({
             val preRoll = ArrayDeque<ByteArray>()
@@ -195,7 +212,7 @@ class LiveActivity : Activity() {
             var segmentMs = 0
             val frame = ByteArray(frameBytes)
             try {
-                while (audioCaptureWanted && !Thread.currentThread().isInterrupted) {
+                while (isAudioCaptureCurrent(generation) && !Thread.currentThread().isInterrupted) {
                     val read = recorder.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
                     if (read < 0) throw IllegalStateException("AudioRecord.read failed: " + read)
                     if (read == 0) continue
@@ -226,7 +243,7 @@ class LiveActivity : Activity() {
                         segmentMs += 30
                         silenceMs = if (voiced) 0 else silenceMs + 30
                         if (silenceMs >= 700 || segmentMs >= 8000) {
-                            emitNativeAudio(segment.toByteArray(), sampleRate)
+                            emitNativeAudio(segment.toByteArray(), sampleRate, generation)
                             active = false
                             silenceMs = 0
                             segmentMs = 0
@@ -237,19 +254,28 @@ class LiveActivity : Activity() {
                     }
                 }
             } catch (error: Exception) {
-                if (audioCaptureWanted) dispatchNativeAudioError("Android audio capture failed: " + (error.message ?: "unknown error"))
+                if (isAudioCaptureCurrent(generation)) dispatchNativeAudioError("Android audio capture failed: " + (error.message ?: "unknown error"))
             } finally {
-                if (audioCaptureWanted && active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
+                if (isAudioCaptureCurrent(generation) && active && segment.size() > frameBytes * 5) {
+                    emitNativeAudio(segment.toByteArray(), sampleRate, generation)
+                }
                 try { recorder.stop() } catch (_: Exception) { }
                 recorder.release()
-                if (audioRecord === recorder) audioRecord = null
-                dispatchNativeSpeechState("idle")
+                synchronized(audioLifecycleLock) {
+                    if (audioRecord === recorder) audioRecord = null
+                    if (audioThread === Thread.currentThread()) audioThread = null
+                    if (audioCaptureGeneration == generation) audioCaptureWanted = false
+                }
+                if (audioCaptureGeneration == generation) dispatchNativeSpeechState("idle")
             }
         }, "XOFT-AudioRecord").apply { isDaemon = true; start() }
     }
 
-    private fun emitNativeAudio(pcm: ByteArray, sampleRate: Int) {
-        if (pcm.isEmpty() || !::web.isInitialized) return
+    private fun isAudioCaptureCurrent(generation: Long): Boolean =
+        audioCaptureWanted && audioCaptureGeneration == generation
+
+    private fun emitNativeAudio(pcm: ByteArray, sampleRate: Int, generation: Long) {
+        if (pcm.isEmpty() || !::web.isInitialized || !isAudioCaptureCurrent(generation)) return
         val header = ByteArray(44)
         fun putAscii(offset: Int, value: String) { value.toByteArray(Charsets.US_ASCII).copyInto(header, offset) }
         fun putInt(offset: Int, value: Int) {
@@ -268,7 +294,7 @@ class LiveActivity : Activity() {
         header.copyInto(wav); pcm.copyInto(wav, header.size)
         val encoded = Base64.encodeToString(wav, Base64.NO_WRAP)
         runOnUiThread {
-            if (!::web.isInitialized) return@runOnUiThread
+            if (!::web.isInitialized || !isAudioCaptureCurrent(generation)) return@runOnUiThread
             val safe = JSONObject.quote(encoded)
             val lang = JSONObject.quote(audioLanguage)
             web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-audio',{detail:{base64:$safe,mime:'audio/wav',language:$lang}}))", null)
@@ -278,11 +304,22 @@ class LiveActivity : Activity() {
     private fun stopAudioCapture() {
         // A permission dialog may still be open; stopping the session must cancel its deferred start.
         pendingAudioStart = false
-        audioCaptureWanted = false
-        try { audioRecord?.stop() } catch (_: Exception) { }
-        audioThread?.interrupt()
-        audioThread = null
-        audioRecord = null
+        val thread: Thread?
+        synchronized(audioLifecycleLock) {
+            audioCaptureWanted = false
+            audioCaptureGeneration += 1 // invalidates queued frames and stale thread cleanup callbacks
+            thread = audioThread
+            try { audioRecord?.stop() } catch (_: Exception) { }
+            thread?.interrupt()
+        }
+        // Give AudioRecord.read() time to unblock and release the hardware before another session starts.
+        if (thread != null && thread !== Thread.currentThread()) {
+            try { thread.join(750) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+        }
+        synchronized(audioLifecycleLock) {
+            if (audioThread === thread && thread?.isAlive != true) audioThread = null
+            if (audioThread == null) audioRecord = null
+        }
     }
 
     private fun dispatchNativeSpeechState(state: String) {
