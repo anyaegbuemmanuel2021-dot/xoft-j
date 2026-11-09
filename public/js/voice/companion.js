@@ -146,7 +146,7 @@ async function sendCommand({ text }) {
   ui.log(`command: ${text}`);
   let reply = '';
   try {
-    const res = await fetch('/api/chat', { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ sessionId: SESSION, message: text }) });
+    // Keep the active command cancellable when the user stops the live voice session.\n    const controller = new AbortController();\n    activeSpeechRequestController = controller;\n    const res = await fetch('/api/chat', { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ sessionId: SESSION, message: text }), signal: controller.signal });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) ui.log(`XOFT error (${res.status}): ${body.error ?? 'request failed'}`);
     else {
