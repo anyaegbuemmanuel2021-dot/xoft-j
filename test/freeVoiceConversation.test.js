@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { postVoiceCommand } from '../public/js/voice/command-request.js';
+import { transcribe } from '../public/js/voice/stt.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -108,6 +109,31 @@ test('A completed older voice command cannot resume the current pipeline', () =>
   assert.match(companion, /const commandPipeline = pipeline/);
   assert.match(companion, /if \(commandGeneration === voiceSessionGeneration\) \{\s*if \(reply\) await speakReply\(reply\);\s*if \(commandGeneration === voiceSessionGeneration\) commandPipeline\?\.done\(\);\s*\}/);
   assert.doesNotMatch(companion, /finally \{[^}]*pipeline\?\.done\(\)/);
+});
+
+test('An aborted STT request cancels the underlying fetch and is not retried', async () => {
+  const originalFetch = globalThis.fetch;
+  const controller = new AbortController();
+  let calls = 0;
+  let requestSignal;
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    requestSignal = options.signal;
+    return await new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+    });
+  };
+  try {
+    const pending = transcribe(new Blob(['test audio'], { type: 'audio/wav' }), () => {}, 'auto', { signal: controller.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(requestSignal, 'STT must pass an AbortSignal to fetch');
+    controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(calls, 1, 'cancelled audio must not be retried');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('Stopping the live session aborts server STT requests for browser and native audio', () => {
