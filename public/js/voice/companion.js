@@ -2,11 +2,11 @@
 // STATUS: implemented, NOT verifiable in the build sandbox (needs a real microphone/browser). See docs/DEVICE_RUNTIME.md "Requires local testing".
 import { EnergyVad, rmsOf } from './vad.js';
 import { VoicePipeline } from './wake.js';
-import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
+import { transcribe as transcribeAudioBlob, transcribeNativeAudio, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
-import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
+import { hasNativeAudioCapture, startNativeAudioCapture, stopNativeAudioCapture } from './native-bridge.js';
 import { speakOut, stopSpeaking } from './speak-out.js';
 
 const $ = (id) => document.getElementById(id);
@@ -17,7 +17,7 @@ const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const BACKENDS = {
-  ...(hasNativeSpeechRecognition() ? { 'native-android': { available: true, label: 'On-device Android speech recognition', note: 'Android on-device speech service. Requires an installed offline language pack and microphone permission.' } } : {}),
+  ...(hasNativeAudioCapture() ? { 'native-android': { available: true, label: 'Native Android microphone + XOFT STT', note: 'Android AudioRecord captures PCM locally; XOFT server transcribes with Gemini first and OpenAI fallback.' } } : {}),
   'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech is captured locally, detected with local VAD, then transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Auto supports mixed Nigerian English/Pidgin/Igbo.' },
 
 };
@@ -27,7 +27,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
+let recorder = null; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -118,7 +118,7 @@ function fallbackToServerStt(reason) {
   if ($('backend').value !== 'native-android') return;
   ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
   $('backend').value = 'server-stt';
-  stopNativeListening();
+  stopNativeAudioCapture();
   stop();
   void start();
 }
@@ -127,8 +127,8 @@ function wantRecognizer(on) {
   recognizerWanted = on;
   const backend = $('backend').value;
   if (backend === 'native-android') {
-    if (on && !startNativeListening(selectedLanguage())) fallbackToServerStt('recognizer could not start');
-    if (!on) stopNativeListening();
+    if (on && !startNativeAudioCapture(selectedLanguage())) fallbackToServerStt('native audio capture could not start');
+    if (!on) stopNativeAudioCapture();
     return;
   }
   if (backend === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
@@ -178,20 +178,30 @@ function buildPipeline(continuousRecognition = false) {
   const origSubmit = pipeline._submit.bind(pipeline); pipeline._submit = (c) => { hideConfirm(); origSubmit(c); };
 }
 
-window.addEventListener('xoft:native-transcript', (event) => {
+window.addEventListener('xoft:native-audio-error', (event) => {
+  const reason = String(event.detail?.error || 'native microphone capture failed');
+  ui.log('Android AudioRecord: ' + reason);
+  fallbackToServerStt(reason);
+});
+
+window.addEventListener('xoft:native-audio', (event) => {
   const detail = event.detail || {};
-  if ($('backend').value !== 'native-android') return;
-  if (detail.error) {
-    ui.log('Android on-device STT: ' + detail.error);
-    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) fallbackToServerStt(detail.error);
-    return;
-  }
-  const transcript = String(detail.text || '').trim();
-  if (transcript) {
-    $('transcript').textContent = transcript;
-    ui.log('heard (Android on-device): ' + transcript);
-    pipeline?.transcript(transcript, detail.isFinal !== false);
-  }
+  if ($('backend').value !== 'native-android' || !recognizerWanted || !detail.base64) return;
+  // Keep segments ordered; overlapping provider calls can return out of order and confuse the wake pipeline.
+  nativeTranscriptionQueue = nativeTranscriptionQueue.then(async () => {
+    if ($('backend').value !== 'native-android') return;
+    try {
+      ui.log('native Android PCM segment captured; sending WAV to XOFT Gemini → OpenAI STT');
+      const transcript = await transcribeNativeAudio(detail.base64, detail.language || selectedLanguage(), (message) => ui.log(message));
+      if (transcript) {
+        $('transcript').textContent = transcript;
+        ui.log('heard (native audio / server STT): ' + transcript);
+        pipeline?.transcript(transcript, true);
+      }
+    } catch (error) {
+      ui.log('native audio transcription failed: ' + error.message);
+    }
+  }).catch((error) => ui.log('native STT queue error: ' + error.message));
 });
 
 async function start() {
@@ -202,7 +212,7 @@ async function start() {
     timer = setInterval(() => pipeline?.tick(Date.now()), 250);
     ui.pill('mic', 'mic: on-device Android', 'ok');
     $('start').disabled = true; $('stop').disabled = false;
-    ui.log('Android on-device recognizer started; waiting for the wake phrase.');
+    ui.log('Android AudioRecord capture started; local VAD sends audio segments to Gemini-first server STT.');
     return;
   }
   if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
@@ -270,7 +280,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeListening(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeAudioCapture(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
   activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;

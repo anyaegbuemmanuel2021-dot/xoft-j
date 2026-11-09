@@ -59,3 +59,19 @@ export function stopNativeListening() {
   const native = bridge();
   try { native?.stopListening?.(); } catch { /* best effort */ }
 }
+
+/** Native AudioRecord capture. Audio is transcribed by XOFT server STT, not Android's recognizer. */
+export function hasNativeAudioCapture() {
+  const native = bridge();
+  try { return Boolean(native && typeof native.canCaptureAudio === 'function' && native.canCaptureAudio() === true); }
+  catch { return false; }
+}
+export function startNativeAudioCapture(language = 'auto') {
+  const native = bridge();
+  try { return Boolean(native && typeof native.startAudioListening === 'function' && native.startAudioListening(language)); }
+  catch { return false; }
+}
+export function stopNativeAudioCapture() {
+  const native = bridge();
+  try { native?.stopAudioListening?.(); } catch { /* best effort */ }
+}

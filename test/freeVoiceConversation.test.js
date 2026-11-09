@@ -58,7 +58,10 @@ test('Voice companion prefers native Android STT and retains server STT fallback
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /'server-stt':/);
   assert.match(companion, /'native-android':/);
-  assert.match(companion, /startNativeListening/);
+  assert.match(companion, /hasNativeAudioCapture/);
+  assert.match(companion, /startNativeAudioCapture/);
+  assert.match(companion, /transcribeNativeAudio/);
+  assert.match(companion, /xoft:native-audio/);
   assert.doesNotMatch(companion, /'browser-speech'|window\\.SpeechRecognition|webkitSpeechRecognition/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
