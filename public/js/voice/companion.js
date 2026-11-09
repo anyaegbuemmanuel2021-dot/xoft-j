@@ -9,6 +9,7 @@ import { RollingAudioBuffer } from './segment-buffer.js';
 import { hasNativeAudioCapture, startNativeAudioCapture, stopNativeAudioCapture } from './native-bridge.js';
 import { speakOut, stopSpeaking } from './speak-out.js';
 import { postVoiceCommand } from './command-request.js';
+import { createBoundedSerialQueue } from './bounded-serial-queue.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -28,8 +29,13 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let voiceSessionGeneration = 0;
+const nativeTranscriptionQueue = createBoundedSerialQueue({
+  limit: 2,
+  onError: (error) => ui.log('native STT queue error: ' + error.message),
+});
+
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let recorderSessionGeneration = 0; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let activeSttControllers = new Set(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
+let recorder = null; let recorderSessionGeneration = 0; let captureBuffer = null; let activeSttControllers = new Set(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -214,7 +220,7 @@ window.addEventListener('xoft:native-audio', (event) => {
   if ($('backend').value !== 'native-android' || !recognizerWanted || !detail.base64) return;
   // Keep segments ordered; overlapping provider calls can return out of order and confuse the wake pipeline.
   const sessionGeneration = voiceSessionGeneration;
-  nativeTranscriptionQueue = nativeTranscriptionQueue.then(async () => {
+  const accepted = nativeTranscriptionQueue.enqueue(async () => {
     if ($('backend').value !== 'native-android' || !recognizerWanted || sessionGeneration !== voiceSessionGeneration) return;
     const controller = new AbortController();
     activeSttControllers.add(controller);
@@ -232,7 +238,8 @@ window.addEventListener('xoft:native-audio', (event) => {
     } finally {
       activeSttControllers.delete(controller);
     }
-  }).catch((error) => ui.log('native STT queue error: ' + error.message));
+  });
+  if (!accepted) ui.log('Native STT queue is full; discarded the newest audio segment to prevent delayed commands. Pause briefly and try again.');
 });
 
 async function start() {
@@ -370,7 +377,7 @@ function stop() {
   activeChatRequestController?.abort(); activeChatRequestController = null;
   for (const controller of activeSttControllers) controller.abort();
   activeSttControllers.clear();
-  nativeTranscriptionQueue = Promise.resolve();
+  nativeTranscriptionQueue.clear();
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
   if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;

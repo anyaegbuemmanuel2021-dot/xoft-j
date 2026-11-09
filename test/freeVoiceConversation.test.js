@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { postVoiceCommand } from '../public/js/voice/command-request.js';
 import { transcribe } from '../public/js/voice/stt.js';
+import { createBoundedSerialQueue } from '../public/js/voice/bounded-serial-queue.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -134,6 +135,39 @@ test('An aborted STT request cancels the underlying fetch and is not retried', a
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('Native STT queue remains ordered and bounded when transcription is slow', async () => {
+  const queue = createBoundedSerialQueue({ limit: 2 });
+  const order = [];
+  let releaseFirst;
+  assert.equal(queue.enqueue(async () => {
+    order.push('first:start');
+    await new Promise((resolve) => { releaseFirst = resolve; });
+    order.push('first:end');
+  }), true);
+  assert.equal(queue.enqueue(async () => { order.push('second'); }), true);
+  assert.equal(queue.enqueue(async () => { order.push('third'); }), false);
+  assert.equal(queue.pending, 2);
+  await Promise.resolve();
+  releaseFirst();
+  await queue.idle();
+  assert.deepEqual(order, ['first:start', 'first:end', 'second']);
+  assert.equal(queue.pending, 0);
+});
+
+test('Clearing native STT queue prevents queued work from running in a later session', async () => {
+  const queue = createBoundedSerialQueue({ limit: 2 });
+  let releaseFirst;
+  let staleRan = false;
+  assert.equal(queue.enqueue(() => new Promise((resolve) => { releaseFirst = resolve; })), true);
+  assert.equal(queue.enqueue(async () => { staleRan = true; }), true);
+  await Promise.resolve();
+  queue.clear();
+  releaseFirst();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(staleRan, false);
+  assert.equal(queue.pending, 0);
 });
 
 test('Stopping the live session aborts server STT requests for browser and native audio', () => {
