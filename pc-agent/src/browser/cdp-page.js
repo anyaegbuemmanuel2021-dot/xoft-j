@@ -37,6 +37,10 @@ class CdpPage {
     return this.info();
   }
 
+  async stopLoading({ signal } = {}) {
+    await this.conn.send('Page.stopLoading', {}, { signal });
+  }
+
   async reload({ timeoutMs = this.defaultTimeoutMs, signal } = {}) {
     const loaded = this.conn.waitForEvent('Page.loadEventFired', { timeoutMs, signal });
     loaded.catch(() => {});
