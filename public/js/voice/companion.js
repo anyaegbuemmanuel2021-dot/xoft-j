@@ -236,80 +236,132 @@ window.addEventListener('xoft:native-audio', (event) => {
 });
 
 async function start() {
-  voiceSessionGeneration += 1;
+  const startGeneration = ++voiceSessionGeneration;
+  $('start').disabled = true;
+  $('stop').disabled = false;
+
   if ($('backend').value === 'native-android') {
     // Wake the server while Android is already listening; this hides free-instance cold-start latency.
     void warmVoiceServer();
     buildPipeline(true);
     pipeline.start();
-    if ($('backend').value !== 'native-android') return;
+    if (startGeneration !== voiceSessionGeneration || $('backend').value !== 'native-android') return;
     timer = setInterval(() => pipeline?.tick(Date.now()), 250);
     ui.pill('mic', 'mic: on-device Android', 'ok');
-    $('start').disabled = true; $('stop').disabled = false;
     ui.log('Android AudioRecord capture started; local VAD sends audio segments to Gemini-first server STT.');
     return;
   }
-  if (!navigator.mediaDevices?.getUserMedia) { ui.pill('mic', 'mic: unsupported', 'err'); ui.log('getUserMedia is unavailable (needs HTTPS or localhost).'); return; }
-  // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
-  // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
-  ctx = unlockAudio();
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }); }
-  catch (err) {
-    try { await ctx?.close(); } catch { /* ignore */ } ctx = null;
-    ui.pill('mic', err.name === 'NotAllowedError' ? 'mic: permission denied' : 'mic: unavailable', 'err');
-    ui.log(`microphone: ${err.name} — ${err.message}`);
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    if (startGeneration === voiceSessionGeneration) {
+      ui.pill('mic', 'mic: unsupported', 'err');
+      ui.log('getUserMedia is unavailable (needs HTTPS or localhost).');
+      $('start').disabled = false; $('stop').disabled = true;
+    }
     return;
   }
+
+  // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
+  // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
+  const startContext = unlockAudio();
+  ctx = startContext;
+  try {
+    const acquiredStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    if (startGeneration !== voiceSessionGeneration) {
+      acquiredStream.getTracks().forEach((track) => track.stop());
+      try { await startContext?.close(); } catch { /* already closed by Stop */ }
+      if (ctx === startContext) ctx = null;
+      return;
+    }
+    stream = acquiredStream;
+  } catch (err) {
+    if (startGeneration !== voiceSessionGeneration) return;
+    try { await startContext?.close(); } catch { /* ignore */ }
+    if (ctx === startContext) ctx = null;
+    ui.pill('mic', err.name === 'NotAllowedError' ? 'mic: permission denied' : 'mic: unavailable', 'err');
+    ui.log(`microphone: ${err.name} — ${err.message}`);
+    $('start').disabled = false; $('stop').disabled = true;
+    return;
+  }
+
   // Wake the cloud service while the user is getting ready to speak, not after the first utterance.
   // This overlaps Render cold-start latency with local audio setup and keeps the first STT request faster.
   if ($('backend').value === 'server-stt') void warmVoiceServer();
-  // The context was already unlocked in the click handler; finish any pending resume before VAD starts.
+
+  // Resume the context that was unlocked in the click handler; check generation after every await.
   try {
-    if (!ctx) throw new Error('This browser does not support AudioContext.');
-    if (ctx.state === 'suspended') await ctx.resume();
-    if (ctx.state !== 'running') throw new Error(`AudioContext is ${ctx.state}; tap Start listening again and allow audio access.`);
-    analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
-    ctx.createMediaStreamSource(stream).connect(analyser); // analysis only — never routed to the speakers
+    if (!startContext) throw new Error('This browser does not support AudioContext.');
+    if (startContext.state === 'suspended') await startContext.resume();
+    if (startGeneration !== voiceSessionGeneration) {
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+      try { await startContext.close(); } catch { /* already closed by Stop */ }
+      if (ctx === startContext) ctx = null;
+      return;
+    }
+    if (startContext.state !== 'running') throw new Error(`AudioContext is ${startContext.state}; tap Start listening again and allow audio access.`);
+    analyser = startContext.createAnalyser();
+    analyser.fftSize = 1024;
+    startContext.createMediaStreamSource(stream).connect(analyser); // analysis only — never routed to the speakers
   } catch (err) {
-    stream?.getTracks().forEach((t) => t.stop()); stream = null;
-    try { await ctx?.close(); } catch { /* ignore */ } ctx = null;
+    if (startGeneration !== voiceSessionGeneration) return;
+    stream?.getTracks().forEach((track) => track.stop());
+    stream = null;
+    try { await startContext?.close(); } catch { /* ignore */ }
+    if (ctx === startContext) ctx = null;
     ui.pill('mic', 'mic: audio engine unavailable', 'err');
     ui.log(`audio capture setup failed: ${err.message}`);
+    $('start').disabled = false; $('stop').disabled = true;
     return;
   }
+
   // Lower adaptive threshold helps quiet speech, while two frames reduce the chance of clipping
   // the start of short wake phrases. Ambient-noise adaptation remains enabled.
   // Mobile microphones can deliver normal speech below 0.008 RMS. Keep a low floor so quiet voices
   // are not discarded before server STT can hear them; the adaptive noise floor still rises in noisy rooms.
-  vad = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS }); buildPipeline();
+  vad = new EnergyVad({ minThreshold: 0.003, floorMultiplier: 2.5, startFrames: 2, frameMs: FRAME_MS });
+  buildPipeline();
   if ($('backend').value === 'server-stt') startAudioCapture();
   const buf = new Float32Array(analyser.fftSize);
   let peakMicRms = 0;
   let speechStartEvents = 0;
   timer = setInterval(() => {
-    if (ctx?.state === 'suspended') {
-      ctx.resume().catch((err) => ui.log(`audio context resume failed: ${err.message}`));
+    if (startGeneration !== voiceSessionGeneration || !analyser) return;
+    if (startContext.state === 'suspended') {
+      startContext.resume().catch((err) => ui.log(`audio context resume failed: ${err.message}`));
     }
-    analyser.getFloatTimeDomainData(buf); const rms = rmsOf(buf); peakMicRms = Math.max(peakMicRms, rms); const r = vad.process(rms, performance.now());
+    analyser.getFloatTimeDomainData(buf);
+    const rms = rmsOf(buf);
+    peakMicRms = Math.max(peakMicRms, rms);
+    const result = vad.process(rms, performance.now());
     $('level').style.width = `${Math.min(100, Math.round((rms / 0.18) * 100))}%`;
-    if (r.event) {
-      if (r.event === 'start') speechStartEvents += 1;
-      ui.log('voice activity ' + r.event + ' (RMS ' + r.rms.toFixed(4) + ', gate ' + r.threshold.toFixed(4) + ')');
-      pipeline.vad(r.event);
+    if (result.event) {
+      if (result.event === 'start') speechStartEvents += 1;
+      ui.log('voice activity ' + result.event + ' (RMS ' + result.rms.toFixed(4) + ', gate ' + result.threshold.toFixed(4) + ')');
+      pipeline.vad(result.event);
     }
     pipeline.tick(Date.now());
   }, FRAME_MS);
+
   micDiagnosticTimer = setTimeout(() => {
     micDiagnosticTimer = null;
-    if (!stream) return;
+    if (!stream || startGeneration !== voiceSessionGeneration) return;
     const diagnostic = classifyMicInput({ peakRms: peakMicRms, speechEvents: speechStartEvents, threshold: vad?.threshold ?? 0.003 });
     ui.log(`microphone check: ${diagnostic.message} (peak RMS ${peakMicRms.toFixed(4)}, speech starts ${speechStartEvents})`);
   }, 5000);
-  stream.getAudioTracks()[0].addEventListener('ended', () => { ui.log('microphone was disconnected or revoked'); stop(); });
+
+  stream.getAudioTracks()[0].addEventListener('ended', () => {
+    if (startGeneration === voiceSessionGeneration) {
+      ui.log('microphone was disconnected or revoked');
+      stop();
+    }
+  });
   ui.log('Speak now for the 5-second microphone signal check.');
-  ui.pill('mic', 'mic: listening (local VAD)', 'ok'); $('start').disabled = true; $('stop').disabled = false;
+  ui.pill('mic', 'mic: listening (local VAD)', 'ok');
   const audioTrackSettings = stream.getAudioTracks()[0]?.getSettings?.() ?? {};
-  ui.log('microphone ready; AudioContext ' + ctx.state + '; sample rate ' + (audioTrackSettings.sampleRate ?? ctx.sampleRate ?? 'unknown') + ' Hz; channels ' + (audioTrackSettings.channelCount ?? 'unknown'));
+  ui.log('microphone ready; AudioContext ' + startContext.state + '; sample rate ' + (audioTrackSettings.sampleRate ?? startContext.sampleRate ?? 'unknown') + ' Hz; channels ' + (audioTrackSettings.channelCount ?? 'unknown'));
   ui.log(`listening for "hey xoft" — backend: ${$('backend').value}; language: ${selectedLanguage()}; follow-up conversation: ${conversationEnabled() ? 'on' : 'off'}`);
 }
 
