@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { postVoiceCommand } from '../public/js/voice/command-request.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (relative) => fs.readFileSync(path.join(root, relative), 'utf8');
@@ -70,12 +71,38 @@ test('Voice companion prefers native Android STT and retains server STT fallback
   assert.match(companion, /Gemini → OpenAI fallback/);
 });
 
-test('Stopping the live voice session aborts its in-flight chat request and suppresses late speech', () => {
+test('Voice command HTTP helper passes cancellation through and returns server replies', async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  const pending = postVoiceCommand({
+    fetchImpl: async (_url, options) => {
+      receivedSignal = options.signal;
+      return await new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+      });
+    },
+    sessionId: 'test-session',
+    message: 'test command',
+    signal: controller.signal,
+  });
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort();
+  await assert.rejects(pending, { name: 'AbortError' });
+
+  const result = await postVoiceCommand({
+    fetchImpl: async () => ({ ok: true, json: async () => ({ reply: 'Done' }) }),
+    sessionId: 'test-session',
+    message: 'test command',
+  });
+  assert.equal(result.reply, 'Done');
+});
+
+test('Stopping or restarting the live voice session invalidates old replies and aborts the active request', () => {
   const companion = read('public/js/voice/companion.js');
-  assert.match(companion, /const controller = new AbortController\(\);[\\s\\S]*?activeSpeechRequestController = controller;[\\s\\S]*?signal: controller\.signal/);
-  assert.match(companion, /activeSpeechRequestController\?\.abort\(\)/);
-  assert.match(companion, /if \(reply && recognizerWanted\) await speakReply\(reply\)/);
-  assert.match(companion, /voice command cancelled because the live session stopped/);
+  assert.match(companion, /activeChatRequestController\?\.abort\(\)/);
+  assert.match(companion, /if \(reply && commandGeneration === voiceSessionGeneration\) await speakReply\(reply\)/);
+  assert.match(companion, /async function start\(\) \{\s*voiceSessionGeneration \+= 1;/);
+  assert.match(companion, /function stop\(\) \{\s*voiceSessionGeneration \+= 1;/);
 });
 
 test('Speech output prefers native Android TTS, then server TTS, and never uses browser synthesis', () => {
