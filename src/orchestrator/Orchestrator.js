@@ -101,21 +101,14 @@ export class Orchestrator {
       textIncludes: classification.subject ?? undefined,
     });
 
-    let semantic = [];
-    try {
-      // MemoryManager chooses vector search or a local lexical fallback. Do not
-      // skip recall just because embedding credits are absent/exhausted.
-      semantic = await this.memory.recallSemantic(message, 5);
-    } catch {
-      // Memory retrieval must not block the user's explicit recall request.
-    }
-
+    // Explicit memory recall is a database lookup, not a reasoning task.
+    // Keep it fully local: do not call embedding providers or consume model
+    // quota when the user asks XOFT to retrieve facts they previously stored.
     const merged = new Map();
-    for (const s of structured) merged.set(s.id, s.content);
-    for (const s of semantic) if (s.score > 0.75) merged.set(s.id, s.content);
+    for (const entry of structured) merged.set(entry.id, entry.content);
 
     if (merged.size === 0) {
-      return { reply: "I don't have anything stored on that." };
+      return { reply: "I don't have anything stored on that.", meta: { deterministic: true, modelUsed: false } };
     }
 
     const bulletList = [...merged.values()].map((c) => `- ${c}`).join('\n');
