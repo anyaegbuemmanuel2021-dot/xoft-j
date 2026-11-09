@@ -103,6 +103,13 @@ test('Voice command HTTP helper passes cancellation through and returns server r
   assert.equal(result.reply, 'Done');
 });
 
+test('A completed older voice command cannot resume the current pipeline', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.match(companion, /const commandPipeline = pipeline/);
+  assert.match(companion, /if \(commandGeneration === voiceSessionGeneration\) \{\s*if \(reply\) await speakReply\(reply\);\s*if \(commandGeneration === voiceSessionGeneration\) commandPipeline\?\.done\(\);\s*\}/);
+  assert.doesNotMatch(companion, /finally \{[^}]*pipeline\?\.done\(\)/);
+});
+
 test('Voice transcription discards segments and results from an earlier session', () => {
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /sessionGeneration !== voiceSessionGeneration/);
