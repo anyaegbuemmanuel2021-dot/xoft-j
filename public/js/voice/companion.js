@@ -26,7 +26,7 @@ const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLo
 const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
-let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
+let voiceSessionGeneration = 0;\nlet stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
 let recorder = null; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
