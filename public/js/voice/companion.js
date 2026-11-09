@@ -7,7 +7,7 @@ import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
 import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
-import { speakOut } from './speak-out.js';
+import { speakOut, stopSpeaking } from './speak-out.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -270,7 +270,7 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeListening(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeListening(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
   activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
