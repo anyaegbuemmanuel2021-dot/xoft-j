@@ -9,9 +9,12 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+import kotlin.math.sqrt
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -36,11 +39,11 @@ class LiveActivity : Activity() {
     @Volatile private var visible = false
     @Volatile private var ttsReady = false
     private var textToSpeech: TextToSpeech? = null
-    private var speechRecognizer: SpeechRecognizer? = null
-    @Volatile private var recognitionWanted = false
+    @Volatile private var audioCaptureWanted = false
+    @Volatile private var audioRecord: AudioRecord? = null
+    @Volatile private var audioThread: Thread? = null
     private val speechHandler = Handler(Looper.getMainLooper())
-    private var recognitionLanguage = "en-NG"
-    private var recognitionFailures = 0
+    private var audioLanguage = "auto"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -121,11 +124,8 @@ class LiveActivity : Activity() {
     override fun onDestroy() {
         XoftBubbleService.hide(this)
         if (::web.isInitialized) web.destroy()
-        recognitionWanted = false
+        stopAudioCapture()
         speechHandler.removeCallbacksAndMessages(null)
-        try { speechRecognizer?.cancel() } catch (_: Exception) { }
-        try { speechRecognizer?.destroy() } catch (_: Exception) { }
-        speechRecognizer = null
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
@@ -142,65 +142,134 @@ class LiveActivity : Activity() {
         }
     }
 
-    private fun startRecognitionSession() {
-        if (!recognitionWanted || !::web.isInitialized) return
-        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            dispatchNativeTranscript("", true, "On-device speech recognition is unavailable on this device.")
-            recognitionWanted = false
+    /**
+     * Capture 16 kHz mono PCM directly with Android AudioRecord. Local energy VAD opens
+     * segments with 500 ms pre-roll and closes after 700 ms of silence. Audio, not a
+     * browser recording or Android speech-recognition transcript, is sent to XOFT STT.
+     */
+    private fun startAudioCapture() {
+        if (audioCaptureWanted || !::web.isInitialized) return
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            dispatchNativeTranscript("", true, "Microphone permission is required.")
             return
         }
-        try { speechRecognizer?.destroy() } catch (_: Exception) { }
-        speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).apply {
-            setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) { dispatchNativeSpeechState("listening") }
-                override fun onBeginningOfSpeech() { dispatchNativeSpeechState("listening") }
-                override fun onRmsChanged(rmsdB: Float) { }
-                override fun onBufferReceived(buffer: ByteArray?) { }
-                override fun onEndOfSpeech() { }
-                override fun onError(error: Int) {
-                    if (!recognitionWanted) return
-                    // Silence/no-match is a normal outcome in an always-listening assistant,
-                    // not a broken recognizer. Restart without consuming the failure budget.
-                    if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
-                        recognitionFailures = 0
-                        speechHandler.postDelayed({ startRecognitionSession() }, 400)
-                        return
-                    }
-                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
-                        || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
-                        || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE) {
-                        recognitionWanted = false
-                        dispatchNativeTranscript("", true, "On-device recognizer cannot use the selected language or microphone permission.")
-                        dispatchNativeSpeechState("idle")
-                        return
-                    }
-                    recognitionFailures += 1
-                    if (recognitionFailures >= 4) {
-                        recognitionWanted = false
-                        dispatchNativeTranscript("", true, "On-device speech recognition stopped after repeated errors: " + error)
-                        dispatchNativeSpeechState("idle")
-                    } else {
-                        speechHandler.postDelayed({ startRecognitionSession() }, 500L * recognitionFailures)
-                    }
-                }
-                override fun onResults(results: Bundle?) {
-                    recognitionFailures = 0
-                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-                    if (text.isNotBlank()) dispatchNativeTranscript(text, true)
-                    if (recognitionWanted) speechHandler.postDelayed({ startRecognitionSession() }, 250)
-                }
-                override fun onPartialResults(partialResults: Bundle?) { }
-                override fun onEvent(eventType: Int, params: Bundle?) { }
-            })
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            }
-            startListening(intent)
+        val sampleRate = 16000
+        val frameSamples = 480 // 30 ms
+        val frameBytes = frameSamples * 2
+        val minBytes = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        if (minBytes <= 0) {
+            dispatchNativeTranscript("", true, "Android audio capture is unavailable (buffer configuration failed).")
+            return
         }
+        val recorder = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            sampleRate,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            maxOf(minBytes, frameBytes * 8)
+        )
+        if (recorder.state != AudioRecord.STATE_INITIALIZED) {
+            recorder.release()
+            dispatchNativeTranscript("", true, "Android microphone could not be initialized.")
+            return
+        }
+        audioRecord = recorder
+        audioCaptureWanted = true
+        recorder.startRecording()
+        dispatchNativeSpeechState("listening")
+        audioThread = Thread({
+            val preRoll = ArrayDeque<ByteArray>()
+            var segment = ByteArrayOutputStream()
+            var active = false
+            var silenceMs = 0
+            var segmentMs = 0
+            val frame = ByteArray(frameBytes)
+            try {
+                while (audioCaptureWanted && !Thread.currentThread().isInterrupted) {
+                    val read = recorder.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
+                    if (read <= 0) continue
+                    val exact = if (read == frame.size) frame.copyOf() else frame.copyOf(read - (read % 2))
+                    if (exact.isEmpty()) continue
+                    var sum = 0.0
+                    var i = 0
+                    while (i + 1 < exact.size) {
+                        val value = ((exact[i + 1].toInt() shl 8) or (exact[i].toInt() and 0xff)).toShort().toInt()
+                        sum += value.toDouble() * value.toDouble()
+                        i += 2
+                    }
+                    val rms = if (i == 0) 0.0 else sqrt(sum / (i / 2))
+                    val voiced = rms >= 520.0
+                    if (!active) {
+                        preRoll.addLast(exact)
+                        while (preRoll.size > 17) preRoll.removeFirst() // ~510 ms
+                        if (voiced) {
+                            active = true
+                            segment = ByteArrayOutputStream()
+                            for (chunk in preRoll) segment.write(chunk)
+                            segmentMs = preRoll.size * 30
+                            silenceMs = 0
+                            dispatchNativeSpeechState("listening")
+                        }
+                    } else {
+                        segment.write(exact)
+                        segmentMs += 30
+                        silenceMs = if (voiced) 0 else silenceMs + 30
+                        if (silenceMs >= 700 || segmentMs >= 15000) {
+                            emitNativeAudio(segment.toByteArray(), sampleRate)
+                            active = false
+                            silenceMs = 0
+                            segmentMs = 0
+                            segment = ByteArrayOutputStream()
+                            preRoll.clear()
+                            dispatchNativeSpeechState("listening")
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                if (audioCaptureWanted) dispatchNativeTranscript("", true, "Android audio capture failed: " + (error.message ?: "unknown error"))
+            } finally {
+                if (active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
+                try { recorder.stop() } catch (_: Exception) { }
+                recorder.release()
+                if (audioRecord === recorder) audioRecord = null
+                dispatchNativeSpeechState("idle")
+            }
+        }, "XOFT-AudioRecord").apply { isDaemon = true; start() }
+    }
+
+    private fun emitNativeAudio(pcm: ByteArray, sampleRate: Int) {
+        if (pcm.isEmpty() || !::web.isInitialized) return
+        val header = ByteArray(44)
+        fun putAscii(offset: Int, value: String) { value.toByteArray(Charsets.US_ASCII).copyInto(header, offset) }
+        fun putInt(offset: Int, value: Int) {
+            header[offset] = value.toByte()
+            header[offset + 1] = (value shr 8).toByte()
+            header[offset + 2] = (value shr 16).toByte()
+            header[offset + 3] = (value shr 24).toByte()
+        }
+        putAscii(0, "RIFF"); putInt(4, 36 + pcm.size); putAscii(8, "WAVE")
+        putAscii(12, "fmt "); putInt(16, 16)
+        header[20] = 1; header[22] = 1
+        putInt(24, sampleRate); putInt(28, sampleRate * 2)
+        header[32] = 2; header[34] = 16
+        putAscii(36, "data"); putInt(40, pcm.size)
+        val wav = ByteArray(header.size + pcm.size)
+        header.copyInto(wav); pcm.copyInto(wav, header.size)
+        val encoded = Base64.encodeToString(wav, Base64.NO_WRAP)
+        runOnUiThread {
+            if (!::web.isInitialized) return@runOnUiThread
+            val safe = JSONObject.quote(encoded)
+            val lang = JSONObject.quote(audioLanguage)
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-audio',{detail:{base64:$safe,mime:'audio/wav',language:$lang}}))", null)
+        }
+    }
+
+    private fun stopAudioCapture() {
+        audioCaptureWanted = false
+        try { audioRecord?.stop() } catch (_: Exception) { }
+        audioThread?.interrupt()
+        audioThread = null
+        audioRecord = null
     }
 
     private fun dispatchNativeSpeechState(state: String) {
@@ -214,31 +283,21 @@ class LiveActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface
-        fun canListenOffline(): Boolean {
-            return Build.VERSION.SDK_INT >= 31
-                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                && SpeechRecognizer.isOnDeviceRecognitionAvailable(this@LiveActivity)
+        fun canCaptureAudio(): Boolean {
+            return checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                && Build.VERSION.SDK_INT >= 26
         }
 
         @JavascriptInterface
-        fun startListening(language: String): Boolean {
-            if (!canListenOffline()) return false
-            recognitionLanguage = if (language == "ig") "ig-NG" else "en-NG"
-            recognitionWanted = true
-            runOnUiThread { startRecognitionSession() }
+        fun startAudioListening(language: String): Boolean {
+            if (!canCaptureAudio() || audioCaptureWanted) return false
+            audioLanguage = if (language == "ig") "ig" else if (language == "en") "en" else "auto"
+            runOnUiThread { startAudioCapture() }
             return true
         }
 
         @JavascriptInterface
-        fun stopListening() {
-            recognitionWanted = false
-            speechHandler.removeCallbacksAndMessages(null)
-            runOnUiThread {
-                try { speechRecognizer?.cancel() } catch (_: Exception) { }
-                try { speechRecognizer?.destroy() } catch (_: Exception) { }
-                speechRecognizer = null
-            }
-        }
+        fun stopAudioListening() { stopAudioCapture() }
 
         @JavascriptInterface
         fun speak(text: String): Boolean {
