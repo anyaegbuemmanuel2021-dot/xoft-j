@@ -211,13 +211,18 @@ class LiveActivity : Activity() {
             var silenceMs = 0
             var segmentMs = 0
             val frame = ByteArray(frameBytes)
+            var frameFilled = 0
             try {
                 while (isAudioCaptureCurrent(generation) && !Thread.currentThread().isInterrupted) {
-                    val read = recorder.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
+                    // AudioRecord may return partial reads. Assemble a full 30 ms PCM frame so
+                    // VAD silence and segment timers always reflect real captured duration.
+                    val read = recorder.read(frame, frameFilled, frame.size - frameFilled, AudioRecord.READ_BLOCKING)
                     if (read < 0) throw IllegalStateException("AudioRecord.read failed: " + read)
                     if (read == 0) continue
-                    val exact = if (read == frame.size) frame.copyOf() else frame.copyOf(read - (read % 2))
-                    if (exact.isEmpty()) continue
+                    frameFilled += read
+                    if (frameFilled < frameBytes) continue
+                    val exact = frame.copyOf()
+                    frameFilled = 0
                     var sum = 0.0
                     var i = 0
                     while (i + 1 < exact.size) {
