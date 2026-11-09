@@ -114,7 +114,7 @@ class LiveActivity : Activity() {
                 } else if (::web.isInitialized) web.reload()
             } else {
                 pendingAudioStart = false
-                dispatchNativeTranscript("", true, "Microphone permission was denied.")
+                dispatchNativeAudioError("Microphone permission was denied.")
             }
         }
     }
@@ -143,11 +143,11 @@ class LiveActivity : Activity() {
         super.onDestroy()
     }
 
-    private fun dispatchNativeTranscript(text: String, isFinal: Boolean, error: String? = null) {
+    private fun dispatchNativeAudioError(error: String) {
         if (!::web.isInitialized) return
         runOnUiThread {
             if (!::web.isInitialized) return@runOnUiThread
-            val safeError = JSONObject.quote(error ?: "")
+            val safeError = JSONObject.quote(error)
             web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-audio-error',{detail:{error:$safeError}}))", null)
         }
     }
@@ -160,7 +160,7 @@ class LiveActivity : Activity() {
     private fun startAudioCapture() {
         if (audioCaptureWanted || !::web.isInitialized) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            dispatchNativeTranscript("", true, "Microphone permission is required.")
+            dispatchNativeAudioError("Microphone permission is required.")
             return
         }
         val sampleRate = 16000
@@ -168,7 +168,7 @@ class LiveActivity : Activity() {
         val frameBytes = frameSamples * 2
         val minBytes = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBytes <= 0) {
-            dispatchNativeTranscript("", true, "Android audio capture is unavailable (buffer configuration failed).")
+            dispatchNativeAudioError("Android audio capture is unavailable (buffer configuration failed).")
             return
         }
         val recorder = AudioRecord(
@@ -180,7 +180,7 @@ class LiveActivity : Activity() {
         )
         if (recorder.state != AudioRecord.STATE_INITIALIZED) {
             recorder.release()
-            dispatchNativeTranscript("", true, "Android microphone could not be initialized.")
+            dispatchNativeAudioError("Android microphone could not be initialized.")
             return
         }
         audioRecord = recorder
@@ -237,7 +237,7 @@ class LiveActivity : Activity() {
                     }
                 }
             } catch (error: Exception) {
-                if (audioCaptureWanted) dispatchNativeTranscript("", true, "Android audio capture failed: " + (error.message ?: "unknown error"))
+                if (audioCaptureWanted) dispatchNativeAudioError("Android audio capture failed: " + (error.message ?: "unknown error"))
             } finally {
                 if (active && segment.size() > frameBytes * 5) emitNativeAudio(segment.toByteArray(), sampleRate)
                 try { recorder.stop() } catch (_: Exception) { }
