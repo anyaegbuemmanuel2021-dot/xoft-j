@@ -225,7 +225,7 @@ class LiveActivity : Activity() {
                         segment.write(exact)
                         segmentMs += 30
                         silenceMs = if (voiced) 0 else silenceMs + 30
-                        if (silenceMs >= 700 || segmentMs >= 15000) {
+                        if (silenceMs >= 700 || segmentMs >= 8000) {
                             emitNativeAudio(segment.toByteArray(), sampleRate)
                             active = false
                             silenceMs = 0
