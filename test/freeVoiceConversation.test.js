@@ -70,6 +70,14 @@ test('Voice companion prefers native Android STT and retains server STT fallback
   assert.match(companion, /Gemini → OpenAI fallback/);
 });
 
+test('Stopping the live voice session aborts its in-flight chat request and suppresses late speech', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.match(companion, /const controller = new AbortController\(\);[\\s\\S]*?activeSpeechRequestController = controller;[\\s\\S]*?signal: controller\.signal/);
+  assert.match(companion, /activeSpeechRequestController\?\.abort\(\)/);
+  assert.match(companion, /if \(reply && recognizerWanted\) await speakReply\(reply\)/);
+  assert.match(companion, /voice command cancelled because the live session stopped/);
+});
+
 test('Speech output prefers native Android TTS, then server TTS, and never uses browser synthesis', () => {
   const tts = read('public/js/voice/speak-out.js');
   assert.match(tts, /\/api\/voice\/speak/);
