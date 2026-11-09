@@ -217,7 +217,11 @@ test('canServe/routingWeight/taskPolicy reflect settings; coding needs a working
   const fake = await startFakeHermes(); const e = makeEngine(fake); const h = await e.healthCheck();
   const coding = { requiredCapabilities: [Capability.CODING, Capability.FILESYSTEM], autonomous: true, longRunning: true, simple: false };
   assert.equal(e.canServe({ ...coding, workingDirectory: null }, h), false, 'no working directory → cannot serve (router falls back)');
-  assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, h), true);
+  assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, h), false, 'a Git worktree alone is not an OS sandbox');
+  assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, { ...h, dependencies: { ...h.dependencies, execution_sandbox: true } }), true, 'coding is routed only when a task-bound OS sandbox is verified');
+  assert.equal(e.canServe({ requiredCapabilities: [Capability.TERMINAL], workingDirectory: '/p' }, h), false, 'terminal-only tasks also require an OS sandbox');
+  assert.equal(e.canServe({ requiredCapabilities: [Capability.FILESYSTEM], workingDirectory: '/p' }, h), false, 'filesystem-only tasks also require an OS sandbox');
+  assert.equal(e.canServe({ requiredCapabilities: [Capability.CHAT] }, h), true, 'chat remains available without a terminal sandbox');
   assert.ok(e.routingWeight(coding) > 30);
   assert.ok(e.routingWeight({ simple: true, requiredCapabilities: [Capability.CHAT] }) < -30);
   const pol = e.taskPolicy({ requiredCapabilities: [Capability.CODING] });
