@@ -31,9 +31,9 @@ pc-agent: dispatchCommand → HaltGuard → DeviceRuntime → RuntimeGuard/Actio
 | Watchdog `device_runtime` check, bounded browser recovery | | | — |
 | Core↔agent mission flow (locate→edit→failing test→rollback→passing test) | | in-process pump | HTTP polling hop |
 | Dashboard "Device Runtime" view | | static contract test only | **Visual/interaction check in a browser** |
-| Voice: VAD, wake matching, confirm-before-risky state machine | | unit | — |
-| Voice: microphone, SpeechRecognition / server STT glue (`companion.js`) | | syntax only | **Everything** — needs a real mic + browser |
-| Fully on-device wake-word/STT engine | not bundled (needs model files) | — | see limitations |
+| Voice: local VAD, wake matching, confirm-before-risky state machine | | unit | — |
+| Voice: native Android AudioRecord + server STT (Gemini first, OpenAI fallback); browser MediaRecorder fallback | | syntax only | **Everything** — needs a real mic + browser |
+| Fully on-device speech-to-text engine | not bundled (needs model files) | — | see limitations |
 | `applications.focus` | not implemented | — | — |
 
 ## Security model
@@ -61,8 +61,7 @@ the flag on the default profile), or set `browser.autoLaunch: true` in `config.j
 Voice: open `/companion.html` (HTTPS or localhost required for the microphone).
 
 ## Known limitations
-* No on-device wake-word/STT model is bundled. "browser-speech" in Chrome/Edge sends audio to the vendor's cloud (only
- while local VAD hears speech); "server-stt" uploads only VAD segments to *your* server. A WASM engine can be added as a backend.
+* No fully on-device speech-to-text model is bundled. Android uses native AudioRecord capture and local VAD, then sends bounded WAV segments to XOFT server STT; other browsers use MediaRecorder and server STT. A WASM engine can be added as a backend.
 * Energy VAD is simple: steady loud noise can trigger it.
 * Text/DOM location is heuristic; pages in cross-origin iframes and shadow DOM are not traversed.
 * Refactors span many files: `file_edit` is single-file; multi-file changes are separate journaled operations (undo each, or `file_history`).
