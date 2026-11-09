@@ -110,6 +110,17 @@ test('A completed older voice command cannot resume the current pipeline', () =>
   assert.doesNotMatch(companion, /finally \{[^}]*pipeline\?\.done\(\)/);
 });
 
+test('Stopping the live session aborts server STT requests for browser and native audio', () => {
+  const stt = read('public/js/voice/stt.js');
+  const companion = read('public/js/voice/companion.js');
+  assert.match(stt, /export async function transcribe\(blob, onStatus = \(\) => \{\}, language = 'auto', \{ signal \} = \{\}\)/);
+  assert.match(stt, /signal: controller\.signal/);
+  assert.match(stt, /externalSignal\?\.addEventListener\('abort', forwardAbort/);
+  assert.match(companion, /activeSttControllers\.add\(controller\)/);
+  assert.match(companion, /for \(const controller of activeSttControllers\) controller\.abort\(\)/);
+  assert.match(companion, /transcribeNativeAudio\([\s\S]*?\{ signal: controller\.signal \}\)/);
+});
+
 test('Voice transcription discards segments and results from an earlier session', () => {
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /sessionGeneration !== voiceSessionGeneration/);
