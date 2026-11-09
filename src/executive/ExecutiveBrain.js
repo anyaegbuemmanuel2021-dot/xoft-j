@@ -55,6 +55,55 @@ function deterministicCalculation(message) {
   return expression;
 }
 
+
+/** Deterministic unit conversion. No model, network, or browser dependency. */
+function deterministicConversion(message) {
+  const text = String(message ?? '').trim();
+  if (!text || text.length > 120) return null;
+  const match = text.match(/^(?:hey\\s+)?xoft[,! ]*(?:please\\s+)?convert\\s+(-?\\d+(?:\\.\\d+)?)\\s*([a-z]+)\\s+to\\s+([a-z]+)[?.!]*$/i);
+  if (!match) return null;
+
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  const aliases = {
+    km: 'km', kilometer: 'km', kilometers: 'km', kilometre: 'km', kilometres: 'km',
+    mi: 'mi', mile: 'mi', miles: 'mi',
+    m: 'm', meter: 'm', meters: 'm', metre: 'm', metres: 'm',
+    ft: 'ft', foot: 'ft', feet: 'ft',
+    kg: 'kg', kilogram: 'kg', kilograms: 'kg',
+    lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+    g: 'g', gram: 'g', grams: 'g',
+    c: 'c', celsius: 'c', '°c': 'c',
+    f: 'f', fahrenheit: 'f', '°f': 'f',
+    l: 'l', liter: 'l', liters: 'l', litre: 'l', litres: 'l',
+    gal: 'gal', gallon: 'gal', gallons: 'gal',
+  };
+  const from = aliases[match[2].toLowerCase()];
+  const to = aliases[match[3].toLowerCase()];
+  if (!from || !to) return null;
+
+  const conversions = {
+    km: { mi: n => n * 0.621371, m: n => n * 1000 },
+    mi: { km: n => n / 0.621371, ft: n => n * 5280 },
+    m: { km: n => n / 1000, ft: n => n * 3.28084 },
+    ft: { m: n => n / 3.28084, mi: n => n / 5280 },
+    kg: { lb: n => n * 2.2046226218, g: n => n * 1000 },
+    lb: { kg: n => n / 2.2046226218 },
+    g: { kg: n => n / 1000 },
+    c: { f: n => (n * 9 / 5) + 32 },
+    f: { c: n => (n - 32) * 5 / 9 },
+    l: { gal: n => n / 3.785411784 },
+    gal: { l: n => n * 3.785411784 },
+  };
+  if (from === to) return `${value} ${from} = ${value} ${to}`;
+  const convert = conversions[from]?.[to];
+  if (!convert) return null;
+  const result = convert(value);
+  if (!Number.isFinite(result)) return null;
+  const rounded = Number(result.toFixed(4));
+  return `${value} ${from} = ${rounded} ${to}`;
+}
+
 /** Parse only explicit date/time questions; do not guess when the request is ambiguous. */
 function deterministicDateTime(message) {
   const text = String(message ?? '').trim();
@@ -131,6 +180,13 @@ export class ExecutiveBrain {
    * @returns {Promise<{action:string, reply:string, meta?:object}>}
    */
   async handle(sessionId, message) {
+    const conversion = deterministicConversion(message);
+    if (conversion) {
+      this.memory.addTurn(sessionId, 'user', message);
+      this.memory.addTurn(sessionId, 'assistant', conversion);
+      this.activityLog.log({ type: 'deterministic_command_executed', detail: { sessionId, command: 'unit_conversion' } });
+      return { action: 'tool', reply: conversion, meta: { deterministic: true, modelUsed: false, command: 'unit_conversion' } };
+    }
     // Deterministic conversation fast path: no classifier or generative model.
     const localReply = deterministicConversation(message);
     if (localReply) {
