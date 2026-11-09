@@ -155,6 +155,14 @@ test('Voice transcription discards segments and results from an earlier session'
   assert.match(android, /audioCaptureWanted && active && segment\.size\(\)/);
 });
 
+test('Microphone startup is cancelled safely when Stop occurs during permission or AudioContext startup', () => {
+  const companion = read('public/js/voice/companion.js');
+  assert.match(companion, /const startGeneration = \+\+voiceSessionGeneration/);
+  assert.match(companion, /if \(startGeneration !== voiceSessionGeneration\) \{\s*acquiredStream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
+  assert.match(companion, /if \(startGeneration !== voiceSessionGeneration\) return;[\s\S]*?startContext\.resume\(\)/);
+  assert.match(companion, /if \(startGeneration !== voiceSessionGeneration \|\| !analyser\) return/);
+});
+
 test('Stopping or restarting the live voice session invalidates old replies and aborts the active request', () => {
   const companion = read('public/js/voice/companion.js');
   assert.match(companion, /activeChatRequestController\?\.abort\(\)/);
