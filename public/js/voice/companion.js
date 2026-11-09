@@ -29,7 +29,7 @@ const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}
 
 let voiceSessionGeneration = 0;
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
+let recorder = null; let recorderSessionGeneration = 0; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -67,6 +67,7 @@ function startAudioCapture() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
   const options = preferredRecorderOptions();
   const sessionGeneration = voiceSessionGeneration;
+  recorderSessionGeneration = sessionGeneration;
   let activeRecorder;
   try {
     activeRecorder = new MediaRecorder(stream, options);
@@ -116,7 +117,7 @@ function stopSegmentRecording() {
   const activeRecorder = recorder;
   const type = activeRecorder?.mimeType || 'audio/webm';
   const chunks = captureBuffer.finish();
-  if (chunks.length) void transcribeCapturedChunks(chunks, type, voiceSessionGeneration);
+  if (chunks.length) void transcribeCapturedChunks(chunks, type, recorderSessionGeneration);
 }
 
 function fallbackToServerStt(reason) {
