@@ -42,7 +42,7 @@ export function deterministicConversation(message) {
 export function deterministicConversion(message) {
   const text = String(message ?? '').trim();
   if (!text || text.length > 120) return null;
-  const match = text.match(/^(?:hey\s+)?xoft[,! ]*(?:please\s+)?convert\s+(-?\d+(?:\.\d+)?)\s*([a-z]+)\s+to\s+([a-z]+)[?.!]*$/i);
+  const match = text.match(/^(?:(?:hey\s+)?xoft[,! ]*)?(?:please\s+)?convert\s+(-?\d+(?:\.\d+)?)\s*([a-z]+)\s+to\s+([a-z]+)[?.!]*$/i);
   if (!match) return null;
 
   const value = Number(match[1]);
