@@ -206,6 +206,8 @@ window.addEventListener('xoft:native-audio', (event) => {
 
 async function start() {
   if ($('backend').value === 'native-android') {
+    // Wake the server while Android is already listening; this hides free-instance cold-start latency.
+    void warmVoiceServer();
     buildPipeline(true);
     pipeline.start();
     if ($('backend').value !== 'native-android') return;
