@@ -186,7 +186,11 @@ test('Voice transcription discards segments and results from an earlier session'
   assert.match(companion, /sessionGeneration !== voiceSessionGeneration/);
   assert.match(companion, /transcribeCapturedChunks\(chunks, type, recorderSessionGeneration\)/);
   const android = read('android-companion/app/src/main/java/com/xoft/companion/LiveActivity.kt');
-  assert.match(android, /audioCaptureWanted && active && segment\.size\(\)/);
+  assert.match(android, /isAudioCaptureCurrent\(generation\) && active && segment\.size\(\)/);
+  assert.match(android, /audioCaptureGeneration \+= 1/);
+  assert.match(android, /thread\.join\(750\)/);
+  assert.match(android, /frameFilled < frameBytes/);
+  assert.match(android, /audioCaptureGeneration == generation/);
 });
 
 test('Microphone startup is cancelled safely when Stop occurs during permission or AudioContext startup', () => {
