@@ -62,6 +62,7 @@ test('Voice companion prefers native Android STT and retains server STT fallback
   assert.match(companion, /startNativeAudioCapture/);
   assert.match(companion, /transcribeNativeAudio/);
   assert.match(companion, /xoft:native-audio/);
+  assert.match(companion, /void warmVoiceServer\(\);[\s\S]*?buildPipeline\(true\)/, 'native Android listening wakes the STT server before the first utterance');
   assert.doesNotMatch(companion, /'browser-speech'|window\\.SpeechRecognition|webkitSpeechRecognition/);
   assert.match(companion, /transcribe as transcribeAudioBlob.*from '\.\/stt\.js'/);
   assert.match(companion, /preferredRecorderOptions/);
