@@ -4,6 +4,89 @@ import { ExecutiveClassifier, ExecutiveAction } from './ExecutiveClassifier.js';
 
 const CONFIDENCE_THRESHOLD = 55;
 
+/**
+ * Small, unambiguous conversational turns are handled locally.
+ * This keeps greetings, acknowledgements and basic XOFT help independent of
+ * model availability, network latency and provider quotas.
+ */
+export function deterministicConversation(message) {
+  const text = String(message ?? '').trim().replace(/[.!?]+$/g, '').toLowerCase();
+  if (!text || text.length > 100) return null;
+
+  if (/^(?:hi|hello|hey|hello xoft|hey xoft|good morning|good afternoon|good evening|how far|wetin dey|how you dey|you dey|ndewo|kedụ|kedu)$/.test(text)) {
+    if (/^(?:how far|wetin dey|how you dey|you dey)$/.test(text)) return "I dey here. How I fit help you?";
+    if (/^(?:ndewo|kedụ|kedu)$/.test(text)) return "Ndewo! Kedu ka m ga-esi nyere gị aka?";
+    return "Hello. I'm here and ready to help. What would you like me to do?";
+  }
+
+  if (/^(?:thanks|thank you|thanks xoft|thank you xoft|i appreciate it|nice one)$/.test(text)) {
+    return "You're welcome. I'm ready for the next task.";
+  }
+
+  if (/^(?:who are you|what are you|what is xoft|introduce yourself)$/.test(text)) {
+    return "I'm XOFT, your assistant. I use built-in rules and tools for tasks they can handle, and only call an AI model when a request genuinely needs language reasoning.";
+  }
+
+  if (/^(?:help|what can you do|show help|help me)$/.test(text)) {
+    return "I can handle supported commands, calculations, date and time, memory requests, task execution and connected tools. I use deterministic logic first; requests outside those rules may need an AI provider.";
+  }
+
+  if (/^(?:are you there|you there|are you online|xoft status)$/.test(text)) {
+    return "Yes. XOFT is running and listening. Tell me what you need.";
+  }
+
+  return null;
+}
+
+/** Deterministic unit conversion. No model, network, or browser dependency. */
+export function deterministicConversion(message) {
+  const text = String(message ?? '').trim();
+  if (!text || text.length > 120) return null;
+  const match = text.match(/^(?:hey\s+)?xoft[,! ]*(?:please\s+)?convert\s+(-?\d+(?:\.\d+)?)\s*([a-z]+)\s+to\s+([a-z]+)[?.!]*$/i);
+  if (!match) return null;
+
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return null;
+  const aliases = {
+    km: 'km', kilometer: 'km', kilometers: 'km', kilometre: 'km', kilometres: 'km',
+    mi: 'mi', mile: 'mi', miles: 'mi',
+    m: 'm', meter: 'm', meters: 'm', metre: 'm', metres: 'm',
+    ft: 'ft', foot: 'ft', feet: 'ft',
+    kg: 'kg', kilogram: 'kg', kilograms: 'kg',
+    lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+    g: 'g', gram: 'g', grams: 'g',
+    c: 'c', celsius: 'c', '°c': 'c',
+    f: 'f', fahrenheit: 'f', '°f': 'f',
+    l: 'l', liter: 'l', liters: 'l', litre: 'l', litres: 'l',
+    gal: 'gal', gallon: 'gal', gallons: 'gal',
+  };
+  const from = aliases[match[2].toLowerCase()];
+  const to = aliases[match[3].toLowerCase()];
+  if (!from || !to) return null;
+
+  const conversions = {
+    km: { mi: n => n * 0.621371, m: n => n * 1000 },
+    mi: { km: n => n / 0.621371, ft: n => n * 5280 },
+    m: { km: n => n / 1000, ft: n => n * 3.28084 },
+    ft: { m: n => n / 3.28084, mi: n => n / 5280 },
+    kg: { lb: n => n * 2.2046226218, g: n => n * 1000 },
+    lb: { kg: n => n / 2.2046226218 },
+    g: { kg: n => n / 1000 },
+    c: { f: n => (n * 9 / 5) + 32 },
+    f: { c: n => (n - 32) * 5 / 9 },
+    l: { gal: n => n / 3.785411784 },
+    gal: { l: n => n * 3.785411784 },
+  };
+  if (from === to) return `${value} ${from} = ${value} ${to}`;
+  const convert = conversions[from]?.[to];
+  if (!convert) return null;
+  const result = convert(value);
+  if (!Number.isFinite(result)) return null;
+  const rounded = Number(result.toFixed(4));
+  return `${value} ${from} = ${rounded} ${to}`;
+}
+
+
 /** Parse only explicit arithmetic requests. Anything conversational stays on the normal route. */
 function deterministicCalculation(message) {
   const text = String(message ?? '').trim();
@@ -97,6 +180,21 @@ export class ExecutiveBrain {
    * @returns {Promise<{action:string, reply:string, meta?:object}>}
    */
   async handle(sessionId, message) {
+    const localReply = deterministicConversation(message);
+    if (localReply) {
+      this.memory.addTurn(sessionId, 'user', message);
+      this.memory.addTurn(sessionId, 'assistant', localReply);
+      this.activityLog?.log({ type: 'deterministic_conversation', detail: { sessionId } });
+      return { action: 'conversation', reply: localReply, meta: { deterministic: true, modelUsed: false } };
+    }
+
+    const conversion = deterministicConversion(message);
+    if (conversion) {
+      this.memory.addTurn(sessionId, 'user', message);
+      this.memory.addTurn(sessionId, 'assistant', conversion);
+      this.activityLog?.log({ type: 'deterministic_conversion', detail: { sessionId } });
+      return { action: 'conversion', reply: conversion, meta: { deterministic: true, modelUsed: false } };
+    }
     // Exact arithmetic is a deterministic local operation; don't pay for an intent
     // classifier or planner model when the request is unambiguous.
     if (deterministicDateTime(message)) {
