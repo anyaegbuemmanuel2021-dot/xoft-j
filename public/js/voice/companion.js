@@ -5,9 +5,8 @@ import { VoicePipeline } from './wake.js';
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from './stt.js';
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
-import { speakOut } from './speak-out.js';
-import { hasNativeSpeechRecognition, startNativeListening, stopNativeListening } from './native-bridge.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
+import { fetchSpeechAudio } from './tts.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -17,18 +16,9 @@ const conversationEnabled = () => $('conversation-mode')?.checked ?? true;
 const speechOutputEnabled = () => $('speak-replies')?.checked ?? true;
 
 const BACKENDS = {
-  ...(hasNativeSpeechRecognition() ? {
-    'native-android': {
-      available: true,
-      label: 'On-device Android speech recognition',
-      note: 'Android on-device speech service. Requires an installed offline language pack and microphone permission.',
-    },
-  } : {}),
-  'server-stt': {
-    available: typeof MediaRecorder !== 'undefined',
-    label: 'XOFT server STT (Gemini → OpenAI fallback)',
-    note: 'Audio is captured locally and transcribed by XOFT server STT. No browser speech-recognition service is used.',
-  },
+  ...(hasNativeSpeechRecognition() ? { 'native-android': { available: true, label: 'On-device Android speech recognition', note: 'Android on-device speech service. Requires an installed offline language pack and microphone permission.' } } : {}),
+  'server-stt': { available: typeof MediaRecorder !== 'undefined', label: 'XOFT server STT (Gemini → OpenAI)', note: 'Speech is captured locally, detected with local VAD, then transcribed by XOFT server STT (Gemini primary, OpenAI fallback). Auto supports mixed Nigerian English/Pidgin/Igbo.' },
+
 };
 
 const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLocaleTimeString()}] ${t}\n`; el.scrollTop = el.scrollHeight; }, pill(id, text, cls = '') { const el = $(id); el.textContent = text; el.className = `pill ${cls}`; } };
@@ -36,7 +26,7 @@ const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
 let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recognizerWanted = false; let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null;
+let recorder = null; let captureBuffer = null; let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -44,15 +34,8 @@ function makeBackendControls() {
   const first = Object.entries(BACKENDS).find(([, b]) => b.available)?.[0];
   if (first) sel.value = first; else ui.log('No speech recognition backend is available in this browser.');
   const note = () => { $('backend-note').textContent = BACKENDS[sel.value]?.note ?? ''; };
-  sel.addEventListener('change', () => { note(); stopRecognizer(); });
+  sel.addEventListener('change', note);
   note();
-}
-
-// Browser speech recognition is intentionally not a backend. The native Android
-// recognizer is preferred; web-only sessions send captured audio to XOFT server STT.
-function stopRecognizer() {
-  recognizerWanted = false;
-  stopNativeListening();
 }
 
 // ---- backend: continuous capture with a bounded pre-roll for VAD segments ----
@@ -134,26 +117,69 @@ function fallbackToServerStt(reason) {
   if ($('backend').value !== 'native-android') return;
   ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
   $('backend').value = 'server-stt';
+  stopNativeListening();
   stop();
   void start();
 }
 
 function wantRecognizer(on) {
   recognizerWanted = on;
-  const b = $('backend').value;
-  if (b === 'native-android') {
+  const backend = $('backend').value;
+  if (backend === 'native-android') {
     if (on && !startNativeListening(selectedLanguage())) fallbackToServerStt('recognizer could not start');
     if (!on) stopNativeListening();
     return;
   }
-  if (b === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
+  if (backend === 'server-stt') on ? startSegmentRecording() : stopSegmentRecording();
 }
 
 // ---- command submission: SAME entry point as typed chat. Deliberately NOT api.js (which queues offline POSTs for replay later —
 // a stale voice command must never be replayed minutes/hours after it was spoken). ----
-function speakReply(text) {
-  if (!speechOutputEnabled() || !text) return Promise.resolve(false);
-  return speakOut(String(text).slice(0, 4000));
+async function speakReply(text) {
+  if (!speechOutputEnabled() || !text) return;
+  let audio = null;
+  let objectUrl = null;
+  const controller = new AbortController();
+  activeSpeechRequestController?.abort();
+  activeSpeechRequestController = controller;
+  try {
+    const result = await fetchSpeechAudio(text, { requestHeaders: headers(), signal: controller.signal });
+    activeSpeechCancel?.();
+    activeSpeechAudio?.pause();
+    if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl);
+    objectUrl = URL.createObjectURL(result.audio);
+    activeSpeechUrl = objectUrl;
+    audio = new Audio(objectUrl);
+    activeSpeechAudio = audio;
+    audio.preload = 'auto';
+    ui.log('TTS audio ready (' + result.provider + ', ' + result.contentType + ')');
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error = null) => {
+        if (settled) return;
+        settled = true;
+        if (activeSpeechCancel === cancel) activeSpeechCancel = null;
+        if (error) reject(error); else resolve();
+      };
+      const cancel = () => finish();
+      activeSpeechCancel = cancel;
+      audio.onended = () => finish();
+      audio.onerror = () => finish(new Error('The device could not play XOFT audio.'));
+      audio.play().catch(finish);
+    });
+  } catch (error) {
+    if (error?.name !== 'AbortError') ui.log('XOFT server TTS failed: ' + error.message);
+  } finally {
+    if (activeSpeechRequestController === controller) activeSpeechRequestController = null;
+    if (audio) {
+      if (activeSpeechAudio === audio) activeSpeechAudio = null;
+      try { audio.pause(); } catch { /* already stopped */ }
+    }
+    if (objectUrl) {
+      if (activeSpeechUrl === objectUrl) activeSpeechUrl = null;
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
 }
 
 async function sendCommand({ text }) {
@@ -197,16 +223,15 @@ window.addEventListener('xoft:native-transcript', (event) => {
   if ($('backend').value !== 'native-android') return;
   if (detail.error) {
     ui.log('Android on-device STT: ' + detail.error);
-    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) {
-      fallbackToServerStt(detail.error);
-    }
+    if (/unavailable|stopped after repeated errors|selected language|permission/i.test(detail.error)) fallbackToServerStt(detail.error);
     return;
   }
   const transcript = String(detail.text || '').trim();
-  if (!transcript) return;
-  $('transcript').textContent = transcript;
-  ui.log('heard (Android on-device): ' + transcript);
-  pipeline?.transcript(transcript, detail.isFinal !== false);
+  if (transcript) {
+    $('transcript').textContent = transcript;
+    ui.log('heard (Android on-device): ' + transcript);
+    pipeline?.transcript(transcript, detail.isFinal !== false);
+  }
 });
 
 async function start() {
@@ -285,7 +310,11 @@ async function start() {
 }
 
 function stop() {
-  clearInterval(timer); timer = null; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null; pipeline?.stop(); stopRecognizer();
+  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeListening(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
+  activeSpeechCancel?.(); activeSpeechCancel = null;
+  activeSpeechAudio?.pause(); activeSpeechAudio = null;
+  if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
   // Let MediaRecorder emit its final dataavailable chunk before its onstop handler flushes any active segment.
   if (recorder?.state === 'recording') { try { recorder.stop(); } catch { /* already stopping */ } }
   else { captureBuffer?.discard(); captureBuffer = null; }
