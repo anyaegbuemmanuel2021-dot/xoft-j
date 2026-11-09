@@ -186,7 +186,7 @@ window.addEventListener('xoft:native-audio-error', (event) => {
 
 window.addEventListener('xoft:native-audio', (event) => {
   const detail = event.detail || {};
-  if ($('backend').value !== 'native-android' || !detail.base64) return;
+  if ($('backend').value !== 'native-android' || !recognizerWanted || !detail.base64) return;
   // Keep segments ordered; overlapping provider calls can return out of order and confuse the wake pipeline.
   nativeTranscriptionQueue = nativeTranscriptionQueue.then(async () => {
     if ($('backend').value !== 'native-android') return;
