@@ -279,7 +279,7 @@ function renderLog(container) {
 
 // STT: XOFT server transcription (Gemini primary, OpenAI fallback).
 import { transcribe as transcribeAudioBlob, warmVoiceServer } from '../voice/stt.js';
-import { createLevelMeter, createSpeechGate, preferredRecorderOptions, unlockAudio } from '../voice/listen.js';
+import { createLevelMeter, createSpeechGate, preferredRecorderOptions, recordedMimeType, unlockAudio } from '../voice/listen.js';
 let voiceRecorder = null;
 let voiceStream = null;
 let voiceChunks = [];
@@ -385,7 +385,7 @@ async function startVoiceRecording(container, { autoSegment = false } = {}) {
     recorder.onstop = async () => {
       if (finished) return;
       finished = true;
-      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      const blob = new Blob(chunks, { type: recordedMimeType(recorder, options) });
       await cleanupAudio();
 
       if (conversationSegment && !voiceConversationActive) {
