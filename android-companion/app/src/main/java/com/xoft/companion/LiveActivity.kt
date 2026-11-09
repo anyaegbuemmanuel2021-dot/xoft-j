@@ -136,9 +136,8 @@ class LiveActivity : Activity() {
         if (!::web.isInitialized) return
         runOnUiThread {
             if (!::web.isInitialized) return@runOnUiThread
-            val safeText = JSONObject.quote(text)
             val safeError = JSONObject.quote(error ?: "")
-            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-transcript',{detail:{text:$safeText,isFinal:$isFinal,error:$safeError}}))", null)
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('xoft:native-audio-error',{detail:{error:$safeError}}))", null)
         }
     }
 
