@@ -8,6 +8,7 @@ import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
 import { hasNativeAudioCapture, startNativeAudioCapture, stopNativeAudioCapture } from './native-bridge.js';
 import { speakOut, stopSpeaking } from './speak-out.js';
+import { postVoiceCommand } from './command-request.js';
 
 const $ = (id) => document.getElementById(id);
 const SESSION = `voice-${crypto.randomUUID?.() ?? Date.now()}`;
@@ -26,8 +27,9 @@ const ui = { log(t) { const el = $('log'); el.textContent += `[${new Date().toLo
 const apiKey = () => localStorage.getItem('xoft_api_key') || '';
 const headers = (extra = {}) => ({ ...(apiKey() ? { 'X-API-Key': apiKey() } : {}), ...extra });
 
-let voiceSessionGeneration = 0;\nlet stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
-let recorder = null; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeSpeechRequestController = null;
+let voiceSessionGeneration = 0;
+let stream = null; let ctx = null; let analyser = null; let timer = null; let vad = null; let pipeline = null;
+let recorder = null; let captureBuffer = null; let nativeTranscriptionQueue = Promise.resolve(); let micDiagnosticTimer = null; let recognizerWanted = false; let activeSpeechAudio = null; let activeSpeechUrl = null; let activeSpeechCancel = null; let activeChatRequestController = null;
 
 function makeBackendControls() {
   const sel = $('backend');
@@ -143,22 +145,31 @@ async function speakReply(text) {
 }
 
 async function sendCommand({ text }) {
+  const commandGeneration = voiceSessionGeneration;
   ui.log(`command: ${text}`);
   let reply = '';
+  const controller = new AbortController();
+  activeChatRequestController = controller;
   try {
-    // Keep the active command cancellable when the user stops the live voice session.\n    const controller = new AbortController();\n    activeSpeechRequestController = controller;\n    const res = await fetch('/api/chat', { method: 'POST', headers: headers({ 'Content-Type': 'application/json' }), body: JSON.stringify({ sessionId: SESSION, message: text }), signal: controller.signal });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) ui.log(`XOFT error (${res.status}): ${body.error ?? 'request failed'}`);
-    else {
-      reply = String(body.reply ?? body.message ?? body.response ?? '').trim();
-      if (!reply) reply = JSON.stringify(body).slice(0, 300);
-      ui.log(`XOFT: ${reply}`);
-      $('transcript').textContent = `You: ${text}\nXOFT: ${reply}`;
-    }
-  } catch (err) { ui.log(`could not reach XOFT (command NOT sent, not queued): ${err.message}`); }
-  finally {
-    if (reply) await speakReply(reply);
-    pipeline.done();
+    const body = await postVoiceCommand({
+      fetchImpl: fetch,
+      headers: headers({ 'Content-Type': 'application/json' }),
+      sessionId: SESSION,
+      message: text,
+      signal: controller.signal,
+    });
+    reply = String(body.reply ?? body.message ?? body.response ?? '').trim();
+    if (!reply) reply = JSON.stringify(body).slice(0, 300);
+    ui.log(`XOFT: ${reply}`);
+    $('transcript').textContent = `You: ${text}\nXOFT: ${reply}`;
+  } catch (err) {
+    if (err?.name === 'AbortError') ui.log('voice command cancelled because the live session stopped');
+    else ui.log(`XOFT chat request failed; execution status may be unknown: ${err.message}`);
+  } finally {
+    if (activeChatRequestController === controller) activeChatRequestController = null;
+    // A reply from an older/stopped session must never start speaking after the user stops or restarts XOFT.
+    if (reply && commandGeneration === voiceSessionGeneration) await speakReply(reply);
+    pipeline?.done();
   }
 }
 
@@ -205,6 +216,7 @@ window.addEventListener('xoft:native-audio', (event) => {
 });
 
 async function start() {
+  voiceSessionGeneration += 1;
   if ($('backend').value === 'native-android') {
     // Wake the server while Android is already listening; this hides free-instance cold-start latency.
     void warmVoiceServer();
@@ -282,8 +294,9 @@ async function start() {
 }
 
 function stop() {
+  voiceSessionGeneration += 1;
   clearInterval(timer); timer = null; pipeline?.stop(); stopNativeAudioCapture(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
-  activeSpeechRequestController?.abort(); activeSpeechRequestController = null;
+  activeChatRequestController?.abort(); activeChatRequestController = null;
   activeSpeechCancel?.(); activeSpeechCancel = null;
   activeSpeechAudio?.pause(); activeSpeechAudio = null;
   if (activeSpeechUrl) URL.revokeObjectURL(activeSpeechUrl); activeSpeechUrl = null;
