@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSpeechGate } from '../public/js/voice/listen.js';
+import { createSpeechGate, recordedMimeType } from '../public/js/voice/listen.js';
 
 test('voice gate detects a quiet utterance after room-noise calibration', () => {
   const originalNow = Date.now;
@@ -16,4 +16,16 @@ test('voice gate detects a quiet utterance after room-noise calibration', () => 
   } finally {
     Date.now = originalNow;
   }
+});
+
+test('recorded MIME prefers the actual recorder value including codec parameters', () => {
+  assert.equal(recordedMimeType({ mimeType: 'audio/mp4;codecs=mp4a.40.2' }, { mimeType: 'audio/webm' }), 'audio/mp4;codecs=mp4a.40.2');
+});
+
+test('recorded MIME falls back to selected options when the recorder omits its type', () => {
+  assert.equal(recordedMimeType({ mimeType: '' }, { mimeType: 'audio/ogg;codecs=opus' }), 'audio/ogg;codecs=opus');
+});
+
+test('recorded MIME uses WebM only when no type is available', () => {
+  assert.equal(recordedMimeType({}, {}), 'audio/webm');
 });
