@@ -42,7 +42,8 @@ function makeBackendControls() {
 }
 
 // ---- backend: continuous capture with a bounded pre-roll for VAD segments ----
-async function transcribeCapturedChunks(chunks, type) {
+async function transcribeCapturedChunks(chunks, type, sessionGeneration = voiceSessionGeneration) {
+  if (sessionGeneration !== voiceSessionGeneration) { ui.log('discarded audio from an earlier voice session'); return; }
   const blob = new Blob(chunks, { type });
   ui.log('audio segment captured: ' + blob.size + ' bytes (' + type + ')');
   if (blob.size < 300) {
@@ -51,19 +52,21 @@ async function transcribeCapturedChunks(chunks, type) {
   }
   try {
     const transcript = await transcribeAudioBlob(blob, (message) => ui.log(message), selectedLanguage());
+    if (sessionGeneration !== voiceSessionGeneration) return;
     if (transcript) {
       $('transcript').textContent = transcript;
       ui.log('heard: ' + transcript);
       pipeline?.transcript(transcript, true);
     } else ui.log('No speech was recognized in this segment.');
   } catch (err) {
-    ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message);
+    if (sessionGeneration === voiceSessionGeneration) ui.log('XOFT server STT failed (Gemini → OpenAI fallback): ' + err.message);
   }
 }
 
 function startAudioCapture() {
   if (recorder || !stream || typeof MediaRecorder === 'undefined') return;
   const options = preferredRecorderOptions();
+  const sessionGeneration = voiceSessionGeneration;
   let activeRecorder;
   try {
     activeRecorder = new MediaRecorder(stream, options);
@@ -87,7 +90,7 @@ function startAudioCapture() {
     captureBuffer?.discard();
     captureBuffer = null;
     if (recorder === activeRecorder) recorder = null;
-    if (chunks.length) void transcribeCapturedChunks(chunks, type);
+    if (chunks.length) void transcribeCapturedChunks(chunks, type, sessionGeneration);
   };
 
   try {
@@ -113,7 +116,7 @@ function stopSegmentRecording() {
   const activeRecorder = recorder;
   const type = activeRecorder?.mimeType || 'audio/webm';
   const chunks = captureBuffer.finish();
-  if (chunks.length) void transcribeCapturedChunks(chunks, type);
+  if (chunks.length) void transcribeCapturedChunks(chunks, type, voiceSessionGeneration);
 }
 
 function fallbackToServerStt(reason) {
@@ -199,11 +202,13 @@ window.addEventListener('xoft:native-audio', (event) => {
   const detail = event.detail || {};
   if ($('backend').value !== 'native-android' || !recognizerWanted || !detail.base64) return;
   // Keep segments ordered; overlapping provider calls can return out of order and confuse the wake pipeline.
+  const sessionGeneration = voiceSessionGeneration;
   nativeTranscriptionQueue = nativeTranscriptionQueue.then(async () => {
-    if ($('backend').value !== 'native-android') return;
+    if ($('backend').value !== 'native-android' || !recognizerWanted || sessionGeneration !== voiceSessionGeneration) return;
     try {
       ui.log('native Android PCM segment captured; sending WAV to XOFT Gemini → OpenAI STT');
       const transcript = await transcribeNativeAudio(detail.base64, detail.language || selectedLanguage(), (message) => ui.log(message));
+      if (sessionGeneration !== voiceSessionGeneration || !recognizerWanted) return;
       if (transcript) {
         $('transcript').textContent = transcript;
         ui.log('heard (native audio / server STT): ' + transcript);
