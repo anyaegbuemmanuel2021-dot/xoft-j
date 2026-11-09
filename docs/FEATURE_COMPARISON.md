@@ -27,8 +27,8 @@ Status key:
 | 12 | Email agent — search/read/send (Gmail) | READY | `GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN` | `src/agents/email/GmailService.js` |
 | 13 | Calendar agent — list/create/find-free-time | READY | same Google credential as #12 | `src/agents/calendar/CalendarService.js` |
 | 14 | Web research agent — search + page fetch | READY | Free SearXNG when `SEARXNG_BASE_URL` is configured (Docker Compose wires a private SearXNG service); optional `BRAVE_SEARCH_API_KEY` fallback. Page reading is keyless, size-limited and blocks obvious private/loopback targets and unsafe redirects. | `src/agents/research/SearchService.js`, `src/tools/builtins/researchTools.js`, `deploy/searxng/settings.yml` |
-| 15 | Voice — text-to-speech | READY | `GEMINI_API_KEY` / `OPENAI_API_KEY` | `src/voice/VoiceService.js` |
-| 16 | Voice — speech-to-text (Whisper) | READY | `OPENAI_API_KEY` | `src/voice/VoiceService.js` |
+| 15 | Voice — text-to-speech | LIVE in Android companion (native OS TTS); server fallback READY | Installed Android voice; optional server provider credentials for web-only sessions | `android-companion/.../LiveActivity.kt`, `public/js/voice/speak-out.js`, `src/voice/VoiceService.js` |
+| 16 | Voice — speech-to-text | LIVE when Android on-device recognizer + language pack are available; server fallback READY | Android OS speech service and installed language pack, or Gemini/OpenAI server credentials | `android-companion/.../LiveActivity.kt`, `public/js/voice/companion.js`, `src/voice/VoiceService.js` |
 | 16a | WhatsApp Cloud API inbound/outbound text + AI replies | READY | Meta WhatsApp Business Platform credentials + public HTTPS webhook | `src/integrations/WhatsAppService.js`, `/webhooks/whatsapp` |
 | 16b | WhatsApp inbox/history + delivery status storage | READY | Same Cloud API webhook; persistent `/app/data` storage in production | `src/integrations/WhatsAppInboxStore.js`, Plugins & Apps |
 | 16c | Mark supported inbound WhatsApp messages as read | READY | Same Cloud API credentials | `POST /api/whatsapp/read` |
@@ -146,8 +146,14 @@ with registry access is expected to resolve those 19.
 
 XOFT's direct OpenAI provider is configured with five model tiers: flagship `gpt-6-astra`, balanced `gpt-6.1-sol`, efficient `gpt-6-luna`, coding `gpt-5.6-sol`, and budget `gpt-5.6-terra`. Simple tasks use the efficient tier, coding tasks can select the coding tier, and long-context tasks can select the balanced tier; the flagship remains the standard OpenAI chat/reasoning model. Exact model access still depends on the OpenAI API account and is not proven by configuration alone.
 
-Chat replies now try the existing protected `POST /api/voice/speak` endpoint first, which uses Gemini first, then OpenAI (optional ElevenLabs last). If no server voice is configured or the endpoint cannot play audio, the browser's native speech synthesis is used as a fallback. This does not implement an always-listening wake word; the client still needs microphone permission and a user-initiated action for reliable playback.
+Chat replies in the Android companion use native Android TextToSpeech first. Web-only sessions can use the protected `POST /api/voice/speak` endpoint (Gemini first, then OpenAI, optional ElevenLabs last). Browser `speechSynthesis` is not used. The Android companion also prefers the on-device recognizer; web-only sessions use server STT.
 
+
+## Native speech and deterministic routing (November 2026)
+
+The Android companion now prefers native on-device speech recognition and Android TextToSpeech. Browser `SpeechRecognition` and `speechSynthesis` are not used. Web-only sessions use browser microphone capture and XOFT's server STT/TTS endpoints as explicit fallbacks. On-device language-pack availability is hardware/OS-dependent and must be verified on the target phone.
+
+Executive and memory intent classification now use deterministic rules. Explicit calculator and date/time commands run through `NativeCommandEngine` and the existing `ToolRegistry` before model routing. Unknown language remains delegated; risky actions still require the existing confirmation and permission checks. See `docs/NATIVE_INTELLIGENCE.md`.
 
 ## Current verification — 2026-10-21
 
