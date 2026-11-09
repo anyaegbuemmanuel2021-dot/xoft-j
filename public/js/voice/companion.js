@@ -263,8 +263,7 @@ async function start() {
 
   // Resume/create AudioContext synchronously during the Start button gesture, BEFORE
   // getUserMedia yields. Mobile browsers may discard user activation after the permission await.
-  const startContext = unlockAudio();
-  ctx = startContext;
+  const startContext = ctx = unlockAudio();
   try {
     const acquiredStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
