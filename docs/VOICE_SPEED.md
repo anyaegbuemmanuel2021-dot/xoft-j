@@ -3,7 +3,7 @@
 Speed is the first requirement: every step is built to start answering as early as possible.
 
 ## Speech-to-text
-- Gemini is the default server STT provider; OpenAI (`gpt-4o-mini-transcribe`) is the fallback. The order is fixed in code so a stale environment variable cannot reverse it.
+- Gemini is the default server STT provider; OpenAI (`gpt-transcribe`) is the fallback. The order is fixed in code so a stale environment variable cannot reverse it. OpenAI's older `whisper-1` and `gpt-4o-*transcribe*` models are retained only as explicit compatibility overrides and are scheduled to shut down on February 26, 2027.
 - A failed or empty Gemini answer hands over to OpenAI **immediately** (no waiting).
 - A slow Gemini answer is **hedged**: after `STT_HEDGE_MS` (default 800 ms) OpenAI starts in parallel and the first usable transcript wins; the losing request is cancelled.
 - `STT_TIMEOUT_MS` bounds each request (default 15 s). `STT_LANGUAGE` pins a language when set; leave it empty for mixed English / Nigerian Pidgin / Igbo.
