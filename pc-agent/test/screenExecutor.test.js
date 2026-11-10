@@ -27,7 +27,7 @@ test('Windows typing escapes shortcuts and quotes PowerShell apostrophes safely'
   const args = fake.calls[0].args;
   assert.equal(fake.calls[0].file, 'powershell.exe');
   const script = args[args.indexOf('-Command') + 1];
-  assert.ok(script.includes("SendWait('Save {+} edit {^} 50{%} {~} {(}draft{)} {{ }one{}} O''Reilly')".replace('{{ }', '{{}')));
+  assert.ok(script.includes("SendWait('Save {+} edit {^} 50{%} {~} {(}draft{)} {{}one{}} O''Reilly')"));
 });
 
 test('Windows click stops and reports failure if SetCursorPos is rejected', async () => {
