@@ -117,8 +117,8 @@ export const config = {
     openaiTtsModel: String(required('TTS_OPENAI_MODEL', 'gpt-4o-mini-tts')).trim(),
     openaiTtsVoice: String(required('TTS_OPENAI_VOICE', 'alloy')).trim(),
     sttLanguage: String(required('STT_LANGUAGE', '')).trim(),
-    // gpt-4o-mini-transcribe is the default OpenAI transcription model; set STT_OPENAI_MODEL=whisper-1 for the legacy Whisper model.
-    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-4o-mini-transcribe')).trim(),
+    // gpt-transcribe is the current recommended OpenAI file-transcription model. Older models remain configurable for compatibility.
+    sttOpenAiModel: String(required('STT_OPENAI_MODEL', 'gpt-transcribe')).trim(),
     // Context is a spelling hint only. Language detection stays automatic unless STT_LANGUAGE is explicitly set.
     sttContextPrompt: String(required(
       'STT_CONTEXT_PROMPT',
