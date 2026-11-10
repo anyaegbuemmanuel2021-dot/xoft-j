@@ -367,7 +367,12 @@ class LiveActivity : Activity() {
         @JavascriptInterface
         fun startAudioListening(language: String): Boolean {
             if (!canCaptureAudio() || audioCaptureWanted || pendingAudioStart) return false
-            audioLanguage = if (language == "ig") "ig" else if (language == "en") "en" else "auto"
+            audioLanguage = when (language.trim().lowercase(Locale.ROOT)) {
+                "ig" -> "ig"
+                "en" -> "en"
+                "pcm", "pidgin" -> "pcm" // preserve Nigerian Pidgin selection through native AudioRecord
+                else -> "auto"
+            }
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 pendingAudioStart = true
                 runOnUiThread { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MIC) }
