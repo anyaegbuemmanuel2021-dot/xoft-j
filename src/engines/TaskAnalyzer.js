@@ -8,7 +8,7 @@ const RX = {
   pc: /\b(mouse|keyboard|desktop|window|launch (?:the )?app|open (?:the )?app|application|screen|screenshot|click on the)\b/i,
   web: /\b(search the web|look up|research|google|find online)\b/i,
   longRunning: /\b(end[- ]to[- ]end|whole|entire|all (?:the )?files|migrat(?:e|ion)|overhaul|autonomous(?:ly)?|overnight|multi[- ]step|step by step|until|thorough(?:ly)?|from scratch|investigate|audit|rewrite|restructure)\b/i,
-  action: /\b(fix|build|create|write|implement|change|update|modify|refactor|run|install|delete|remove|rename|move|organi[sz]e|open|click|download|deploy|set up|configure|generate|add|find and|inspect|investigate|debug|migrate|test)\b/i,
+  action: /\b(fix|build|create|write|implement|change|update|modify|refactor|run|install|delete|remove|rename|move|organi[sz]e|open|click|download|deploy|set up|configure|generate|add|find and|inspect|investigate|debug|migrate|test|complete|finish|continue|proceed|resume|work on|work in|keep going|carry on|pick up|take over|deliver)\b/i,
   question: /^\s*(what|why|how|who|when|where|which|explain|tell me|define|summari[sz]e|describe|compare)\b/i,
 };
 
@@ -34,7 +34,8 @@ export function analyzeTask(input = {}) {
   const actionVerb = has('action');
   // A goal is conversational when it is an information question (what/why/how/explain…) about something, or when nothing in it
   // asks for work to be done. Imperatives ("fix…", "run…", "open…") and browser/PC goals are actionable.
-  const infoQuestion = RX.question.test(goal) && goal.length < 200 && !input.workingDirectory;
+  // Do not downgrade a direct build/fix/continue request just because it is phrased as a question.
+  const infoQuestion = RX.question.test(goal) && goal.length < 200 && !input.workingDirectory && !actionVerb && !browser && !pc;
   const actionable = !infoQuestion && (actionVerb || browser || pc || (coding && terminal));
   const isQuestion = infoQuestion;
   const sentences = goal.split(/[.!?;\n]+/).filter((s) => s.trim().length > 12).length;
@@ -54,7 +55,8 @@ export function analyzeTask(input = {}) {
     if (web) { required.add(Capability.WEB_SEARCH); signals.push('web-search'); }
   }
 
-  const autonomous = actionable && (longRunning || (coding && (terminal || sentences >= 2)) || required.size >= 3);
+  // Any explicit coding request is work to execute, even when it is one short sentence.
+  const autonomous = actionable && (longRunning || coding || required.size >= 3);
   if (autonomous) signals.push('autonomous');
   if (longRunning) signals.push('long-running');
 
