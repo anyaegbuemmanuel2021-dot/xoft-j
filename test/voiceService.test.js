@@ -78,8 +78,8 @@ test('STT honors explicit Igbo language selection (Gemini and OpenAI)', async ()
     const svc = new VoiceService({ fetchImpl: async (_u, init) => { form = init.body; return json({ text: 'Kedu?' }); } });
     const out = await svc.transcribe(Buffer.from('audio'), { language: 'ig' });
     assert.equal(out.provider, 'openai');
-    assert.equal(form.get('language'), 'ig');
-    assert.equal(form.get('model'), 'gpt-4o-mini-transcribe');
+    assert.equal(form.get('languages[]'), 'ig');
+    assert.equal(form.get('model'), 'gpt-transcribe');
     assert.equal(form.has('temperature'), false);
     assert.match(form.get('prompt'), /Nigerian Pidgin/);
   } finally { restore(); }
@@ -104,7 +104,7 @@ test('STT supports an explicit Nigerian Pidgin mode on Gemini and OpenAI fallbac
     const out = await svc.transcribe(Buffer.from('audio'), { language: 'pidgin' });
     assert.equal(out.provider, 'openai');
     assert.equal(out.text, 'I go reach now');
-    assert.equal(form.get('language'), 'en', 'Whisper receives its supported English language hint for Pidgin');
+    assert.equal(form.get('languages[]'), 'en', 'gpt-transcribe receives its supported English language hint for Pidgin');
     assert.match(form.get('prompt'), /Nigerian Pidgin/);
     assert.match(form.get('prompt'), /Do not translate, standardize into formal English/);
   } finally { restore(); }
