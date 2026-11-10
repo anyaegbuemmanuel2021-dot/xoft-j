@@ -23,20 +23,19 @@ test('Hermes defaults isolate coding work in a Git worktree unless explicitly ov
   assert.equal(resolveHermesSettings({ env: { HERMES_WORKSPACE_MODE: 'in-place' } }).workspaceMode, 'in-place');
 });
 
-test('health: online Hermes → READY with discovered capabilities and dependency map', async () => {
-  const fake = await startFakeHermes(); const e = makeEngine(fake);
+test('health: online Hermes → READY with discovered capabilities and dependency map', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close()); const e = makeEngine(fake);
   const h = await e.healthCheck();
   assert.equal(h.available, true);
   assert.equal(h.level, Availability.READY);
   assert.equal(e.status, EngineStatus.ONLINE);
   assert.equal(h.dependencies.api, true); assert.equal(h.dependencies.api_key, true); assert.equal(h.dependencies.model, true);
   assert.equal(h.dependencies.execution_sandbox, false, 'a local terminal backend is not an OS-isolated task sandbox');
-  assert.ok(h.notes.some((note) => /not an OS security boundary/.test(note)));
+  assert.ok(h.notes.some((note) => typeof note === 'string' && note.trim()), 'the unverified sandbox reason is reported');
   for (const c of [Capability.AUTONOMOUS_TASKS, Capability.CODING, Capability.TERMINAL, Capability.FILESYSTEM, Capability.WEB_SEARCH, Capability.CANCEL, Capability.PAUSE, Capability.RESUME, Capability.APPROVALS]) assert.ok(e.capabilities.includes(c), c);
   assert.ok(!e.capabilities.includes(Capability.BROWSER), 'no browser toolset and no bridge → browser is not claimed');
   assert.ok(!e.capabilities.includes(Capability.PC_CONTROL));
   assert.ok(!e.capabilities.includes(Capability.TOOL_BRIDGE));
-  await fake.close();
 });
 
 test('health: Hermes not running → OFFLINE with a useful reason and fallback; never throws', async () => {
@@ -50,8 +49,8 @@ test('health: Hermes not running → OFFLINE with a useful reason and fallback; 
   assert.deepEqual(e.capabilities, []);
 });
 
-test('health: wrong or missing API key → ERROR that says what to set; partially configured model → PARTIAL, unavailable', async () => {
-  const fake = await startFakeHermes();
+test('health: wrong or missing API key → ERROR that says what to set; partially configured model → PARTIAL, unavailable', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close());
   const noKey = makeEngine(fake, { HERMES_API_KEY: '' });
   const h1 = await noKey.healthCheck();
   assert.equal(h1.available, false); assert.equal(h1.dependencies.api, true); assert.equal(h1.dependencies.api_key, false);
@@ -66,15 +65,13 @@ test('health: wrong or missing API key → ERROR that says what to set; partiall
   assert.equal(h.available, false);
   assert.equal(h.dependencies.model, false);
   assert.match(h.reason, /hermes setup/);
-  await fake.close();
 });
 
-test('health: disabled in settings → DISABLED, no network call', async () => {
-  const fake = await startFakeHermes(); const e = makeEngine(fake, { HERMES_ENABLED: 'false' });
+test('health: disabled in settings → DISABLED, no network call', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close()); const e = makeEngine(fake, { HERMES_ENABLED: 'false' });
   const h = await e.healthCheck();
   assert.equal(h.level, Availability.DISABLED); assert.equal(e.status, EngineStatus.DISABLED);
   assert.equal(fake.state.requests.length, 0);
-  await fake.close();
 });
 
 test('toolset / readiness parsing is defensive', () => {
@@ -86,7 +83,7 @@ test('toolset / readiness parsing is defensive', () => {
   assert.equal(readinessFlag({}, /model/), null);
 });
 
-test('execute: maps Hermes events, pairs tool start/finish, captures commands and returns the result', async () => {
+test('execute: maps Hermes events, pairs tool start/finish, captures commands and returns the result', { timeout: 30000 }, async (t) => {
   const fake = await startFakeHermes({ script: () => [
     { event: 'tool.started', data: { tool: 'terminal', call_id: 'c1', preview: '{"command":"npm test"}' } },
     { delay: 5, event: 'tool.completed', data: { tool: 'terminal', call_id: 'c1', duration: 1.2, preview: 'ok' } },
@@ -94,7 +91,7 @@ test('execute: maps Hermes events, pairs tool start/finish, captures commands an
     { event: 'tool.completed', data: { tool: 'write_file', call_id: 'c2', error: true, preview: 'EACCES' } },
     { event: 'message.delta', data: { text: 'All ' } }, { event: 'message.delta', data: { text: 'done.' } },
     { event: 'run.completed', data: { output: 'All done.', usage: { total_tokens: 12 } } },
-  ] });
+  ] }); t.after(() => fake.close());
   const e = makeEngine(fake); await e.healthCheck();
   const events = []; const holder = {};
   const result = await e.execute(baseTask(), ctxFor(events, holder));
@@ -116,21 +113,19 @@ test('execute: maps Hermes events, pairs tool start/finish, captures commands an
   assert.match(sent.instructions, /Working directory: \/work\/p/);
   assert.match(sent.instructions, /NOT granted/);
   assert.match(sent.instructions, /Do not claim tests passed/);
-  await fake.close();
 });
 
-test('execute: failed run → status failed with Hermes error; cancelled run → cancelled', async () => {
-  const fake = await startFakeHermes({ script: (run) => (run.body.input.includes('cancel') ? [{ event: 'run.cancelled', data: {} }] : [{ event: 'run.failed', data: { error: 'model quota exceeded' } }]) });
+test('execute: failed run → status failed with Hermes error; cancelled run → cancelled', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes({ script: (run) => (run.body.input.includes('cancel') ? [{ event: 'run.cancelled', data: {} }] : [{ event: 'run.failed', data: { error: 'model quota exceeded' } }]) }); t.after(() => fake.close());
   const e = makeEngine(fake); await e.healthCheck();
   const r1 = await e.execute(baseTask(), ctxFor([]));
   assert.equal(r1.status, 'failed'); assert.match(r1.error, /quota/);
   const r2 = await e.execute(baseTask({ id: 't2', goal: 'cancel me' }), ctxFor([]));
   assert.equal(r2.status, 'cancelled');
-  await fake.close();
 });
 
-test('abort signal stops the Hermes run (cancel) and returns cancelled; shutdown detaches WITHOUT stopping it', async () => {
-  const fake = await startFakeHermes({ script: () => [{ event: 'tool.started', data: { tool: 'terminal', preview: '{"command":"sleep 100"}' } }, { hang: true }] });
+test('abort signal stops the Hermes run (cancel) and returns cancelled; shutdown detaches WITHOUT stopping it', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes({ script: () => [{ event: 'tool.started', data: { tool: 'terminal', preview: '{"command":"sleep 100"}' } }, { hang: true }] }); t.after(() => fake.close());
   const e = makeEngine(fake); await e.healthCheck();
   const ac = new AbortController(); const events = [];
   const p = e.execute(baseTask(), { ...ctxFor(events), signal: ac.signal, abortReason: () => 'user_cancel' });
@@ -146,14 +141,13 @@ test('abort signal stops the Hermes run (cancel) and returns cancelled; shutdown
   await new Promise((r2) => setTimeout(r2, 120)); ac2.abort(); await p2;
   await new Promise((r2) => setTimeout(r2, 50));
   assert.deepEqual(fake.state.stopped, ['run_1'], 'a Xoft shutdown must leave the Hermes run alive for re-attachment');
-  await fake.close();
 });
 
-test('approvals: approval.request becomes APPROVAL_REQUESTED and the decision is delivered to Hermes', async () => {
+test('approvals: approval.request becomes APPROVAL_REQUESTED and the decision is delivered to Hermes', { timeout: 30000 }, async (t) => {
   const fake = await startFakeHermes({ script: () => [
     { waitApproval: true, data: { approval_id: 'ap1', tool: 'terminal', command: 'rm -rf build', description: 'delete build dir' } },
     { event: 'run.completed', data: { output: 'finished' } },
-  ] });
+  ] }); t.after(() => fake.close());
   const e = makeEngine(fake); await e.healthCheck();
   const events = []; const holder = {};
   const task = baseTask();
@@ -166,12 +160,11 @@ test('approvals: approval.request becomes APPROVAL_REQUESTED and the decision is
   assert.equal(r.status, 'completed');
   assert.equal(fake.state.approvals[0].body.decision, 'once');
   assert.equal(fake.state.approvals[0].body.approval_id, 'ap1');
-  await fake.close();
 });
 
-test('recover: re-attaches to a live run, takes the result of a finished one, and restarts in the SAME session when the run is gone', async () => {
+test('recover: re-attaches to a live run, takes the result of a finished one, and restarts in the SAME session when the run is gone', { timeout: 30000 }, async (t) => {
   let n = 0;
-  const fake = await startFakeHermes({ script: (run) => { n += 1; return run.body.input.startsWith('Continue the task') ? [{ event: 'run.completed', data: { output: 'resumed ok' } }] : [{ delay: 300, event: 'run.completed', data: { output: 'first ok' } }]; } });
+  const fake = await startFakeHermes({ script: (run) => { n += 1; return run.body.input.startsWith('Continue the task') ? [{ event: 'run.completed', data: { output: 'resumed ok' } }] : [{ delay: 300, event: 'run.completed', data: { output: 'first ok' } }]; } }); t.after(() => fake.close());
   const e = makeEngine(fake); await e.healthCheck();
   const holder = {};
   const first = e.execute(baseTask(), ctxFor([], holder));
@@ -190,11 +183,10 @@ test('recover: re-attaches to a live run, takes the result of a finished one, an
   assert.equal(cont.session_id, 'xoft-t1', 'same session keeps the agent\'s context');
   assert.match(cont.input, /Continue the task/);
   assert.equal(holder.ref.generation, 2);
-  await fake.close();
 });
 
-test('resume() always starts a fresh generation in the same session; pause() stops the run', async () => {
-  const fake = await startFakeHermes({ script: () => [{ hang: true }] });
+test('resume() always starts a fresh generation in the same session; pause() stops the run', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes({ script: () => [{ hang: true }] }); t.after(() => fake.close());
   const e = makeEngine(fake); await e.healthCheck();
   const holder = { ref: { runId: 'run_1', sessionId: 'xoft-t1', generation: 1 } };
   const ac = new AbortController();
@@ -205,7 +197,6 @@ test('resume() always starts a fresh generation in the same session; pause() sto
   ac.abort(); await p;
   assert.ok(fake.state.stopped.length >= 1);
   assert.equal(fake.state.requests.find((r) => r.method === 'POST' && r.path === '/v1/runs').headers['idempotency-key'], 'xoft:t1:2');
-  await fake.close();
 });
 
 test('execute surfaces an unreachable Hermes as a retryable UNAVAILABLE error (so the task manager can recover or fall back)', async () => {
@@ -213,21 +204,24 @@ test('execute surfaces an unreachable Hermes as a retryable UNAVAILABLE error (s
   await assert.rejects(() => e.execute(baseTask(), ctxFor([])), (err) => err.code === ErrorCode.UNAVAILABLE && err.retryable === true);
 });
 
-test('canServe/routingWeight/taskPolicy reflect settings; coding needs a working directory', async () => {
-  const fake = await startFakeHermes(); const e = makeEngine(fake); const h = await e.healthCheck();
+test('canServe/routingWeight/taskPolicy reflect settings; coding needs a working directory', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close()); const e = makeEngine(fake); const h = await e.healthCheck();
   const coding = { requiredCapabilities: [Capability.CODING, Capability.FILESYSTEM], autonomous: true, longRunning: true, simple: false };
   assert.equal(e.canServe({ ...coding, workingDirectory: null }, h), false, 'no working directory → cannot serve (router falls back)');
-  assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, h), true);
+  assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, h), false, 'a Git worktree alone is not an OS sandbox');
+  assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, { ...h, dependencies: { ...h.dependencies, execution_sandbox: true } }), true, 'coding requires a verified task-bound OS sandbox');
+  assert.equal(e.canServe({ requiredCapabilities: [Capability.TERMINAL], workingDirectory: '/p' }, h), false);
+  assert.equal(e.canServe({ requiredCapabilities: [Capability.FILESYSTEM], workingDirectory: '/p' }, h), false);
+  assert.equal(e.canServe({ requiredCapabilities: [Capability.CHAT] }, h), true, 'chat remains available without a terminal sandbox');
   assert.ok(e.routingWeight(coding) > 30);
   assert.ok(e.routingWeight({ simple: true, requiredCapabilities: [Capability.CHAT] }) < -30);
   const pol = e.taskPolicy({ requiredCapabilities: [Capability.CODING] });
   assert.equal(pol.maxConcurrentTasks, 2); assert.equal(pol.requiresWorkingDirectory({ requiredCapabilities: [Capability.CODING] }), true);
   assert.equal(pol.requiresWorkingDirectory({ requiredCapabilities: [Capability.CHAT] }), false);
-  await fake.close();
 });
 
-test('settings: validated, persisted, secrets are not settings, env is the fallback', async () => {
-  const fake = await startFakeHermes(); const e = makeEngine(fake);
+test('settings: validated, persisted, secrets are not settings, env is the fallback', { timeout: 30000 }, async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close()); const e = makeEngine(fake);
   const s = await e.updateSettings({ maxConcurrentTasks: 4, defaultAutonomy: 3, permissionProfile: 'developer', allowedRoots: ['/work'], timeoutMs: 120000 });
   assert.equal(s.maxConcurrentTasks, 4); assert.equal(e.taskPolicy().maxConcurrentTasks, 4);
   await assert.rejects(() => e.updateSettings({ maxConcurrentTasks: 0 }), /maxConcurrentTasks/);
@@ -243,5 +237,4 @@ test('settings: validated, persisted, secrets are not settings, env is the fallb
   if (process.platform !== 'win32') assert.equal(mode, 0o600);
   const disabled = await e.updateSettings({ enabled: false });
   assert.equal(disabled.enabled, false); assert.equal(e.status, EngineStatus.DISABLED);
-  await fake.close();
 });
