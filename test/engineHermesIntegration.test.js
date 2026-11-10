@@ -31,12 +31,21 @@ class CoreStub extends Engine {
   async execute(task) { this.ran.push(task.id); return { status: 'completed', output: 'handled by Xoft Core' }; }
 }
 
-function rig(fake, { env = {}, managerOpts = {} } = {}) {
+function rig(fake, { env = {}, managerOpts = {}, sandboxVerified = true } = {}) {
   const dataDir = tmp();
   const activityLog = new ActivityLog({ dataDir }); const eventBus = new EventBus({ activityLog });
   const autonomyManager = new AutonomyManager({ activityLog, eventBus, dataDir }); autonomyManager.set(5);
   const approvalSystem = new ApprovalSystem({ activityLog, eventBus, autonomyManager, dataDir });
   const hermes = new HermesEngine({ settingsStore: new HermesSettingsStore({ dataDir }), dataDir, activityLog, eventBus, env: { PATH: process.env.PATH, HERMES_HOME: path.join(dataDir, 'nohome'), HERMES_API_URL: fake?.url ?? 'http://127.0.0.1:1', HERMES_API_KEY: 'test-key', HERMES_NATIVE_TOOL_POLICY: 'enforce', HERMES_PERMISSION_PROFILE: 'developer', HERMES_DEFAULT_AUTONOMY: '3', ...env } });
+  // The harness normally models a genuinely task-bound sandbox so the Hermes execution flows can be tested.
+  // The production-safety test explicitly disables this fixture and verifies fail-closed routing.
+  if (sandboxVerified) {
+    const detect = hermes._environment.bind(hermes);
+    hermes._environment = async (force = false) => {
+      const detected = await detect(force);
+      return { ...detected, executionSandbox: { backend: 'test-fixture', runtimeAvailable: true, taskWorkspaceBinding: true, isolated: true, reason: 'verified task-bound sandbox injected by test fixture' } };
+    };
+  }
   const core = new CoreStub();
   const registry = new EngineRegistry({ eventBus, activityLog });
   registry.register(core, { priority: 60 }); registry.register(hermes, { priority: 50 });
@@ -47,7 +56,7 @@ function rig(fake, { env = {}, managerOpts = {} } = {}) {
 }
 const settled = (r, id) => until(() => { const t = r.manager.get(id); const busy = r.manager.queueStatus().running.includes(id); return ['completed', 'failed', 'cancelled'].includes(t.state) || (t.state === 'paused' && !busy) ? t : null; }, { label: `task ${id}` });
 
-test('Xoft → Router → Hermes → Result: autonomous coding task is routed to Hermes, streamed live, verified from real events', async () => {
+test('Xoft → Router → Hermes → Result: autonomous coding task is routed to Hermes, streamed live, verified from real events', async (t) => {
   const wd = tmp();
   const fake = await startFakeHermes({ script: () => [
     { event: 'tool.started', data: { tool: 'read_file', call_id: 'a', preview: JSON.stringify({ path: path.join(wd, 'auth.js') }) } },
@@ -57,7 +66,7 @@ test('Xoft → Router → Hermes → Result: autonomous coding task is routed to
     { event: 'tool.started', data: { tool: 'terminal', call_id: 'c', preview: JSON.stringify({ command: 'npm test' }) } },
     { delay: 20, event: 'tool.completed', data: { tool: 'terminal', call_id: 'c' } },
     { event: 'run.completed', data: { output: 'Fixed the token expiry bug in auth.js; npm test passes.' } },
-  ] });
+  ] }); t.after(() => fake.close());
   const r = rig(fake); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd });
   assert.equal(t.engine, 'hermes', 'long-running autonomous coding task goes to Hermes');
@@ -73,16 +82,29 @@ test('Xoft → Router → Hermes → Result: autonomous coding task is routed to
   assert.equal(r.core.ran.length, 0);
   for (const ev of [EngineEvent.TOOL_STARTED, EngineEvent.TOOL_COMPLETED, EngineEvent.COMMAND_EXECUTED, EngineEvent.FILE_MODIFIED, EngineEvent.TASK_COMPLETED]) assert.ok(r.emitted.includes(ev), ev);
   assert.ok(r.registry.get('hermes').status === 'online', 'engine goes back to ONLINE when idle');
-  await fake.close();
 });
 
-test('simple questions stay on Xoft Core even though Hermes is available', async () => {
-  const fake = await startFakeHermes(); const r = rig(fake); await r.registry.refreshAll();
+test('SECURITY: coding tasks fall back to Xoft Core when Hermes has no verified OS sandbox', async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close());
+  const r = rig(fake, { sandboxVerified: false });
+  await r.registry.refreshAll();
+  assert.equal(r.registry.health('hermes').dependencies.execution_sandbox, false);
+  const task = await r.manager.createTask({ goal: GOAL, workingDirectory: tmp() });
+  assert.equal(task.engine, 'xoft-core');
+  assert.equal(task.routing.fallbackFrom, 'hermes');
+  assert.match(task.routing.reason, /execution_sandbox|sandbox|dependency/i);
+  const result = await settled(r, task.id);
+  assert.equal(result.state, 'completed');
+  assert.equal(result.result.output, 'handled by Xoft Core');
+  assert.equal(fake.state.runs.size, 0, 'Hermes must not receive a coding run without a verified sandbox');
+});
+
+test('simple questions stay on Xoft Core even though Hermes is available', async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close()); const r = rig(fake); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: 'What is the difference between let and const?' });
   assert.equal(t.engine, 'xoft-core');
   assert.equal((await settled(r, t.id)).result.output, 'handled by Xoft Core');
   assert.equal(fake.state.runs.size, 0);
-  await fake.close();
 });
 
 test('FALLBACK: Hermes not installed/running → the same request runs on Xoft Core, with the reason on the task', async () => {
@@ -95,7 +117,7 @@ test('FALLBACK: Hermes not installed/running → the same request runs on Xoft C
   assert.ok(r.emitted.includes(EngineEvent.ENGINE_FALLBACK));
 });
 
-test('RECOVERY: Hermes crashes mid-task → Xoft keeps the task, restarts it in the same Hermes session after Hermes returns, and finishes', async () => {
+test('RECOVERY: Hermes crashes mid-task → Xoft keeps the task, restarts it in the same Hermes session after Hermes returns, and finishes', async (t) => {
   const wd = tmp(); const file = path.join(wd, 'x.js');
   const fake = await startFakeHermes({ script: (run) => (run.body.input.startsWith('Continue the task') ? [
     { event: 'tool.started', data: { tool: 'terminal', call_id: 'z', preview: JSON.stringify({ command: 'npm test' }) } },
@@ -105,7 +127,7 @@ test('RECOVERY: Hermes crashes mid-task → Xoft keeps the task, restarts it in 
     { event: 'tool.started', data: { tool: 'write_file', call_id: 'w', preview: JSON.stringify({ path: file }) } },
     { event: 'tool.completed', data: { tool: 'write_file', call_id: 'w' } },
     { delay: 60, crash: true },
-  ]) });
+  ]) }); t.after(() => fake.close());
   const r = rig(fake, { env: { HERMES_MAX_RETRIES: '4' } }); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd });
   assert.equal(t.engine, 'hermes');
@@ -125,12 +147,11 @@ test('RECOVERY: Hermes crashes mid-task → Xoft keeps the task, restarts it in 
   assert.ok(d.progress.filesChanged.some((f) => f.path === file), 'progress from before the crash was preserved');
   assert.equal(d.result.verification.status, 'verified');
   assert.ok(r.emitted.includes(EngineEvent.TASK_RECOVERY));
-  await fake.close();
 });
 
-test('RECOVERY exhausted: Hermes never comes back → task is PAUSED with the reason (not lost), resumable once Hermes is back', async () => {
+test('RECOVERY exhausted: Hermes never comes back → task is PAUSED with the reason (not lost), resumable once Hermes is back', async (t) => {
   const wd = tmp();
-  const fake = await startFakeHermes({ script: (run) => (run.body.input.startsWith('Continue') ? [{ event: 'run.completed', data: { output: 'resumed' } }] : [{ event: 'tool.started', data: { tool: 'read_file', preview: JSON.stringify({ path: path.join(wd, 'a') }) } }, { delay: 30, crash: true }]) });
+  const fake = await startFakeHermes({ script: (run) => (run.body.input.startsWith('Continue') ? [{ event: 'run.completed', data: { output: 'resumed' } }] : [{ event: 'tool.started', data: { tool: 'read_file', preview: JSON.stringify({ path: path.join(wd, 'a') }) } }, { delay: 30, crash: true }]) }); t.after(() => fake.close());
   const r = rig(fake, { env: { HERMES_MAX_RETRIES: '1' } }); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd });
   const d = await settled(r, t.id);
@@ -141,17 +162,16 @@ test('RECOVERY exhausted: Hermes never comes back → task is PAUSED with the re
   await r.manager.resume(t.id);
   const d2 = await settled(r, t.id);
   assert.equal(d2.state, 'completed'); assert.equal(d2.result.output, 'resumed');
-  await fake.close();
 });
 
-test('APPROVALS: Hermes asks to delete → task WAITING, Xoft approval created, human approves → decision reaches Hermes, task continues', async () => {
+test('APPROVALS: Hermes asks to delete → task WAITING, Xoft approval created, human approves → decision reaches Hermes, task continues', async (t) => {
   const wd = tmp();
   const fake = await startFakeHermes({ script: () => [
     { event: 'tool.started', data: { tool: 'terminal', call_id: 'q', preview: JSON.stringify({ command: 'rm -rf old-build' }) } },
     { waitApproval: true, data: { approval_id: 'ap-77', tool: 'terminal', command: 'rm -rf old-build', description: 'Delete old-build/' } },
     { event: 'tool.completed', data: { tool: 'terminal', call_id: 'q' } },
     { event: 'run.completed', data: { output: 'cleaned' } },
-  ] });
+  ] }); t.after(() => fake.close());
   const r = rig(fake, { env: { HERMES_NATIVE_TOOL_POLICY: 'monitor' } }); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd, permissions: 'developer' });
   const w = await until(() => { const x = r.manager.get(t.id); return x.state === 'waiting' ? x : null; }, { label: 'waiting' });
@@ -162,38 +182,35 @@ test('APPROVALS: Hermes asks to delete → task WAITING, Xoft approval created, 
   const d = await settled(r, t.id);
   assert.equal(d.state, 'completed');
   assert.equal(fake.state.approvals[0].body.decision, 'once'); assert.equal(fake.state.approvals[0].body.approval_id, 'ap-77');
-  await fake.close();
 });
 
-test('PERMISSIONS: a native Hermes command the profile forbids stops the run at Hermes (stop endpoint called) and fails the task', async () => {
+test('PERMISSIONS: a native Hermes command the profile forbids stops the run at Hermes (stop endpoint called) and fails the task', async (t) => {
   const wd = tmp();
   const fake = await startFakeHermes({ script: () => [
     { event: 'tool.started', data: { tool: 'terminal', call_id: 'a', preview: JSON.stringify({ command: 'rm -rf /home/me/Documents' }) } },
     { hang: true },
-  ] });
+  ] }); t.after(() => fake.close());
   const r = rig(fake, { env: { HERMES_PERMISSION_PROFILE: 'standard' } }); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd });
   const d = await settled(r, t.id);
   assert.equal(d.state, 'failed'); assert.equal(d.errorCode, 'policy_violation');
   assert.deepEqual(fake.state.stopped, ['run_1'], 'Xoft told Hermes to stop');
   assert.ok(r.emitted.includes(EngineEvent.POLICY_VIOLATION));
-  await fake.close();
 });
 
-test('PERMISSIONS: writing outside the working directory and touching .env are stopped too', async () => {
+test('PERMISSIONS: writing outside the working directory and touching .env are stopped too', async (t) => {
   for (const bad of [{ tool: 'write_file', preview: { path: '/etc/cron.d/evil' } }, { tool: 'read_file', preview: { path: '__WD__/.env' } }]) {
     const wd = tmp();
-    const fake = await startFakeHermes({ script: () => [{ event: 'tool.started', data: { tool: bad.tool, preview: JSON.stringify({ path: bad.preview.path.replace('__WD__', wd) }) } }, { hang: true }] });
+    const fake = await startFakeHermes({ script: () => [{ event: 'tool.started', data: { tool: bad.tool, preview: JSON.stringify({ path: bad.preview.path.replace('__WD__', wd) }) } }, { hang: true }] }); t.after(() => fake.close());
     const r = rig(fake); await r.registry.refreshAll();
     const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd });
     const d = await settled(r, t.id);
     assert.equal(d.state, 'failed', bad.tool); assert.equal(d.errorCode, 'policy_violation');
-    await fake.close();
   }
 });
 
-test('CANCELLATION: cancelling a running Hermes task stops the Hermes run and ends the task as cancelled', async () => {
-  const fake = await startFakeHermes({ script: () => [{ event: 'tool.started', data: { tool: 'terminal', preview: JSON.stringify({ command: 'npm run build' }) } }, { hang: true }] });
+test('CANCELLATION: cancelling a running Hermes task stops the Hermes run and ends the task as cancelled', async (t) => {
+  const fake = await startFakeHermes({ script: () => [{ event: 'tool.started', data: { tool: 'terminal', preview: JSON.stringify({ command: 'npm run build' }) } }, { hang: true }] }); t.after(() => fake.close());
   const r = rig(fake, { env: { HERMES_NATIVE_TOOL_POLICY: 'off' } }); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: tmp() });
   await until(() => r.manager.get(t.id).progress.toolCalls >= 1);
@@ -201,11 +218,10 @@ test('CANCELLATION: cancelling a running Hermes task stops the Hermes run and en
   assert.equal(c.state, 'cancelled');
   assert.deepEqual(fake.state.stopped, ['run_1']);
   assert.equal(r.registry.get('hermes').status, 'online');
-  await fake.close();
 });
 
-test('PAUSE/RESUME: pause interrupts the Hermes run; resume continues in the same session', async () => {
-  const fake = await startFakeHermes({ script: (run) => (run.body.input.startsWith('Continue') ? [{ event: 'run.completed', data: { output: 'done after resume' } }] : [{ event: 'tool.started', data: { tool: 'terminal', preview: JSON.stringify({ command: 'sleep 1' }) } }, { hang: true }]) });
+test('PAUSE/RESUME: pause interrupts the Hermes run; resume continues in the same session', async (t) => {
+  const fake = await startFakeHermes({ script: (run) => (run.body.input.startsWith('Continue') ? [{ event: 'run.completed', data: { output: 'done after resume' } }] : [{ event: 'tool.started', data: { tool: 'terminal', preview: JSON.stringify({ command: 'sleep 1' }) } }, { hang: true }]) }); t.after(() => fake.close());
   const r = rig(fake, { env: { HERMES_NATIVE_TOOL_POLICY: 'off' } }); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: tmp() });
   await until(() => r.manager.get(t.id).state === 'running' && r.manager.get(t.id).progress.toolCalls >= 1);
@@ -215,12 +231,11 @@ test('PAUSE/RESUME: pause interrupts the Hermes run; resume continues in the sam
   const d = await settled(r, t.id);
   assert.equal(d.state, 'completed'); assert.equal(d.result.output, 'done after resume');
   assert.equal([...fake.state.runs.values()][1].body.session_id, [...fake.state.runs.values()][0].body.session_id);
-  await fake.close();
 });
 
-test('XOFT RESTART: a task running on Hermes is re-attached by a NEW manager (same data) without starting a second run', async () => {
+test('XOFT RESTART: a task running on Hermes is re-attached by a NEW manager (same data) without starting a second run', async (t) => {
   const wd = tmp();
-  const fake = await startFakeHermes({ script: () => [{ delay: 700, event: 'run.completed', data: { output: 'long job finished' } }] });
+  const fake = await startFakeHermes({ script: () => [{ delay: 700, event: 'run.completed', data: { output: 'long job finished' } }] }); t.after(() => fake.close());
   const r1 = rig(fake, { env: { HERMES_NATIVE_TOOL_POLICY: 'off' } }); await r1.registry.refreshAll();
   const t = await r1.manager.createTask({ goal: GOAL, workingDirectory: wd });
   await until(() => r1.manager.get(t.id).engineRef?.runId);
@@ -240,10 +255,9 @@ test('XOFT RESTART: a task running on Hermes is re-attached by a NEW manager (sa
   const d = await settled({ manager }, t.id);
   assert.equal(d.state, 'completed'); assert.equal(d.result.output, 'long job finished');
   assert.equal(fake.state.runs.size, 1, 'exactly one Hermes run existed — recovery re-attached instead of duplicating work');
-  await fake.close();
 });
 
-test('observability: the report lists tool calls, commands, files, approvals, warnings and the final verification', async () => {
+test('observability: the report lists tool calls, commands, files, approvals, warnings and the final verification', async (t) => {
   const wd = tmp();
   const fake = await startFakeHermes({ script: () => [
     { event: 'tool.started', data: { tool: 'terminal', call_id: 'a', preview: JSON.stringify({ command: 'npm test' }) } },
@@ -251,7 +265,7 @@ test('observability: the report lists tool calls, commands, files, approvals, wa
     { event: 'tool.started', data: { tool: 'write_file', call_id: 'b', preview: JSON.stringify({ path: path.join(wd, 'n.js') }) } },
     { event: 'tool.completed', data: { tool: 'write_file', call_id: 'b' } },
     { event: 'run.completed', data: { output: 'ok' } },
-  ] });
+  ] }); t.after(() => fake.close());
   const r = rig(fake); await r.registry.refreshAll();
   const t = await r.manager.createTask({ goal: GOAL, workingDirectory: wd });
   await settled(r, t.id);
@@ -261,5 +275,4 @@ test('observability: the report lists tool calls, commands, files, approvals, wa
   const log = r.store.events(t.id);
   assert.ok(log.some((e) => e.type === EngineEvent.COMMAND_EXECUTED && e.command === 'npm test'));
   assert.ok(log.every((e, i) => i === 0 || e.seq > log[i - 1].seq), 'monotonic sequence numbers');
-  await fake.close();
 });
