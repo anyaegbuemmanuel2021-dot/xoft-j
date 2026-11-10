@@ -92,7 +92,9 @@ test('SECURITY: coding tasks fall back to Xoft Core when Hermes has no verified 
   const task = await r.manager.createTask({ goal: GOAL, workingDirectory: tmp() });
   assert.equal(task.engine, 'xoft-core');
   assert.equal(task.routing.fallbackFrom, 'hermes');
-  assert.match(task.routing.reason, /execution_sandbox|sandbox|dependency/i);
+  const hermesCandidate = task.routing.candidates.find((candidate) => candidate.engineId === 'hermes');
+  assert.equal(hermesCandidate.serveable, false);
+  assert.match(hermesCandidate.reasons.join(' '), /sandbox|dependency/i);
   const result = await settled(r, task.id);
   assert.equal(result.state, 'completed');
   assert.equal(result.result.output, 'handled by Xoft Core');
