@@ -78,10 +78,35 @@ test('STT honors explicit Igbo language selection (Gemini and OpenAI)', async ()
     const svc = new VoiceService({ fetchImpl: async (_u, init) => { form = init.body; return json({ text: 'Kedu?' }); } });
     const out = await svc.transcribe(Buffer.from('audio'), { language: 'ig' });
     assert.equal(out.provider, 'openai');
-    assert.equal(form.get('language'), 'ig');
-    assert.equal(form.get('model'), 'gpt-4o-mini-transcribe');
+    assert.equal(form.get('languages[]'), 'ig');
+    assert.equal(form.get('model'), 'gpt-transcribe');
     assert.equal(form.has('temperature'), false);
     assert.match(form.get('prompt'), /Nigerian Pidgin/);
+  } finally { restore(); }
+});
+
+test('STT supports an explicit Nigerian Pidgin mode on Gemini and OpenAI fallback', async () => {
+  let restore = withKeys();
+  try {
+    let requestBody;
+    const svc = new VoiceService({ fetchImpl: async (_url, init) => { requestBody = JSON.parse(init.body); return geminiText('I go reach now'); } });
+    const out = await svc.transcribe(Buffer.from('audio'), { language: 'pcm' });
+    assert.equal(out.provider, 'gemini');
+    assert.equal(out.text, 'I go reach now');
+    assert.match(requestBody.contents[0].parts[0].text, /selected Nigerian Pidgin/);
+    assert.match(requestBody.contents[0].parts[0].text, /Do not translate or standardize/);
+  } finally { restore(); }
+
+  restore = withKeys({ gemini: null });
+  try {
+    let form;
+    const svc = new VoiceService({ fetchImpl: async (_url, init) => { form = init.body; return json({ text: 'I go reach now' }); } });
+    const out = await svc.transcribe(Buffer.from('audio'), { language: 'pidgin' });
+    assert.equal(out.provider, 'openai');
+    assert.equal(out.text, 'I go reach now');
+    assert.equal(form.get('languages[]'), 'en', 'gpt-transcribe receives its supported English language hint for Pidgin');
+    assert.match(form.get('prompt'), /Nigerian Pidgin/);
+    assert.match(form.get('prompt'), /Do not translate, standardize into formal English/);
   } finally { restore(); }
 });
 
