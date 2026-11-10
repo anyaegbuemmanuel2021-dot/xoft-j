@@ -204,7 +204,7 @@ class LiveActivity : Activity() {
         audioRecord = recorder
         audioCaptureWanted = true
         dispatchNativeSpeechState("listening")
-        audioThread = Thread({
+        val captureThread = Thread({
             val preRoll = ArrayDeque<ByteArray>()
             var segment = ByteArrayOutputStream()
             var active = false
@@ -273,7 +273,28 @@ class LiveActivity : Activity() {
                 }
                 if (audioCaptureGeneration == generation) dispatchNativeSpeechState("idle")
             }
-        }, "XOFT-AudioRecord").apply { isDaemon = true; start() }
+        }, "XOFT-AudioRecord").apply { isDaemon = true }
+        synchronized(audioLifecycleLock) {
+            if (!isAudioCaptureCurrent(generation)) {
+                try { recorder.stop() } catch (_: Exception) { }
+                recorder.release()
+                return
+            }
+            // Publish the thread reference before starting it. Otherwise an immediate read
+            // failure can run finally before audioThread is assigned and leave a dead thread
+            // permanently registered as the active capture.
+            audioThread = captureThread
+            try {
+                captureThread.start()
+            } catch (error: Exception) {
+                if (audioThread === captureThread) audioThread = null
+                if (audioRecord === recorder) audioRecord = null
+                if (audioCaptureGeneration == generation) audioCaptureWanted = false
+                try { recorder.stop() } catch (_: Exception) { }
+                recorder.release()
+                dispatchNativeAudioError("Android microphone thread could not start: " + (error.message ?: "unknown error"))
+            }
+        }
     }
 
     private fun isAudioCaptureCurrent(generation: Long): Boolean =

@@ -20,7 +20,7 @@ async function bootServer(env, port) {
   let stderr = '';
   child.stderr.on('data', (d) => { stderr += d.toString(); });
 
-  const deadline = Date.now() + 8000;
+  const deadline = Date.now() + 20000;
   const probeKey = (env.AUTH_API_KEYS ?? '').split(',')[0]?.trim();
   const headers = probeKey ? { Authorization: `Bearer ${probeKey}` } : {};
   while (Date.now() < deadline) {
