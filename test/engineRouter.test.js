@@ -142,3 +142,33 @@ test('Engine base: stream() yields events then the result; unsupported operation
   const statuses = []; e.onStatusChange((c) => statuses.push(c.status)); e.setStatus(EngineStatus.ONLINE); e.setStatus(EngineStatus.ONLINE); e.setActiveTasks(1); e.setActiveTasks(0);
   assert.deepEqual(statuses, ['online', 'busy', 'online']);
 });
+
+
+test('analyzer: complete, continue and finish instructions are routed as autonomous coding work', () => {
+  for (const goal of [
+    'Complete this code',
+    'Continue coding in main',
+    'Finish up the remaining code features',
+    'Work on the existing repository and build the remaining code',
+  ]) {
+    const analysis = analyzeTask({ goal });
+    assert.ok(analysis.requiredCapabilities.includes(Capability.CODING), goal);
+    assert.ok(analysis.requiredCapabilities.includes(Capability.FILESYSTEM), goal);
+    assert.equal(analysis.autonomous, true, goal);
+    assert.equal(analysis.simple, false, goal);
+  }
+});
+
+test('analyzer: a direct coding request phrased as a question is not downgraded to chat', () => {
+  const analysis = analyzeTask({ goal: 'How can you fix this code and run the tests?' });
+  assert.ok(analysis.requiredCapabilities.includes(Capability.CODING));
+  assert.ok(analysis.requiredCapabilities.includes(Capability.FILESYSTEM));
+  assert.ok(analysis.requiredCapabilities.includes(Capability.TERMINAL));
+  assert.equal(analysis.autonomous, true);
+});
+
+test('analyzer: ordinary information questions remain conversational', () => {
+  const analysis = analyzeTask({ goal: 'How does a JavaScript closure work?' });
+  assert.deepEqual(analysis.requiredCapabilities, [Capability.CHAT]);
+  assert.equal(analysis.autonomous, false);
+});
