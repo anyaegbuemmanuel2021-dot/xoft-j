@@ -35,7 +35,10 @@ export class EngineRouter {
       let score = this.registry.priority(engine.id) / 10;
       if (!capable) reasons.push(`lacks capability: ${analysis.requiredCapabilities.filter((c) => !engine.supports(c)).join(', ')}`);
       else if (!health?.available) reasons.push(`unavailable (${health?.level ?? 'unknown'}${health?.reason ? `: ${health.reason}` : ''})`);
-      else if (!serveable) reasons.push('required dependency unavailable for this task');
+      else if (!serveable) {
+        const dependencyNotes = [health?.reason, ...(Array.isArray(health?.notes) ? health.notes : [])].filter(Boolean);
+        reasons.push(`required dependency unavailable for this task${dependencyNotes.length ? `: ${dependencyNotes.join('; ')}` : ''}`);
+      }
       if (serveable) {
         score += health.level === Availability.READY ? 20 : 5;
         const weight = engine.routingWeight(analysis);
