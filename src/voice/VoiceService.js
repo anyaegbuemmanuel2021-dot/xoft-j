@@ -357,11 +357,17 @@ export class VoiceService {
     const model = config.voice.sttOpenAiModel;
     form.append('model', model);
     form.append('response_format', 'json');
-    if (config.voice.sttContextPrompt) form.append('prompt', config.voice.sttContextPrompt);
+    const promptParts = [config.voice.sttContextPrompt];
+    if (language === 'pcm') promptParts.push('The user selected Nigerian Pidgin (Naija Pidgin). Preserve Pidgin phrases, grammar, slang and wording exactly as spoken. Do not translate, standardize into formal English, or replace Pidgin expressions with English equivalents. Keep any mixed Igbo words unchanged.');
+    if (language === 'ig') promptParts.push('The user selected Igbo. Preserve Igbo words and phrases as spoken, including when mixed with English or Nigerian Pidgin.');
+    const prompt = promptParts.filter(Boolean).join(' ').trim();
+    if (prompt) form.append('prompt', prompt);
     // Whisper accepts temperature; newer transcription models may reject it.
     if (model === 'whisper-1') form.append('temperature', '0');
     // Leave language detection open for mixed Nigerian English/Pidgin/Igbo unless explicitly selected.
-    const chosenLanguage = language === 'auto' ? '' : (language || config.voice.sttLanguage);
+    // Whisper's language parameter is ISO-639-1; Nigerian Pidgin's `pcm` tag is not accepted there.
+    // Use the English decoder hint but carry the actual Pidgin requirement in the prompt above.
+    const chosenLanguage = language === 'auto' ? '' : (language === 'pcm' ? 'en' : (language || config.voice.sttLanguage));
     if (chosenLanguage) form.append('language', chosenLanguage);
     const res = await fetchWithSttRetry(this.fetch, 'https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -388,7 +394,7 @@ export class VoiceService {
           contents: [{
             role: 'user',
             parts: [
-              { text: `${config.voice.sttContextPrompt} ${language === 'ig' ? 'The user selected Igbo; prioritize faithful Igbo transcription and preserve any English/Pidgin words that are spoken.' : language === 'en' ? 'The user selected English/Nigerian Pidgin; transcribe the spoken English or Pidgin verbatim and preserve any Igbo words that are spoken.' : 'Automatically detect the language. The audio may mix Nigerian English, Nigerian Pidgin and Igbo within the same sentence; preserve code-switching and do not translate.'} Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.` },
+              { text: `${config.voice.sttContextPrompt} ${language === 'ig' ? 'The user selected Igbo; prioritize faithful Igbo transcription and preserve any English/Pidgin words that are spoken.' : language === 'pcm' ? 'The user selected Nigerian Pidgin (Naija Pidgin); transcribe Pidgin exactly as spoken, preserving grammar, slang and colloquial expressions. Do not translate or standardize the words into formal English. Preserve any mixed Igbo words.' : language === 'en' ? 'The user selected English/Nigerian Pidgin; transcribe the spoken English or Pidgin verbatim and preserve any Igbo words that are spoken.' : 'Automatically detect the language. The audio may mix Nigerian English, Nigerian Pidgin and Igbo within the same sentence; preserve code-switching and do not translate.'} Reply with only the spoken words and nothing else. If there is no speech, reply with an empty string.` },
               { inline_data: { mime_type: GEMINI_AUDIO_MIME[String(mime).split(';', 1)[0].trim().toLowerCase()] ?? 'audio/webm', data: Buffer.from(audioBuffer).toString('base64') } },
             ],
           }],
@@ -422,7 +428,8 @@ export class VoiceService {
     if (!providers.length) {
       throw new Error('VoiceService: no speech-to-text provider configured. Set GEMINI_API_KEY and/or OPENAI_API_KEY.');
     }
-    const requestedLanguage = ['auto', 'en', 'ig'].includes(language) ? language : null;
+    const rawLanguage = String(language ?? '').trim().toLowerCase();
+    const requestedLanguage = rawLanguage === 'pidgin' ? 'pcm' : (['auto', 'en', 'ig', 'pcm'].includes(rawLanguage) ? rawLanguage : null);
     const out = await runHedged(
       providers,
       (provider, signal) => (provider === 'openai'
