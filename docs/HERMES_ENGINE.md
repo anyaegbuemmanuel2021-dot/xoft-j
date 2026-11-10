@@ -303,3 +303,8 @@ Files: `src/engines/{constants,Engine,EngineRegistry,TaskAnalyzer,EngineRouter,E
 * Hermes working-directory confinement is by instruction + monitoring, not a chroot.
 * `engine detect` / engine health now reports `executionSandbox` separately from Git worktree safety. Docker daemon availability alone is not called isolation: XOFT still needs a per-task workspace bind/mount hand-off to the Hermes terminal container. Until that exists, health reports the sandbox as not isolated instead of implying that a worktree is a security boundary. The same explicit limitation is reported for configured remote backends until their task-specific workspace lifecycle is implemented.
 * Verification: in this repository's build sandbox `npm ci` could not reach the registry, so 27 older tests that need `express` could not run there (they were failing identically before these changes and are unrelated); run `npm test` locally for the full suite.
+
+
+## Phase 1 safety gate: task-bound execution sandbox
+
+XOFT distinguishes Git worktree isolation from an operating-system execution sandbox. A worktree prevents an agent from directly modifying the original checkout, but it does not constrain host-level process access, network access, or filesystem access outside the worktree. Hermes is therefore not eligible for terminal, filesystem, or coding tasks unless its health check positively reports a task-bound OS sandbox (`dependencies.execution_sandbox === true`). Chat-only tasks remain routable. This is fail-closed until per-task workspace binding is implemented and verified; a reachable Docker/Podman daemon alone is not sufficient.
