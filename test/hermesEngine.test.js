@@ -213,8 +213,8 @@ test('execute surfaces an unreachable Hermes as a retryable UNAVAILABLE error (s
   await assert.rejects(() => e.execute(baseTask(), ctxFor([])), (err) => err.code === ErrorCode.UNAVAILABLE && err.retryable === true);
 });
 
-test('canServe/routingWeight/taskPolicy reflect settings; coding needs a working directory', async () => {
-  const fake = await startFakeHermes(); const e = makeEngine(fake); const h = await e.healthCheck();
+test('canServe/routingWeight/taskPolicy reflect settings; coding needs a working directory', async (t) => {
+  const fake = await startFakeHermes(); t.after(() => fake.close()); const e = makeEngine(fake); const h = await e.healthCheck();
   const coding = { requiredCapabilities: [Capability.CODING, Capability.FILESYSTEM], autonomous: true, longRunning: true, simple: false };
   assert.equal(e.canServe({ ...coding, workingDirectory: null }, h), false, 'no working directory → cannot serve (router falls back)');
   assert.equal(e.canServe({ ...coding, workingDirectory: '/p' }, h), false, 'a Git worktree alone is not an OS sandbox');
@@ -227,7 +227,6 @@ test('canServe/routingWeight/taskPolicy reflect settings; coding needs a working
   const pol = e.taskPolicy({ requiredCapabilities: [Capability.CODING] });
   assert.equal(pol.maxConcurrentTasks, 2); assert.equal(pol.requiresWorkingDirectory({ requiredCapabilities: [Capability.CODING] }), true);
   assert.equal(pol.requiresWorkingDirectory({ requiredCapabilities: [Capability.CHAT] }), false);
-  await fake.close();
 });
 
 test('settings: validated, persisted, secrets are not settings, env is the fallback', async () => {
