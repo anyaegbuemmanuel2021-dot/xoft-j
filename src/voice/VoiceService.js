@@ -364,11 +364,11 @@ export class VoiceService {
     if (prompt) form.append('prompt', prompt);
     // Whisper accepts temperature; newer transcription models may reject it.
     if (model === 'whisper-1') form.append('temperature', '0');
-    // Leave language detection open for mixed Nigerian English/Pidgin/Igbo unless explicitly selected.
+    // Leave language detection open for mixed Nigerian English/Pidgin/Igbo unless explicitly selected.\n    // The current gpt-transcribe model uses languages[]; older compatibility models use language.
     // Whisper's language parameter is ISO-639-1; Nigerian Pidgin's `pcm` tag is not accepted there.
     // Use the English decoder hint but carry the actual Pidgin requirement in the prompt above.
     const chosenLanguage = language === 'auto' ? '' : (language === 'pcm' ? 'en' : (language || config.voice.sttLanguage));
-    if (chosenLanguage) form.append('language', chosenLanguage);
+    if (chosenLanguage) form.append(model === 'gpt-transcribe' ? 'languages[]' : 'language', chosenLanguage);
     const res = await fetchWithSttRetry(this.fetch, 'https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${config.providers.openai.apiKey}` },
