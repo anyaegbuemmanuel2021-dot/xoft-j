@@ -191,6 +191,7 @@ test('Voice transcription discards segments and results from an earlier session'
   assert.match(android, /thread\.join\(750\)/);
   assert.match(android, /frameFilled < frameBytes/);
   assert.match(android, /audioCaptureGeneration == generation/);
+  assert.match(android, /audioThread = captureThread[\\s\\S]*?captureThread\\.start\\(\\)/, 'publish thread before starting it');
 });
 
 test('Microphone startup is cancelled safely when Stop occurs during permission or AudioContext startup', () => {
