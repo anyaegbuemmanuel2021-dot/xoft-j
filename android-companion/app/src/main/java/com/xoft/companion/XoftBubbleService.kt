@@ -41,8 +41,14 @@ class XoftBubbleService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForeground()
         val action = intent?.action
-        if (action == ACTION_SHOW_BUBBLE && Settings.canDrawOverlays(this) && bubble == null) addBubble()
-        if (action == ACTION_HIDE_BUBBLE) removeBubble()
+        if ((action == ACTION_SHOW_BUBBLE || pendingShowBubble) && Settings.canDrawOverlays(this) && bubble == null) {
+            addBubble()
+            pendingShowBubble = false
+        }
+        if (action == ACTION_HIDE_BUBBLE) {
+            pendingShowBubble = false
+            removeBubble()
+        }
         applyState(intent?.getStringExtra(EXTRA_STATE) ?: "listening")
         instance = this
         return START_NOT_STICKY
@@ -156,6 +162,7 @@ class XoftBubbleService : Service() {
         private const val COLOR_THINKING = 0xFFB7A0FF.toInt()
 
         @Volatile private var instance: XoftBubbleService? = null
+        @Volatile private var pendingShowBubble = false
 
         /** Called from the WebView bridge thread: recolour the ring while the bubble is visible. */
         fun updateState(state: String) {
@@ -181,20 +188,24 @@ class XoftBubbleService : Service() {
         /** Show the overlay only after the already-running microphone FGS survives Home. */
         fun show(context: Context, state: String) {
             if (!Settings.canDrawOverlays(context)) return
-            val service = instance ?: return
+            pendingShowBubble = true
+            val service = instance ?: return // onStartCommand consumes this flag if Home wins the startup race
             service.main.post {
-                if (service.bubble == null) service.addBubble()
+                if (pendingShowBubble && service.bubble == null) service.addBubble()
+                pendingShowBubble = false
                 service.applyState(state)
             }
         }
 
         /** Returning to the Activity hides the overlay but does not stop microphone capture. */
         fun hideBubble(context: Context) {
+            pendingShowBubble = false
             val service = instance ?: return
             service.main.post { service.removeBubble() }
         }
 
         fun stop(context: Context) {
+            pendingShowBubble = false
             context.stopService(Intent(context, XoftBubbleService::class.java))
         }
     }
