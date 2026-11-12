@@ -28,14 +28,14 @@ Status key:
 | 13 | Calendar agent — list/create/find-free-time | READY | same Google credential as #12 | `src/agents/calendar/CalendarService.js` |
 | 14 | Web research agent — search + page fetch | READY | Free SearXNG when `SEARXNG_BASE_URL` is configured (Docker Compose wires a private SearXNG service); optional `BRAVE_SEARCH_API_KEY` fallback. Page reading is keyless, size-limited and blocks obvious private/loopback targets and unsafe redirects. | `src/agents/research/SearchService.js`, `src/tools/builtins/researchTools.js`, `deploy/searxng/settings.yml` |
 | 15 | Voice — text-to-speech | READY | `GEMINI_API_KEY` / `OPENAI_API_KEY` | `src/voice/VoiceService.js` |
-| 16 | Voice — speech-to-text (Whisper) | READY | `OPENAI_API_KEY` | `src/voice/VoiceService.js` |
+| 16 | Voice — speech-to-text | READY | `GEMINI_API_KEY` primary; `OPENAI_API_KEY` fallback | `src/voice/VoiceService.js` (Gemini → OpenAI; no local/browser Whisper model) |
 | 16a | WhatsApp Cloud API inbound/outbound text + AI replies | READY | Meta WhatsApp Business Platform credentials + public HTTPS webhook | `src/integrations/WhatsAppService.js`, `/webhooks/whatsapp` |
 | 16b | WhatsApp inbox/history + delivery status storage | READY | Same Cloud API webhook; persistent `/app/data` storage in production | `src/integrations/WhatsAppInboxStore.js`, Plugins & Apps |
 | 16c | Mark supported inbound WhatsApp messages as read | READY | Same Cloud API credentials | `POST /api/whatsapp/read` |
 | 16d | AI conversation analysis | READY | Saved Cloud API conversation + configured AI provider | `POST /api/whatsapp/analyze` |
 | 16e | WhatsApp Status story publishing | NOT SUPPORTED by official Cloud API | XOFT can prepare a draft; publish manually in WhatsApp | `POST /api/whatsapp/status-draft` |
 | 16f | Read personal WhatsApp Messenger chats by linking QR code | NOT BUILT | Cloud API is for Business Platform, not personal-account chat mirroring; a separate native companion with explicit OS permissions would be needed | `docs/COMMUNICATION_INTEGRATIONS.md` |
-| 17 | Wake word / streaming / hands-free voice | PARTIAL — VAD + wake-phrase matching LIVE server-side; continuous mic listening NOT BUILT (inherently client-side) | a client app with mic access for the listening loop | `src/voice/WakeWordService.js`, `POST /api/voice/vad`, `POST /api/voice/wake-check` |
+| 17 | Wake phrase / voice conversation | PARTIAL — native Android `AudioRecord` capture, local VAD, wake-phrase matching and bounded conversation mode are implemented; the user must start listening and keep the companion active. This is not an always-on background wake-word service. Browser `MediaRecorder` is a fallback only. | Android companion + microphone permission; Gemini STT primary and OpenAI fallback | `android-companion/`, `public/js/voice/companion.js`, `public/js/voice/native-bridge.js`, `src/voice/VoiceService.js` |
 | 18 | Automation / rules engine (NL → trigger/condition/action) | READY | any 1 AI key | `src/automation/RulesEngine.js` |
 | 19 | Notification urgency classifier | READY | any 1 AI key | `src/notifications/NotificationClassifier.js` |
 | 20 | Permission system (grant/revoke/audit) | LIVE | — | `src/security/PermissionSystem.js` |
@@ -73,7 +73,7 @@ Status key:
 | 25 | Phone calls (initiate/answer, voice conversation) | CONTRACT ONLY | Twilio account, or a native companion app | same |
 | 26 | Phone screen control / computer-vision automation | CONTRACT ONLY | native Android/iOS app (AccessibilityService / VoiceOver automation) | same |
 | 27 | Read device notifications, SMS, contacts | CONTRACT ONLY | native companion app (NotificationListenerService etc.) | same |
-| 28 | Camera / microphone capture | CONTRACT ONLY | native companion app + OS permission prompts | same |
+| 28 | Camera capture / general device sensors | CONTRACT ONLY | native companion app + OS permission prompts | same |
 | 29 | Coding agent w/ sandboxed execution | NOT BUILT | a hosted sandbox (Docker/gVisor) — a deployment choice, not code | — |
 | 52 | AutomationFactory (NL → rule or multi-step workflow, one entry point) | READY | any 1 AI key | `src/automation/AutomationFactory.js` |
 | 53 | Tool generation (AI drafts a new tool, goes through the real self-dev approval pipeline) | READY | any 1 AI key + a named human approver at apply time | `src/selfdev/ToolGenerator.js` |
