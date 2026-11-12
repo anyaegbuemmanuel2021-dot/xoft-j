@@ -130,20 +130,21 @@ function stopSegmentRecording() {
   if (chunks.length) void transcribeCapturedChunks(chunks, type, recorderSessionGeneration);
 }
 
-function fallbackToServerStt(reason) {
+function failNativeAudioCapture(reason) {
   if ($('backend').value !== 'native-android') return;
-  ui.log('Android on-device STT unavailable: ' + reason + ' — switching to XOFT server STT.');
-  $('backend').value = 'server-stt';
+  // Android voice must stay on the native AudioRecord path. Do not silently switch
+  // to getUserMedia/MediaRecorder: that reintroduces the browser microphone path.
+  ui.log('Android native microphone unavailable: ' + reason + '. Browser microphone fallback is disabled; check Android microphone permission and restart live voice.');
   stopNativeAudioCapture();
   stop();
-  void start();
+  ui.pill('mic', 'mic: native capture failed', 'err');
 }
 
 function wantRecognizer(on) {
   recognizerWanted = on;
   const backend = $('backend').value;
   if (backend === 'native-android') {
-    if (on && !startNativeAudioCapture(selectedLanguage())) fallbackToServerStt('native audio capture could not start');
+    if (on && !startNativeAudioCapture(selectedLanguage())) failNativeAudioCapture('native audio capture could not start');
     if (!on) stopNativeAudioCapture();
     return;
   }
@@ -212,7 +213,7 @@ function buildPipeline(continuousRecognition = false) {
 window.addEventListener('xoft:native-audio-error', (event) => {
   const reason = String(event.detail?.error || 'native microphone capture failed');
   ui.log('Android AudioRecord: ' + reason);
-  fallbackToServerStt(reason);
+  failNativeAudioCapture(reason);
 });
 
 window.addEventListener('xoft:native-audio', (event) => {
