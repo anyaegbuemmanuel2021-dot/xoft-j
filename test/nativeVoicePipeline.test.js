@@ -49,9 +49,10 @@ test('continuous native recognition still requires confirmation for risky comman
 });
 
 
-test('Android native AudioRecord bridge preserves the Nigerian Pidgin language choice', () => {
-  const source = fs.readFileSync(path.join(process.cwd(), 'android-companion/app/src/main/java/com/xoft/companion/LiveActivity.kt'), 'utf8');
-  assert.match(source, /"pcm",\s*"pidgin"\s*->\s*"pcm"/);
-  assert.match(source, /"ig"\s*->\s*"ig"/);
-  assert.match(source, /"en"\s*->\s*"en"/);
+test('Android native capture failure never falls back to the browser microphone', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'public/js/voice/companion.js'), 'utf8');
+  assert.match(source, /function failNativeAudioCapture\(reason\)/);
+  assert.match(source, /Browser microphone fallback is disabled/);
+  assert.doesNotMatch(source, /switching to XOFT server STT/);
+  assert.doesNotMatch(source, /fallbackToServerStt/);
 });
