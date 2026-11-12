@@ -135,7 +135,7 @@ class LiveActivity : Activity() {
     }
 
     override fun onDestroy() {
-        XoftBubbleService.hide(this)
+        XoftBubbleService.hideBubble(this)
         if (::web.isInitialized) web.destroy()
         stopAudioCapture()
         XoftBubbleService.stop(this)
