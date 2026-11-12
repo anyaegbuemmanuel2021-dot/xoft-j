@@ -19,7 +19,7 @@ Keys and where to get them: [API_KEYS.md](API_KEYS.md). Optional AI gateways: [A
 
 * **XOFT AI CORE (server)** — the brain, dashboard, API, memory, missions, scheduler. Hosted online.
 * **pc-agent (your PC)** — the hands. Controls *that* computer, so it runs there, and connects outward to your server. No router port-forwarding needed.
-* **Voice companion** — a web page (`/companion.html`) that uses your browser's microphone.
+* **Voice companion** — `/companion.html` uses the native Android `AudioRecord` microphone when opened inside the XOFT Android companion. The browser `MediaRecorder` microphone is a compatibility fallback for browsers without the native bridge; it is not the preferred Android capture path.
 * **Does not work on serverless hosts** (Vercel, Netlify, Cloudflare Workers): XOFT is a long-running process with WebSockets, a scheduler and a SQLite file.
 
 ## 1. What to use (recommended stack)
@@ -133,7 +133,7 @@ Emergency: `node src\index.js --halt` stops everything on the PC (kills running 
 
 ## 8. Voice
 
-Open `https://xoft.yourdomain.com/companion.html` (HTTPS is required for the microphone) → *Start listening* → say "Hey Xoft, …". Risky commands (delete, deploy, send…) ask for confirmation first.
+For Android, open XOFT through the installed native companion and grant its microphone permission. Select **Native Android microphone + XOFT STT**, tap *Start listening*, then say "Hey Xoft, …". Android captures PCM with `AudioRecord`; local VAD segments the audio and sends WAV to XOFT, where Gemini is tried first and OpenAI is the fallback. The browser `MediaRecorder` path is only a compatibility fallback when the native bridge is unavailable; it requires HTTPS (or localhost) and browser microphone permission. Risky commands (delete, deploy, send…) ask for confirmation first.
 
 ## 9. Operating it
 
@@ -158,7 +158,7 @@ docker run --rm -v xoft-ai-core_xoft-data:/d -v "$PWD":/b alpine tar czf /b/xoft
 | Rate limit errors for everyone | `TRUST_PROXY=1` missing behind Caddy. |
 | Agent never appears / stays untrusted | `coreUrl` must be the https URL; trust it on the Devices page. |
 | Browser tools fail | Chrome not started with the debug port (step 7). |
-| Microphone blocked | Must be HTTPS; allow the permission in the browser. |
+| Android microphone blocked | Allow microphone permission for the XOFT native companion in Android Settings, then stop and start listening again. Check the companion log for `AudioRecord` errors. |\n| Browser fallback microphone blocked | Use HTTPS (or localhost) and allow microphone permission in the browser. Prefer the native Android backend when available. |
 
 ## 11. What is and isn't verified
 
