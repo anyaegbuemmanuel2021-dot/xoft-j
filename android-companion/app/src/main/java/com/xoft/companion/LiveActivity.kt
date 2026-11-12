@@ -353,6 +353,8 @@ class LiveActivity : Activity() {
             if (audioThread === thread && thread?.isAlive != true) audioThread = null
             if (audioThread == null) audioRecord = null
         }
+        // Stop the FGS only after AudioRecord has been asked to stop and its thread has had time to release it.
+        XoftBubbleService.stop(this)
     }
 
     private fun dispatchNativeSpeechState(state: String) {
