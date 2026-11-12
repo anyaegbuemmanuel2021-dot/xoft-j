@@ -39,6 +39,8 @@ class XoftBubbleService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        starting = false
+        instance = this
         startAsForeground()
         val action = intent?.action
         if ((action == ACTION_SHOW_BUBBLE || pendingShowBubble) && Settings.canDrawOverlays(this) && bubble == null) {
@@ -50,7 +52,6 @@ class XoftBubbleService : Service() {
             removeBubble()
         }
         applyState(intent?.getStringExtra(EXTRA_STATE) ?: "listening")
-        instance = this
         return START_NOT_STICKY
     }
 
@@ -145,6 +146,7 @@ class XoftBubbleService : Service() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        starting = false
         removeBubble()
         super.onDestroy()
     }
@@ -162,6 +164,7 @@ class XoftBubbleService : Service() {
         private const val COLOR_THINKING = 0xFFB7A0FF.toInt()
 
         @Volatile private var instance: XoftBubbleService? = null
+        @Volatile private var starting = false
         @Volatile private var pendingShowBubble = false
 
         /** Called from the WebView bridge thread: recolour the ring while the bubble is visible. */
@@ -173,6 +176,13 @@ class XoftBubbleService : Service() {
         /** Start the microphone FGS from the visible Activity before AudioRecord starts. */
         fun start(context: Context, state: String): Boolean {
             if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) return false
+            // Once started from the visible Activity, reuse the same FGS for later listen cycles in background.
+            val running = instance
+            if (running != null || starting) {
+                running?.main?.post { running.applyState(state) }
+                return true
+            }
+            starting = true
             return try {
                 context.startForegroundService(
                     Intent(context, XoftBubbleService::class.java)
@@ -181,6 +191,7 @@ class XoftBubbleService : Service() {
                 )
                 true
             } catch (_: RuntimeException) {
+                starting = false
                 false
             }
         }
@@ -206,6 +217,7 @@ class XoftBubbleService : Service() {
 
         fun stop(context: Context) {
             pendingShowBubble = false
+            starting = false
             context.stopService(Intent(context, XoftBubbleService::class.java))
         }
     }
