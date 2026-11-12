@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { VoicePipeline } from '../public/js/voice/wake.js';
 
 test('continuous native recognition starts, pauses during execution, and resumes after the reply', () => {
