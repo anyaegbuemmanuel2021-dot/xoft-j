@@ -179,7 +179,7 @@ class XoftBubbleService : Service() {
             // Once started from the visible Activity, reuse the same FGS for later listen cycles in background.
             val running = instance
             if (running != null || starting) {
-                running?.main?.post { running.applyState(state) }
+                running?.let { service -> service.main.post { service.applyState(state) } }
                 return true
             }
             starting = true
