@@ -45,3 +45,12 @@ test('continuous native recognition still requires confirmation for risky comman
   pipeline.done();
   assert.equal(starts, 2);
 });
+
+
+test('Android native capture failure never falls back to the browser microphone', () => {
+  const source = fs.readFileSync(path.join(process.cwd(), 'public/js/voice/companion.js'), 'utf8');
+  assert.match(source, /function failNativeAudioCapture\(reason\)/);
+  assert.match(source, /Browser microphone fallback is disabled/);
+  assert.doesNotMatch(source, /switching to XOFT server STT/);
+  assert.doesNotMatch(source, /fallbackToServerStt/);
+});
