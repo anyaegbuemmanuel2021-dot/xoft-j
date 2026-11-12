@@ -206,6 +206,9 @@ export class HermesEngine extends Engine {
     if (!health?.available) return false;
     const need = analysis?.requiredCapabilities ?? [];
     if (!this.supportsAll(need)) return false;
+    // A Git worktree protects the checkout but is not an OS security boundary.
+    // Fail closed for filesystem/terminal/coding work until a task-bound sandbox is verified.
+    if (need.some((c) => FS_CAPS.includes(c)) && health.dependencies?.execution_sandbox !== true) return false;
     if (need.some((c) => FS_CAPS.includes(c)) && !analysis?.workingDirectory && !this.settings.workingDirectory) return false; // reported in routing reasons
     return true;
   }
