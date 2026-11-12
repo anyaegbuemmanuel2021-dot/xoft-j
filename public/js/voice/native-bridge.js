@@ -75,3 +75,9 @@ export function stopNativeAudioCapture() {
   const native = bridge();
   try { native?.stopAudioListening?.(); } catch { /* best effort */ }
 }
+
+/** Stop the native live-voice session and its microphone foreground service (not just a temporary capture segment). */
+export function stopNativeVoiceSession() {
+  const native = bridge();
+  try { native?.stopVoiceSession?.(); } catch { /* best effort */ }
+}

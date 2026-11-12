@@ -6,7 +6,7 @@ import { transcribe as transcribeAudioBlob, transcribeNativeAudio, warmVoiceServ
 import { preferredRecorderOptions, unlockAudio } from './listen.js';
 import { classifyMicInput } from './mic-diagnostics.js';
 import { RollingAudioBuffer } from './segment-buffer.js';
-import { hasNativeAudioCapture, startNativeAudioCapture, stopNativeAudioCapture } from './native-bridge.js';
+import { hasNativeAudioCapture, startNativeAudioCapture, stopNativeAudioCapture, stopNativeVoiceSession } from './native-bridge.js';
 import { speakOut, stopSpeaking } from './speak-out.js';
 import { postVoiceCommand } from './command-request.js';
 import { createBoundedSerialQueue } from './bounded-serial-queue.js';
@@ -373,7 +373,7 @@ async function start() {
 
 function stop() {
   voiceSessionGeneration += 1;
-  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeAudioCapture(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
+  clearInterval(timer); timer = null; pipeline?.stop(); stopNativeAudioCapture(); stopNativeVoiceSession(); stopSpeaking(); recognizerWanted = false; clearTimeout(micDiagnosticTimer); micDiagnosticTimer = null;
   activeChatRequestController?.abort(); activeChatRequestController = null;
   for (const controller of activeSttControllers) controller.abort();
   activeSttControllers.clear();

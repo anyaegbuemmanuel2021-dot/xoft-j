@@ -26,9 +26,9 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 
 /**
- * Floating XOFT bubble. Shown over the home screen when the user leaves the app during a live voice conversation.
- * Drag to move; tap to return to the conversation. Runs as a microphone foreground service so the conversation can
- * keep listening while the app is in the background.
+ * Microphone foreground service plus floating XOFT bubble. The service is started while LiveActivity is visible,
+ * before AudioRecord opens, so Android 14+ background-start restrictions are respected. The bubble itself is only
+ * shown after the user leaves the Activity.
  */
 class XoftBubbleService : Service() {
     private var windowManager: WindowManager? = null
@@ -39,11 +39,19 @@ class XoftBubbleService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startAsForeground()
-        if (!Settings.canDrawOverlays(this)) { stopSelf(); return START_NOT_STICKY }
-        if (bubble == null) addBubble()
-        applyState(intent?.getStringExtra(EXTRA_STATE) ?: "listening")
+        starting = false
         instance = this
+        startAsForeground()
+        val action = intent?.action
+        if ((action == ACTION_SHOW_BUBBLE || pendingShowBubble) && Settings.canDrawOverlays(this) && bubble == null) {
+            addBubble()
+            pendingShowBubble = false
+        }
+        if (action == ACTION_HIDE_BUBBLE) {
+            pendingShowBubble = false
+            removeBubble()
+        }
+        applyState(intent?.getStringExtra(EXTRA_STATE) ?: "listening")
         return START_NOT_STICKY
     }
 
@@ -120,6 +128,12 @@ class XoftBubbleService : Service() {
         startActivity(Intent(this, LiveActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP))
     }
 
+    private fun removeBubble() {
+        bubble?.let { view -> try { windowManager?.removeView(view) } catch (_: Exception) { /* already removed */ } }
+        bubble = null
+        ring = null
+    }
+
     private fun applyState(state: String) {
         val color = when (state) {
             "listening" -> COLOR_LISTENING
@@ -132,8 +146,8 @@ class XoftBubbleService : Service() {
 
     override fun onDestroy() {
         if (instance === this) instance = null
-        bubble?.let { view -> try { windowManager?.removeView(view) } catch (_: Exception) { /* already removed */ } }
-        bubble = null
+        starting = false
+        removeBubble()
         super.onDestroy()
     }
 
@@ -141,12 +155,17 @@ class XoftBubbleService : Service() {
         private const val CHANNEL = "xoft_live"
         private const val NOTIFICATION_ID = 43
         const val EXTRA_STATE = "state"
+        private const val ACTION_SHOW_BUBBLE = "com.xoft.companion.action.SHOW_BUBBLE"
+        private const val ACTION_HIDE_BUBBLE = "com.xoft.companion.action.HIDE_BUBBLE"
+        private const val ACTION_START_CAPTURE = "com.xoft.companion.action.START_CAPTURE"
         private const val COLOR_IDLE = 0xFF5A6B78.toInt()
         private const val COLOR_LISTENING = 0xFF4FFFD0.toInt()
         private const val COLOR_SPEAKING = 0xFF6BE7FF.toInt()
         private const val COLOR_THINKING = 0xFFB7A0FF.toInt()
 
         @Volatile private var instance: XoftBubbleService? = null
+        @Volatile private var starting = false
+        @Volatile private var pendingShowBubble = false
 
         /** Called from the WebView bridge thread: recolour the ring while the bubble is visible. */
         fun updateState(state: String) {
@@ -154,14 +173,51 @@ class XoftBubbleService : Service() {
             service.main.post { service.applyState(state) }
         }
 
-        fun show(context: Context, state: String) {
-            if (!Settings.canDrawOverlays(context)) return
-            // A microphone foreground service may only start while RECORD_AUDIO is granted (Android 14+).
-            if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
-            context.startForegroundService(Intent(context, XoftBubbleService::class.java).putExtra(EXTRA_STATE, state))
+        /** Start the microphone FGS from the visible Activity before AudioRecord starts. */
+        fun start(context: Context, state: String): Boolean {
+            if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) return false
+            // Once started from the visible Activity, reuse the same FGS for later listen cycles in background.
+            val running = instance
+            if (running != null || starting) {
+                running?.let { service -> service.main.post { service.applyState(state) } }
+                return true
+            }
+            starting = true
+            return try {
+                context.startForegroundService(
+                    Intent(context, XoftBubbleService::class.java)
+                        .setAction(ACTION_START_CAPTURE)
+                        .putExtra(EXTRA_STATE, state)
+                )
+                true
+            } catch (_: RuntimeException) {
+                starting = false
+                false
+            }
         }
 
-        fun hide(context: Context) {
+        /** Show the overlay only after the already-running microphone FGS survives Home. */
+        fun show(context: Context, state: String) {
+            if (!Settings.canDrawOverlays(context)) return
+            pendingShowBubble = true
+            val service = instance ?: return // onStartCommand consumes this flag if Home wins the startup race
+            service.main.post {
+                if (pendingShowBubble && service.bubble == null) service.addBubble()
+                pendingShowBubble = false
+                service.applyState(state)
+            }
+        }
+
+        /** Returning to the Activity hides the overlay but does not stop microphone capture. */
+        fun hideBubble(context: Context) {
+            pendingShowBubble = false
+            val service = instance ?: return
+            service.main.post { service.removeBubble() }
+        }
+
+        fun stop(context: Context) {
+            pendingShowBubble = false
+            starting = false
             context.stopService(Intent(context, XoftBubbleService::class.java))
         }
     }

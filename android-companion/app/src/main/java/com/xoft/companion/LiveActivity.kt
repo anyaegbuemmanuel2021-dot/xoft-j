@@ -124,7 +124,7 @@ class LiveActivity : Activity() {
     override fun onResume() {
         super.onResume()
         visible = true
-        XoftBubbleService.hide(this) // back in the app: the bubble is no longer needed
+        XoftBubbleService.hideBubble(this) // keep the microphone foreground service alive while capture is active
     }
 
     /** Home / recents pressed while a live conversation is running -> float the XOFT bubble. */
@@ -135,9 +135,10 @@ class LiveActivity : Activity() {
     }
 
     override fun onDestroy() {
-        XoftBubbleService.hide(this)
+        XoftBubbleService.hideBubble(this)
         if (::web.isInitialized) web.destroy()
         stopAudioCapture()
+        XoftBubbleService.stop(this)
         speechHandler.removeCallbacksAndMessages(null)
         textToSpeech?.stop()
         textToSpeech?.shutdown()
@@ -172,6 +173,12 @@ class LiveActivity : Activity() {
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             dispatchNativeAudioError("Microphone permission is required.")
+            return
+        }
+        // Start the microphone foreground service while the Activity is visible, before AudioRecord.
+        // Android 14+ restricts starting microphone foreground services from the background.
+        if (!XoftBubbleService.start(this, "listening")) {
+            dispatchNativeAudioError("The microphone foreground service could not start. Keep XOFT open and try again.")
             return
         }
         val sampleRate = 16000
@@ -384,6 +391,12 @@ class LiveActivity : Activity() {
 
         @JavascriptInterface
         fun stopAudioListening() { stopAudioCapture() }
+
+        @JavascriptInterface
+        fun stopVoiceSession() {
+            stopAudioCapture()
+            XoftBubbleService.stop(this@LiveActivity)
+        }
 
         @JavascriptInterface
         fun speak(text: String): Boolean {
