@@ -180,8 +180,12 @@ export class HermesEngine extends Engine {
     const features = caps?.features ?? {};
     const cs = new Set([Capability.CHAT, Capability.PLANNING, Capability.AUTONOMOUS_TASKS, Capability.MULTI_STEP, Capability.LONG_RUNNING, Capability.STREAMING, Capability.CANCEL, Capability.PAUSE, Capability.RESUME]);
     if (caps ? features.run_approval !== false : true) cs.add(Capability.APPROVALS);
-    if (native.terminal) { cs.add(Capability.TERMINAL); cs.add(Capability.CODING); if (env.git.found) cs.add(Capability.GIT); }
-    if (native.filesystem) cs.add(Capability.FILESYSTEM);
+    // Advertise only capabilities XOFT can safely execute. Native Hermes toolsets may exist,
+    // but terminal/filesystem/coding remain unavailable until a task-bound OS sandbox is verified.
+    if (deps.execution_sandbox === true) {
+      if (native.terminal) { cs.add(Capability.TERMINAL); cs.add(Capability.CODING); if (env.git.found) cs.add(Capability.GIT); }
+      if (native.filesystem) cs.add(Capability.FILESYSTEM);
+    }
     if (native.web_search) cs.add(Capability.WEB_SEARCH);
     if (native.memory) cs.add(Capability.MEMORY);
     if (deps.browser === true) cs.add(Capability.BROWSER);
