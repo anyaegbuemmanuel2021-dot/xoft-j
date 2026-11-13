@@ -180,8 +180,12 @@ export class HermesEngine extends Engine {
     const features = caps?.features ?? {};
     const cs = new Set([Capability.CHAT, Capability.PLANNING, Capability.AUTONOMOUS_TASKS, Capability.MULTI_STEP, Capability.LONG_RUNNING, Capability.STREAMING, Capability.CANCEL, Capability.PAUSE, Capability.RESUME]);
     if (caps ? features.run_approval !== false : true) cs.add(Capability.APPROVALS);
-    if (native.terminal) { cs.add(Capability.TERMINAL); cs.add(Capability.CODING); if (env.git.found) cs.add(Capability.GIT); }
-    if (native.filesystem) cs.add(Capability.FILESYSTEM);
+    // Advertise only capabilities XOFT can safely execute. Native Hermes toolsets may exist,
+    // but terminal/filesystem/coding remain unavailable until a task-bound OS sandbox is verified.
+    if (deps.execution_sandbox === true) {
+      if (native.terminal) { cs.add(Capability.TERMINAL); cs.add(Capability.CODING); if (env.git.found) cs.add(Capability.GIT); }
+      if (native.filesystem) cs.add(Capability.FILESYSTEM);
+    }
     if (native.web_search) cs.add(Capability.WEB_SEARCH);
     if (native.memory) cs.add(Capability.MEMORY);
     if (deps.browser === true) cs.add(Capability.BROWSER);
@@ -206,6 +210,9 @@ export class HermesEngine extends Engine {
     if (!health?.available) return false;
     const need = analysis?.requiredCapabilities ?? [];
     if (!this.supportsAll(need)) return false;
+    // A Git worktree protects the checkout but is not an OS security boundary.
+    // Fail closed for filesystem/terminal/coding work until a task-bound sandbox is verified.
+    if (need.some((c) => FS_CAPS.includes(c)) && health.dependencies?.execution_sandbox !== true) return false;
     if (need.some((c) => FS_CAPS.includes(c)) && !analysis?.workingDirectory && !this.settings.workingDirectory) return false; // reported in routing reasons
     return true;
   }
