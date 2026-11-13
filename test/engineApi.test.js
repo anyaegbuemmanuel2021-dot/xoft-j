@@ -34,19 +34,28 @@ class Stub extends Engine {
   async cancel() {}
 }
 
-async function rig() {
+async function rig({ sandboxVerified = true } = {}) {
   const dataDir = tmp(); const fake = await startFakeHermes();
   const activityLog = new ActivityLog({ dataDir }); const eventBus = new EventBus({ activityLog });
   const autonomyManager = new AutonomyManager({ activityLog, eventBus, dataDir }); autonomyManager.set(5);
   const approvalSystem = new ApprovalSystem({ activityLog, eventBus, autonomyManager, dataDir });
   const hermes = new HermesEngine({ settingsStore: new HermesSettingsStore({ dataDir }), dataDir, env: { PATH: process.env.PATH, HERMES_HOME: path.join(dataDir, 'nohome'), HERMES_API_URL: fake.url, HERMES_API_KEY: 'test-key' } });
+  if (sandboxVerified) {
+    const detect = hermes._environment.bind(hermes);
+    hermes._environment = async (force = false) => {
+      const detected = await detect(force);
+      return { ...detected, executionSandbox: { backend: 'test-fixture', runtimeAvailable: true, taskWorkspaceBinding: true, isolated: true, reason: 'verified task-bound sandbox injected by test fixture' } };
+    };
+  }
   const core = new Stub('xoft-core', async () => ({ status: 'completed', output: 'core' }));
   const registry = new EngineRegistry({ eventBus, activityLog }); registry.register(core, { priority: 60 }); registry.register(hermes, { priority: 50 });
   const router = new EngineRouter({ registry, eventBus, activityLog });
   const manager = new EngineTaskManager({ registry, router, store: new EngineTaskStore({ dataDir }), eventBus, activityLog, approvalSystem, autonomyManager, recoveryBackoffMs: 10 });
   await registry.refreshAll();
   const gateway = { rotateToken: () => 'x', status: () => ({ enabled: true }) };
-  return { api: createEngineApi({ registry, router, manager, hermes, gateway }), registry, manager, hermes, fake, dataDir, core, close: () => fake.close() };
+  let closed = false;
+  const close = async () => { if (closed) return; closed = true; await fake.close(); };
+  return { api: createEngineApi({ registry, router, manager, hermes, gateway }), registry, manager, hermes, fake, dataDir, core, close };
 }
 
 test('errorResponse maps engine error codes to HTTP statuses; plain errors are 400', () => {
@@ -56,8 +65,8 @@ test('errorResponse maps engine error codes to HTTP statuses; plain errors are 4
   assert.equal(errorResponse(new Error('bad')).status, 400);
 });
 
-test('GET /engines lists Xoft Core + Hermes with status, health and capabilities; /engines/:id; unknown → 404', async () => {
-  const r = await rig();
+test('GET /engines lists Xoft Core + Hermes with status, health and capabilities; /engines/:id; unknown → 404', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close());
   const list = (await r.api.listEngines({ query: {} })).body;
   assert.deepEqual(list.engines.map((e) => e.id).sort(), ['hermes', 'xoft-core']);
   const h = list.engines.find((e) => e.id === 'hermes');
@@ -68,8 +77,8 @@ test('GET /engines lists Xoft Core + Hermes with status, health and capabilities
   await r.close();
 });
 
-test('route preview explains the decision without executing anything; "nothing available" is an answer, not a 500', async () => {
-  const r = await rig();
+test('route preview explains the decision without executing anything; "nothing available" is an answer, not a 500', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close());
   const coding = (await r.api.routePreview({ body: { goal: GOAL, workingDirectory: tmp() } })).body;
   assert.equal(coding.engine, 'hermes'); assert.ok(coding.chain.includes('xoft-core')); assert.ok(coding.candidates.every((c) => Array.isArray(c.reasons)));
   const noDir = (await r.api.routePreview({ body: { goal: GOAL } })).body;
@@ -78,21 +87,31 @@ test('route preview explains the decision without executing anything; "nothing a
   assert.equal((await r.api.routePreview({ body: {} })).status, 400);
   assert.equal((await r.api.routePreview({ body: { goal: 'x', engine: 'ghost' } })).status, 404);
   assert.equal(r.fake.state.runs.size, 0, 'a preview never starts a run');
-  r.registry.unregister('xoft-core'); await r.fake.close();
+  r.registry.unregister('xoft-core'); await r.close();
   await r.registry.refresh('hermes');
   const none = await r.api.routePreview({ body: { goal: GOAL, workingDirectory: tmp() } });
   assert.equal(none.status, 200); assert.equal(none.body.engine, null); assert.match(none.body.reason, /No available engine/);
 });
 
-test('permissions endpoint documents profiles, schema and autonomy levels', async () => {
-  const r = await rig();
+test('route preview excludes Hermes coding without a verified sandbox and explains the reason', { timeout: 30000 }, async (t) => {
+  const r = await rig({ sandboxVerified: false }); t.after(() => r.close());
+  const preview = (await r.api.routePreview({ body: { goal: GOAL, workingDirectory: tmp() } })).body;
+  assert.equal(preview.engine, 'xoft-core');
+  const hermesCandidate = preview.candidates.find((candidate) => candidate.engineId === 'hermes');
+  assert.equal(hermesCandidate.serveable, false);
+  assert.match(hermesCandidate.reasons.join(' '), /sandbox|dependency/i);
+  assert.equal(r.fake.state.runs.size, 0, 'route preview must not start Hermes');
+});
+
+test('permissions endpoint documents profiles, schema and autonomy levels', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close());
   const p = (await r.api.permissions()).body;
   assert.ok(p.permissions.includes('filesystem.delete')); assert.equal(p.profiles.standard.filesystem.delete, false); assert.equal(Object.keys(p.autonomy).length, 6); assert.ok(p.descriptions.full);
   await r.close();
 });
 
-test('Hermes settings API: only supported settings, validated, API key refused, applied immediately', async () => {
-  const r = await rig();
+test('Hermes settings API: only supported settings, validated, API key refused, applied immediately', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close());
   const got = (await r.api.hermesSettings()).body;
   assert.equal(got.settings.permissionProfile, 'standard'); assert.equal(got.apiKey.configured, true); assert.ok(!JSON.stringify(got).includes('test-key'));
   const ok = await r.api.hermesUpdateSettings({ body: { maxConcurrentTasks: 3, defaultAutonomy: 4, allowedRoots: [tmp()] } });
@@ -103,8 +122,8 @@ test('Hermes settings API: only supported settings, validated, API key refused, 
   await r.close();
 });
 
-test('Hermes environment / install / bridge / logs / start-stop endpoints answer without needing Hermes installed', async () => {
-  const r = await rig();
+test('Hermes environment / install / bridge / logs / start-stop endpoints answer without needing Hermes installed', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close());
   const env = (await r.api.hermesEnvironment()).body;
   assert.ok(env.os.platform); assert.ok('installed' in env.hermes);
   const inst = (await r.api.hermesInstall()).body;
@@ -118,8 +137,8 @@ test('Hermes environment / install / bridge / logs / start-stop endpoints answer
   await r.close();
 });
 
-test('Task API: create (202) → get → events → report → cancel; unknown id → 404; bad input → 400/403; fallback visible', async () => {
-  const r = await rig(); const wd = tmp();
+test('Task API: create (202) → get → events → report → cancel; unknown id → 404; bad input → 400/403; fallback visible', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close()); const wd = tmp();
   r.core.run = async (t, ctx) => { await new Promise((res) => { if (ctx.signal.aborted) res(); ctx.signal.addEventListener('abort', res); setTimeout(res, 800); }); return ctx.signal.aborted ? { status: 'cancelled' } : { status: 'completed', output: 'core ok' }; };
   const bad = await r.api.createTask({ body: { goal: '' } }); assert.equal(bad.status, 400);
   assert.equal((await r.api.createTask({ body: { goal: GOAL, workingDirectory: path.parse(wd).root } })).status, 403);
@@ -139,8 +158,8 @@ test('Task API: create (202) → get → events → report → cancel; unknown i
   await r.close();
 });
 
-test('Express glue: every route registered, mutating routes are admin-guarded, literal /hermes paths precede /:id, handler output is sent', async () => {
-  const r = await rig(); const routes = [];
+test('Express glue: every route registered, mutating routes are admin-guarded, literal /hermes paths precede /:id, handler output is sent', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close()); const routes = [];
   const app = { get: (p, ...h) => routes.push(['GET', p, h]), post: (p, ...h) => routes.push(['POST', p, h]), put: (p, ...h) => routes.push(['PUT', p, h]), all: (p, ...h) => routes.push(['ALL', p, h]) };
   const admin = () => {};
   registerEngineRoutes(app, r.api, { requireAdmin: admin, baseUrlFor: () => 'http://127.0.0.1:3000' });
@@ -158,8 +177,8 @@ test('Express glue: every route registered, mutating routes are admin-guarded, l
   await r.close();
 });
 
-test('Xoft AI tools: engine_run_task is EXTERNAL risk (needs approval at default autonomy), cannot pass custom permission objects, status/cancel/list work', async () => {
-  const r = await rig(); const wd = tmp();
+test('Xoft AI tools: engine_run_task is EXTERNAL risk (needs approval at default autonomy), cannot pass custom permission objects, status/cancel/list work', { timeout: 30000 }, async (t) => {
+  const r = await rig(); t.after(() => r.close()); const wd = tmp();
   r.core.run = async () => ({ status: 'completed', output: 'core ok' });
   const tools = Object.fromEntries(buildEngineTools({ getManager: () => r.manager, getRegistry: () => r.registry }).map((t) => [t.name, t]));
   assert.equal(tools.engine_run_task.riskLevel, 2); assert.equal(tools.engine_task_status.riskLevel, 0); assert.ok(tools.engine_run_task.inputSchema.properties.permissionProfile.enum);
